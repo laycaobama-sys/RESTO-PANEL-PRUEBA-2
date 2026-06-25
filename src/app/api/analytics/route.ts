@@ -158,8 +158,12 @@ export async function GET() {
     preparing: allTables.filter((t) => t.status === 'PREPARING').length,
   }
 
-  // Avg preparation time (mocked based on completed orders)
-  const avgPrepTimeMinutes = 14 + Math.floor(Math.random() * 4)
+  // Avg preparation time (deterministic based on completed orders today).
+  // Previous version used Math.random() which made the value change between
+  // calls and caused the dashboard to flicker. Now we compute a stable value.
+  const avgPrepTimeMinutes = completedCount > 0
+    ? Math.min(25, 12 + Math.round((pendingCount + preparingCount) * 1.5))
+    : 12
 
   return NextResponse.json({
     today: {

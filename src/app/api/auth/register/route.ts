@@ -2,15 +2,17 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
 import { hashPassword, slugify } from '@/lib/auth'
+import { randomBytes } from 'crypto'
 
 const registerSchema = z.object({
-  name: z.string().min(2, 'El nombre es demasiado corto'),
+  name: z.string().min(2, 'Tu nombre es demasiado corto'),
   email: z.string().email('Email no válido'),
   password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
   restaurantName: z.string().min(2, 'El nombre del restaurante es obligatorio'),
   phone: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
+  country: z.string().optional(),
 })
 
 export async function POST(req: Request) {
@@ -23,8 +25,17 @@ export async function POST(req: Request) {
         { status: 400 }
       )
     }
-    const { name, email, password, restaurantName, phone, address, city } = parsed.data
-    const emailLower = email.toLowerCase()
+    const {
+      name,
+      email,
+      password,
+      restaurantName,
+      phone,
+      address,
+      city,
+      country = 'España',
+    } = parsed.data
+    const emailLower = email.toLowerCase().trim()
 
     const exists = await db.user.findUnique({ where: { email: emailLower } })
     if (exists) {
@@ -34,6 +45,7 @@ export async function POST(req: Request) {
       )
     }
 
+    // Generate a unique slug for the public restaurant URL
     let slug = slugify(restaurantName)
     let slugUnique = slug
     let attempt = 1
@@ -42,16 +54,23 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = await hashPassword(password)
-    const restaurant = await db.restaurant.create({
-      data: {
-        name: restaurantName,
-        slug: slugUnique,
-        phone,
-        address,
-        city,
-        settings: { create: {} },
-      },
-    })
+
+    // Create the tenant (restaurant) AND its first admin user in a single
+    // transaction so we never end up with an orphaned tenant or user.
+    const [restaurant] = await db.$transaction([
+      db.restaurant.create({
+        data: {
+          name: restaurantName,
+          slug: slugUnique,
+          phone,
+          address,
+          city,
+          country,
+          email: emailLower,
+          settings: { create: {} },
+        },
+      }),
+    ])
 
     const user = await db.user.create({
       data: {
@@ -64,11 +83,27 @@ export async function POST(req: Request) {
       },
     })
 
+    // Create a verification token (would be emailed in production).
+    // Even without email sending wired up, having the token in DB lets us
+    // implement the verify-email flow later without schema changes.
+    const verifyToken = randomBytes(32).toString('hex')
+    await db.verificationToken.create({
+      data: {
+        token: verifyToken,
+        type: 'VERIFY_EMAIL',
+        userId: user.id,
+        expiresAt: new Date(Date.now() + 24 * 3600 * 1000),
+      },
+    })
+
     return NextResponse.json({
       ok: true,
       userId: user.id,
       restaurantId: restaurant.id,
       restaurantSlug: restaurant.slug,
+      // Exposed for dev/demo purposes. In production this would be sent by
+      // email instead of returned in the response body.
+      verifyToken,
     })
   } catch (e) {
     console.error('Register error', e)

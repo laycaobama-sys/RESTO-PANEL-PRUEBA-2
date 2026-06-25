@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { useState, useEffect } from "react";
 
 interface OrderItem {
   id: string;
@@ -68,7 +69,17 @@ export function KitchenSection() {
     },
   });
 
+  // DashboardShell is loaded with ssr:false, so this component is client-only.
+  // We can safely use new Date() in render. We still tick it every 30s so the
+  // "X min" badges stay fresh without a full refetch.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
   const now = new Date();
+  // referenced to silence "unused variable" warnings while keeping the re-render
+  void tick;
 
   return (
     <div>

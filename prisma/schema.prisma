@@ -20,6 +20,7 @@ model Restaurant {
   address         String?
   city            String?
   postalCode      String?
+  country         String         @default("España")
   logo            String?
   description     String?
   primaryColor    String         @default("#FF6B35")
@@ -29,6 +30,7 @@ model Restaurant {
   publicEnabled   Boolean        @default(true)
   posEnabled      Boolean        @default(true)
   reservationsEnabled Boolean     @default(true)
+  emailVerified   Boolean        @default(false)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -51,10 +53,27 @@ model User {
   name          String
   phone         String?
   role          String     @default("ADMIN") // ADMIN | STAFF
+  emailVerified Boolean    @default(false)
   restaurantId  String
   restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+}
+
+// ============================================================
+// PASSWORD RESET & EMAIL VERIFICATION TOKENS
+// ============================================================
+model VerificationToken {
+  id            String   @id @default(cuid())
+  token         String   @unique
+  type          String   // "RESET_PASSWORD" | "VERIFY_EMAIL"
+  userId        String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
 }
 
 // ============================================================
@@ -106,7 +125,10 @@ model Table {
   number        String
   name          String?
   capacity      Int          @default(4)
-  zone          String       @default("INTERIOR") // INTERIOR | TERRACE | BAR
+  zone          String       @default("INTERIOR") // INTERIOR | TERRACE | BAR | VIP
+  shape         String       @default("SQUARE")   // SQUARE | ROUND | RECTANGLE
+  posX          Int          @default(0)           // X position on floor plan (px)
+  posY          Int          @default(0)           // Y position on floor plan (px)
   status        String       @default("AVAILABLE") // AVAILABLE | OCCUPIED | RESERVED | PREPARING
   restaurantId  String
   restaurant    Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
@@ -163,8 +185,10 @@ model Reservation {
   partySize     Int
   date          DateTime
   endTime       DateTime?
-  status        String     @default("PENDING") // PENDING | CONFIRMED | CANCELLED | SEATED | COMPLETED
-  zone          String?
+  status        String     @default("PENDING") // PENDING | CONFIRMED | CANCELLED | SEATED | COMPLETED | NO_SHOW
+  shift         String     @default("DINNER")   // LUNCH | DINNER
+  zone          String?    // INTERIOR | TERRACE | VIP | BAR
+  source        String     @default("PHONE")    // PHONE | ONLINE | WALK_IN
   notes         String?
   tableId       String?
   table         Table?     @relation(fields: [tableId], references: [id], onDelete: SetNull)
@@ -174,6 +198,8 @@ model Reservation {
   updatedAt     DateTime   @updatedAt
 
   @@index([restaurantId, date])
+  @@index([restaurantId, status])
+  @@index([restaurantId, shift])
 }
 
 // ============================================================

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api"; import { formatCurrency } from "@/lib/format";
 import { SectionHeader } from "@/components/shared/SectionHeader";
+import { useState } from "react";
 import {
   ExternalLink,
   Loader2,
@@ -13,7 +14,6 @@ import {
   Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -55,6 +55,12 @@ export function PublicMenuSection({ slug }: { slug: string }) {
     queryFn: () => api(`/api/public/${slug}`),
   });
   const [activeCat, setActiveCat] = useState<string>("");
+  // DashboardShell is loaded with ssr:false, so this component is client-only.
+  // We can safely read window.location.origin during render.
+  const origin =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : "https://tu-restaurante.es";
 
   if (isLoading) {
     return (
@@ -89,7 +95,9 @@ export function PublicMenuSection({ slug }: { slug: string }) {
           <Button
             variant="outline"
             onClick={() => {
-              navigator.clipboard.writeText(`${window.location.origin}${publicUrl}`);
+              if (typeof window !== "undefined") {
+                navigator.clipboard.writeText(`${window.location.origin}${publicUrl}`);
+              }
               toast.success("URL copiada al portapapeles");
             }}
           >
@@ -108,7 +116,7 @@ export function PublicMenuSection({ slug }: { slug: string }) {
           </div>
           <div className="flex-1 mx-4">
             <div className="bg-white border border-[#ececed] rounded-md px-3 py-1 text-xs text-neutral-500 font-mono truncate">
-              {typeof window !== "undefined" ? window.location.origin : "https://tu-restaurante.es"}
+              {origin}
               {publicUrl}
             </div>
           </div>

@@ -2,8 +2,30 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { hashPassword, slugify } from '@/lib/auth'
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
+    // Allow forcing a fresh seed via ?force=true or { force: true }
+    const url = new URL(req.url)
+    const force =
+      url.searchParams.get('force') === 'true' ||
+      (req.method === 'POST' && (await req.json().catch(() => ({}))).force === true)
+
+    if (force) {
+      // Wipe all tenant data. Order matters for FK constraints.
+      await db.$transaction([
+        db.verificationToken.deleteMany(),
+        db.orderItem.deleteMany(),
+        db.order.deleteMany(),
+        db.reservation.deleteMany(),
+        db.table.deleteMany(),
+        db.menuItem.deleteMany(),
+        db.category.deleteMany(),
+        db.restaurantSetting.deleteMany(),
+        db.user.deleteMany(),
+        db.restaurant.deleteMany(),
+      ])
+    }
+
     // Check if already seeded
     const existing = await db.restaurant.findUnique({ where: { slug: 'la-zamorana' } })
     if (existing) {
@@ -136,18 +158,27 @@ export async function POST() {
       item('Tocino de cielo', 'Postre tradicional de yema de huevo', 3.0, postres.id, '', 'huevo, lactosa'),
     ])
 
-    // Tables
-    const tablesData: Array<{ number: string; capacity: number; zone: string; name?: string; status: string }> = [
-      { number: '1', capacity: 2, zone: 'INTERIOR', name: 'Mesa 1', status: 'AVAILABLE' },
-      { number: '2', capacity: 4, zone: 'INTERIOR', name: 'Mesa 2', status: 'OCCUPIED' },
-      { number: '3', capacity: 4, zone: 'INTERIOR', name: 'Mesa 3', status: 'AVAILABLE' },
-      { number: '4', capacity: 6, zone: 'INTERIOR', name: 'Mesa 4', status: 'RESERVED' },
-      { number: '5', capacity: 2, zone: 'INTERIOR', name: 'Mesa 5', status: 'PREPARING' },
-      { number: '6', capacity: 4, zone: 'TERRACE', name: 'Terraza 1', status: 'OCCUPIED' },
-      { number: '7', capacity: 4, zone: 'TERRACE', name: 'Terraza 2', status: 'AVAILABLE' },
-      { number: '8', capacity: 6, zone: 'TERRACE', name: 'Terraza 3', status: 'AVAILABLE' },
-      { number: '9', capacity: 2, zone: 'BAR', name: 'Barra 1', status: 'AVAILABLE' },
-      { number: '10', capacity: 2, zone: 'BAR', name: 'Barra 2', status: 'OCCUPIED' },
+    // Tables - with floor-plan positions (posX, posY) and shape for the
+    // visual table map. The grid is roughly 800x500 per zone.
+    const tablesData: Array<{
+      number: string; capacity: number; zone: string; name?: string;
+      status: string; shape: string; posX: number; posY: number;
+    }> = [
+      // Interior (left half of the floor)
+      { number: '1', capacity: 2, zone: 'INTERIOR', name: 'Mesa 1',  status: 'AVAILABLE', shape: 'SQUARE',    posX: 60,  posY: 80 },
+      { number: '2', capacity: 4, zone: 'INTERIOR', name: 'Mesa 2',  status: 'OCCUPIED', shape: 'ROUND',     posX: 200, posY: 80 },
+      { number: '3', capacity: 4, zone: 'INTERIOR', name: 'Mesa 3',  status: 'AVAILABLE', shape: 'ROUND',     posX: 340, posY: 80 },
+      { number: '4', capacity: 6, zone: 'INTERIOR', name: 'Mesa 4',  status: 'RESERVED', shape: 'RECTANGLE', posX: 60,  posY: 200 },
+      { number: '5', capacity: 2, zone: 'INTERIOR', name: 'Mesa 5',  status: 'PREPARING', shape: 'SQUARE',   posX: 200, posY: 220 },
+      // VIP (small private area)
+      { number: 'V1', capacity: 8, zone: 'VIP', name: 'Sala Privada', status: 'AVAILABLE', shape: 'RECTANGLE', posX: 460, posY: 200 },
+      // Terrace (right half)
+      { number: '6', capacity: 4, zone: 'TERRACE', name: 'Terraza 1', status: 'OCCUPIED',  shape: 'ROUND', posX: 560, posY: 80 },
+      { number: '7', capacity: 4, zone: 'TERRACE', name: 'Terraza 2', status: 'AVAILABLE', shape: 'ROUND', posX: 700, posY: 80 },
+      { number: '8', capacity: 6, zone: 'TERRACE', name: 'Terraza 3', status: 'AVAILABLE', shape: 'RECTANGLE', posX: 560, posY: 220 },
+      // Bar
+      { number: '9',  capacity: 2, zone: 'BAR', name: 'Barra 1', status: 'AVAILABLE', shape: 'RECTANGLE', posX: 60,  posY: 360 },
+      { number: '10', capacity: 2, zone: 'BAR', name: 'Barra 2', status: 'OCCUPIED',  shape: 'RECTANGLE', posX: 200, posY: 360 },
     ]
     const tables = await Promise.all(
       tablesData.map((t) =>
@@ -158,6 +189,9 @@ export async function POST() {
             capacity: t.capacity,
             zone: t.zone,
             status: t.status as any,
+            shape: t.shape,
+            posX: t.posX,
+            posY: t.posY,
             restaurantId: restaurant.id,
           },
         })
@@ -170,21 +204,21 @@ export async function POST() {
     const randomItem = () => itemsList[Math.floor(Math.random() * itemsList.length)]
 
     const orderSpecs: Array<{ tableIdx: number; status: string; minutesAgo: number; itemCount: number; type?: string }> = [
-      { tableIdx: 1, status: 'PREPARING', minutesAgo: 12, itemCount: 3 },
-      { tableIdx: 5, status: 'PENDING', minutesAgo: 4, itemCount: 2 },
-      { tableIdx: 9, status: 'PENDING', minutesAgo: 2, itemCount: 1 },
-      { tableIdx: 5, status: 'SERVED', minutesAgo: 35, itemCount: 4 },
-      { tableIdx: 1, status: 'COMPLETED', minutesAgo: 95, itemCount: 2 },
-      { tableIdx: 3, status: 'COMPLETED', minutesAgo: 180, itemCount: 5 },
-      { tableIdx: 7, status: 'COMPLETED', minutesAgo: 145, itemCount: 3 },
-      { tableIdx: 9, status: 'COMPLETED', minutesAgo: 220, itemCount: 2 },
-      { tableIdx: 6, status: 'PREPARING', minutesAgo: 8, itemCount: 4 },
-      { tableIdx: 5, status: 'COMPLETED', minutesAgo: 70, itemCount: 2 },
-      { tableIdx: 7, status: 'COMPLETED', minutesAgo: 210, itemCount: 3 },
-      { tableIdx: 6, status: 'COMPLETED', minutesAgo: 165, itemCount: 3 },
-      { tableIdx: 3, status: 'CANCELLED', minutesAgo: 60, itemCount: 2 },
-      { tableIdx: 7, status: 'COMPLETED', minutesAgo: 250, itemCount: 4 },
-      { tableIdx: 1, status: 'COMPLETED', minutesAgo: 300, itemCount: 3 },
+      { tableIdx: 1, status: 'PREPARING', minutesAgo: 12, itemCount: 3 },  // Mesa 2
+      { tableIdx: 4, status: 'PENDING', minutesAgo: 4, itemCount: 2 },     // Mesa 5
+      { tableIdx: 9, status: 'PENDING', minutesAgo: 2, itemCount: 1 },     // Barra 2
+      { tableIdx: 4, status: 'SERVED', minutesAgo: 35, itemCount: 4 },     // Mesa 5
+      { tableIdx: 1, status: 'COMPLETED', minutesAgo: 95, itemCount: 2 },  // Mesa 2
+      { tableIdx: 2, status: 'COMPLETED', minutesAgo: 180, itemCount: 5 }, // Mesa 3
+      { tableIdx: 5, status: 'COMPLETED', minutesAgo: 145, itemCount: 3 }, // Sala VIP
+      { tableIdx: 9, status: 'COMPLETED', minutesAgo: 220, itemCount: 2 }, // Barra 2
+      { tableIdx: 6, status: 'PREPARING', minutesAgo: 8, itemCount: 4 },   // Terraza 1
+      { tableIdx: 4, status: 'COMPLETED', minutesAgo: 70, itemCount: 2 },  // Mesa 5
+      { tableIdx: 5, status: 'COMPLETED', minutesAgo: 210, itemCount: 3 }, // Sala VIP
+      { tableIdx: 6, status: 'COMPLETED', minutesAgo: 165, itemCount: 3 }, // Terraza 1
+      { tableIdx: 2, status: 'CANCELLED', minutesAgo: 60, itemCount: 2 },  // Mesa 3
+      { tableIdx: 5, status: 'COMPLETED', minutesAgo: 250, itemCount: 4 }, // Sala VIP
+      { tableIdx: 1, status: 'COMPLETED', minutesAgo: 300, itemCount: 3 }, // Mesa 2
     ]
 
     let orderNumber = 1000
@@ -214,12 +248,14 @@ export async function POST() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const resSpecs = [
-      { name: 'María García', phone: '+34 611 222 333', size: 4, hourOffset: 14, status: 'CONFIRMED', tableIdx: 3, zone: 'INTERIOR' },
-      { name: 'Pedro López', phone: '+34 622 333 444', size: 2, hourOffset: 13.5, status: 'CONFIRMED', tableIdx: 6, zone: 'TERRACE' },
-      { name: 'Ana Martín', phone: '+34 633 444 555', size: 6, hourOffset: 21, status: 'PENDING', tableIdx: null, zone: 'TERRACE' },
-      { name: 'Javier Ruiz', phone: '+34 644 555 666', size: 3, hourOffset: 20, status: 'CONFIRMED', tableIdx: 7, zone: 'TERRACE' },
-      { name: 'Lucía Sánchez', phone: '+34 655 666 777', size: 2, hourOffset: 15, status: 'CANCELLED', tableIdx: null, zone: 'INTERIOR' },
-      { name: 'Miguel Torres', phone: '+34 666 777 888', size: 4, hourOffset: 14, status: 'CONFIRMED', tableIdx: 2, zone: 'INTERIOR' },
+      { name: 'María García', phone: '+34 611 222 333', size: 4, hourOffset: 14, status: 'CONFIRMED', tableIdx: 3, zone: 'INTERIOR', shift: 'LUNCH' },  // Mesa 4
+      { name: 'Pedro López', phone: '+34 622 333 444', size: 2, hourOffset: 13.5, status: 'CONFIRMED', tableIdx: 6, zone: 'TERRACE', shift: 'LUNCH' },  // Terraza 1
+      { name: 'Ana Martín', phone: '+34 633 444 555', size: 6, hourOffset: 21, status: 'PENDING', tableIdx: 5, zone: 'VIP', shift: 'DINNER' },           // Sala VIP
+      { name: 'Javier Ruiz', phone: '+34 644 555 666', size: 3, hourOffset: 20, status: 'CONFIRMED', tableIdx: 7, zone: 'TERRACE', shift: 'DINNER' },  // Terraza 2
+      { name: 'Lucía Sánchez', phone: '+34 655 666 777', size: 2, hourOffset: 15, status: 'CANCELLED', tableIdx: null, zone: 'INTERIOR', shift: 'LUNCH' },
+      { name: 'Miguel Torres', phone: '+34 666 777 888', size: 4, hourOffset: 14, status: 'CONFIRMED', tableIdx: 2, zone: 'INTERIOR', shift: 'LUNCH' },  // Mesa 3
+      { name: 'Sofía Díaz', phone: '+34 677 888 999', size: 8, hourOffset: 21.5, status: 'CONFIRMED', tableIdx: 5, zone: 'VIP', shift: 'DINNER' },       // Sala VIP
+      { name: 'Carlos Romero', phone: '+34 688 999 000', size: 2, hourOffset: 22, status: 'PENDING', tableIdx: 9, zone: 'BAR', shift: 'DINNER' },       // Barra 2
     ]
     for (const r of resSpecs) {
       const date = new Date(today)
@@ -231,18 +267,81 @@ export async function POST() {
           partySize: r.size,
           date,
           status: r.status as any,
+          shift: r.shift as any,
           zone: r.zone,
+          source: 'PHONE',
           tableId: r.tableIdx !== null ? tables[r.tableIdx]?.id : null,
           restaurantId: restaurant.id,
         },
       })
     }
 
+    // ====================================================================
+    // SECOND TENANT: "Bistró del Puerto" - to prove data isolation.
+    // A demo user can log in as this restaurant and will see NONE of the
+    // data from La Zamorana.
+    // ====================================================================
+    const existing2 = await db.restaurant.findUnique({ where: { slug: 'bistro-del-puerto' } })
+    if (!existing2) {
+      const restaurant2 = await db.restaurant.create({
+        data: {
+          name: 'Bistró del Puerto',
+          slug: 'bistro-del-puerto',
+          phone: '+34 956 111 222',
+          email: 'hola@bistrodelpuerto.es',
+          address: 'Paseo Marítimo 5',
+          city: 'Cádiz',
+          country: 'España',
+          description: 'Cocina marinera y arroces frente al mar.',
+          primaryColor: '#0EA5E9',
+          currency: 'EUR',
+          settings: { create: {} },
+        },
+      })
+      await db.user.create({
+        data: {
+          name: 'Laura Marín',
+          email: 'demo@bistrodelpuerto.es',
+          passwordHash,
+          role: 'ADMIN',
+          restaurantId: restaurant2.id,
+          phone: '+34 600 999 888',
+        },
+      })
+      const cat = await db.category.create({
+        data: { name: 'Arroces', slug: 'arroces', sortOrder: 1, restaurantId: restaurant2.id, icon: '🍚' },
+      })
+      await db.menuItem.create({
+        data: {
+          name: 'Arroz con marisco',
+          description: 'Arroz meloso con marisco fresco del día',
+          price: 16.5,
+          categoryId: cat.id,
+          restaurantId: restaurant2.id,
+          allergens: 'pescado, moluscos',
+        },
+      })
+      await db.table.create({
+        data: {
+          number: '1',
+          capacity: 4,
+          zone: 'TERRACE',
+          shape: 'ROUND',
+          posX: 50,
+          posY: 50,
+          restaurantId: restaurant2.id,
+        },
+      })
+    }
+
     return NextResponse.json({
       ok: true,
-      message: 'La Zamorana seeded correctamente',
+      message: 'La Zamorana y Bistró del Puerto seeded correctamente',
       slug: restaurant.slug,
-      credentials: { email: 'demo@lazamorana.es', password: 'demo1234' },
+      credentials: [
+        { restaurant: 'La Zamorana', email: 'demo@lazamorana.es', password: 'demo1234' },
+        { restaurant: 'Bistró del Puerto', email: 'demo@bistrodelpuerto.es', password: 'demo1234' },
+      ],
     })
   } catch (e) {
     console.error('Seed error', e)
