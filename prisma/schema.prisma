@@ -1,0 +1,204 @@
+// Prisma schema - SaaS Restaurant Management (multi-tenant)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// TENANT: Restaurant
+// ============================================================
+model Restaurant {
+  id              String         @id @default(cuid())
+  name            String
+  slug            String         @unique
+  phone           String?
+  email           String?
+  address         String?
+  city            String?
+  postalCode      String?
+  logo            String?
+  description     String?
+  primaryColor    String         @default("#FF6B35")
+  currency        String         @default("EUR")
+  openingHours    String?
+  websiteUrl      String?
+  publicEnabled   Boolean        @default(true)
+  posEnabled      Boolean        @default(true)
+  reservationsEnabled Boolean     @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  users           User[]
+  categories      Category[]
+  menuItems       MenuItem[]
+  tables          Table[]
+  orders          Order[]
+  reservations    Reservation[]
+  settings        RestaurantSetting?
+}
+
+// ============================================================
+// AUTH: Users (with roles)
+// ============================================================
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  passwordHash  String
+  name          String
+  phone         String?
+  role          String     @default("ADMIN") // ADMIN | STAFF
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+// ============================================================
+// MENU: Categories
+// ============================================================
+model Category {
+  id            String     @id @default(cuid())
+  name          String
+  slug          String
+  icon          String?
+  sortOrder     Int        @default(0)
+  visible       Boolean    @default(true)
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItems     MenuItem[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([restaurantId, slug])
+}
+
+// ============================================================
+// MENU: Items (platos y bebidas)
+// ============================================================
+model MenuItem {
+  id            String     @id @default(cuid())
+  name          String
+  description   String?
+  price         Float
+  image         String?
+  available     Boolean    @default(true)
+  visible       Boolean    @default(true)
+  allergens     String?
+  sortOrder     Int        @default(0)
+  categoryId    String
+  category      Category   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orderItems    OrderItem[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+// ============================================================
+// DINING: Tables
+// ============================================================
+model Table {
+  id            String       @id @default(cuid())
+  number        String
+  name          String?
+  capacity      Int          @default(4)
+  zone          String       @default("INTERIOR") // INTERIOR | TERRACE | BAR
+  status        String       @default("AVAILABLE") // AVAILABLE | OCCUPIED | RESERVED | PREPARING
+  restaurantId  String
+  restaurant    Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orders        Order[]
+  reservations  Reservation[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([restaurantId, number])
+}
+
+// ============================================================
+// ORDERS
+// ============================================================
+model Order {
+  id            String       @id @default(cuid())
+  number        Int
+  status        String       @default("PENDING") // PENDING | PREPARING | SERVED | COMPLETED | CANCELLED
+  orderType     String       @default("DINE_IN") // DINE_IN | TAKEAWAY | DELIVERY
+  total         Float        @default(0)
+  notes         String?
+  tableId       String?
+  table         Table?       @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  restaurantId  String
+  restaurant    Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orderItems    OrderItem[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([restaurantId, status])
+  @@index([restaurantId, createdAt])
+}
+
+model OrderItem {
+  id            String     @id @default(cuid())
+  orderId       String
+  order         Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId    String
+  menuItem      MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  quantity      Int        @default(1)
+  unitPrice     Float
+  notes         String?
+  createdAt     DateTime   @default(now())
+}
+
+// ============================================================
+// RESERVATIONS
+// ============================================================
+model Reservation {
+  id            String     @id @default(cuid())
+  customerName  String
+  phone         String
+  email         String?
+  partySize     Int
+  date          DateTime
+  endTime       DateTime?
+  status        String     @default("PENDING") // PENDING | CONFIRMED | CANCELLED | SEATED | COMPLETED
+  zone          String?
+  notes         String?
+  tableId       String?
+  table         Table?     @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([restaurantId, date])
+}
+
+// ============================================================
+// RESTAURANT SETTINGS (single row per restaurant)
+// ============================================================
+model RestaurantSetting {
+  id            String     @id @default(cuid())
+  restaurantId  String     @unique
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  monOpen       String     @default("09:00")
+  monClose      String     @default("23:00")
+  tueOpen       String     @default("09:00")
+  tueClose      String     @default("23:00")
+  wedOpen       String     @default("09:00")
+  wedClose      String     @default("23:00")
+  thuOpen       String     @default("09:00")
+  thuClose      String     @default("23:00")
+  friOpen       String     @default("09:00")
+  friClose      String     @default("23:30")
+  satOpen       String     @default("10:00")
+  satClose      String     @default("23:30")
+  sunOpen       String     @default("10:00")
+  sunClose      String     @default("23:00")
+  taxRate       Float      @default(10)
+  serviceCharge Float      @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
