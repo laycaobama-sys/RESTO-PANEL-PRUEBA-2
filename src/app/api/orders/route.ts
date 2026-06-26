@@ -11,20 +11,41 @@ export async function GET(req: Request) {
   const tableId = url.searchParams.get('tableId')
   const limit = Number(url.searchParams.get('limit') || '100')
 
-  const orders = await db.order.findMany({
-    where: {
-      restaurantId: user.restaurantId,
-      ...(status && status !== 'ALL' ? { status } : {}),
-      ...(tableId ? { tableId } : {}),
-    },
-    orderBy: { createdAt: 'desc' },
-    take: limit,
-    include: {
-      table: true,
-      orderItems: { include: { menuItem: true } },
-    },
+  // Multi-tenant: organizationId is always enforced by db.orders.list.
+  const orders = await db.order.list(user.organizationId, {
+    status: status || undefined,
+    tableId: tableId || undefined,
+    limit,
   })
-  return NextResponse.json(orders)
+
+  // Fetch order items + tables in parallel for each order.
+  const enriched = await Promise.all(
+    orders.map(async (o) => {
+      const [items, table] = await Promise.all([
+        db.order.listItems(o.id, user.organizationId),
+        o.table_id
+          ? db.table.findFirst(user.organizationId, { id: o.table_id })
+          : Promise.resolve(null),
+      ])
+      const menuItemIds = items.map((i) => i.menu_item_id)
+      const menuItems = await db.menuItem.findManyByIds(menuItemIds, user.organizationId)
+      const itemMap = new Map(menuItems.map((m) => [m.id, m]))
+      return {
+        ...o,
+        orderType: o.order_type,
+        tableId: o.table_id,
+        organizationId: o.organization_id,
+        createdAt: o.created_at,
+        updatedAt: o.updated_at,
+        table,
+        orderItems: items.map((i) => ({
+          ...i,
+          menuItem: itemMap.get(i.menu_item_id) || null,
+        })),
+      }
+    })
+  )
+  return NextResponse.json(enriched)
 }
 
 export async function POST(req: Request) {
@@ -43,58 +64,48 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Añade al menos un plato' }, { status: 400 })
   }
 
-  // Validate menu items belong to restaurant
+  // Validate menu items belong to tenant
   const menuItemIds = items.map((i) => i.menuItemId)
-  const menuItems = await db.menuItem.findMany({
-    where: { id: { in: menuItemIds }, restaurantId: user.restaurantId },
-  })
+  const menuItems = await db.menuItem.findManyByIds(menuItemIds, user.organizationId)
   if (menuItems.length !== menuItemIds.length) {
     return NextResponse.json({ error: 'Plato no válido' }, { status: 400 })
   }
-
-  const priceMap = new Map(menuItems.map((m) => [m.id, m.price]))
+  const priceMap = new Map(menuItems.map((m) => [m.id, Number(m.price)]))
   let total = 0
-  for (const item of items) {
-    total += (priceMap.get(item.menuItemId) || 0) * (item.quantity || 1)
-  }
+  for (const item of items) total += (priceMap.get(item.menuItemId) || 0) * (item.quantity || 1)
 
   // Generate sequential order number
-  const lastOrder = await db.order.findFirst({
-    where: { restaurantId: user.restaurantId },
-    orderBy: { number: 'desc' },
-  })
+  const lastOrder = await db.order.findFirst(user.organizationId, {})
   const number = (lastOrder?.number || 1000) + 1
 
-  const order = await db.order.create({
-    data: {
+  // If tableId provided, validate tenancy
+  let tableObj = null
+  if (tableId) {
+    tableObj = await db.table.findFirst(user.organizationId, { id: tableId })
+    if (!tableObj) return NextResponse.json({ error: 'Mesa no válida' }, { status: 400 })
+  }
+
+  const order = await db.order.create(
+    {
       number,
       status: 'PENDING',
-      orderType: orderType || 'DINE_IN',
+      order_type: orderType || 'DINE_IN',
       total,
       notes: notes || null,
-      tableId: tableId || null,
-      restaurantId: user.restaurantId,
-      orderItems: {
-        create: items.map((i) => ({
-          menuItemId: i.menuItemId,
-          quantity: i.quantity || 1,
-          unitPrice: priceMap.get(i.menuItemId) || 0,
-          notes: i.notes || null,
-        })),
-      },
+      table_id: tableId || null,
+      organization_id: user.organizationId,
     },
-    include: {
-      table: true,
-      orderItems: { include: { menuItem: true } },
-    },
-  })
+    items.map((i) => ({
+      menu_item_id: i.menuItemId,
+      quantity: i.quantity || 1,
+      unit_price: priceMap.get(i.menuItemId) || 0,
+      notes: i.notes || null,
+    }))
+  )
 
-  // If tableId provided, mark table as occupied/preparing
-  if (tableId) {
-    await db.table.update({
-      where: { id: tableId },
-      data: { status: 'OCCUPIED' },
-    })
+  // Mark table as occupied
+  if (tableObj) {
+    await db.table.update(tableObj.id, user.organizationId, { status: 'OCCUPIED' })
   }
 
   return NextResponse.json(order, { status: 201 })

@@ -8,23 +8,37 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const status = url.searchParams.get('status')
+  const shift = url.searchParams.get('shift')
+  const zone = url.searchParams.get('zone')
   const date = url.searchParams.get('date')
 
-  const where: any = { restaurantId: user.restaurantId }
-  if (status && status !== 'ALL') where.status = status
-  if (date) {
-    const d = new Date(date)
-    const next = new Date(d)
-    next.setDate(d.getDate() + 1)
-    where.date = { gte: d, lt: next }
-  }
-
-  const reservations = await db.reservation.findMany({
-    where,
-    orderBy: { date: 'asc' },
-    include: { table: true },
+  const reservations = await db.reservation.list(user.organizationId, {
+    status: status || undefined,
+    shift: shift || undefined,
+    zone: zone || undefined,
+    date: date || undefined,
   })
-  return NextResponse.json(reservations)
+
+  // Enrich with table info
+  const tableIds = Array.from(new Set(reservations.map((r) => r.table_id).filter(Boolean) as string[]))
+  const tables = tableIds.length > 0
+    ? await Promise.all(tableIds.map((id) => db.table.findFirst(user.organizationId, { id })))
+    : []
+  const tableMap = new Map(tables.filter(Boolean).map((t) => [t!.id, t]))
+
+  return NextResponse.json(
+    reservations.map((r) => ({
+      ...r,
+      customerName: r.customer_name,
+      partySize: r.party_size,
+      endTime: r.end_time,
+      tableId: r.table_id,
+      organizationId: r.organization_id,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      table: r.table_id ? tableMap.get(r.table_id) : null,
+    }))
+  )
 }
 
 export async function POST(req: Request) {
@@ -32,26 +46,50 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await req.json()
-  const { customerName, phone, email, partySize, date, zone, notes, tableId, status } = body
+  const {
+    customerName, phone, email, partySize, date, zone, notes, tableId, status, shift, source,
+  } = body
 
   if (!customerName || !phone || !date || !partySize) {
     return NextResponse.json({ error: 'Faltan datos obligatorios' }, { status: 400 })
   }
 
+  // Validate table tenancy if provided
+  if (tableId) {
+    const table = await db.table.findFirst(user.organizationId, { id: tableId })
+    if (!table) {
+      return NextResponse.json(
+        { error: 'La mesa seleccionada no pertenece a tu restaurante' },
+        { status: 403 }
+      )
+    }
+  }
+
   const reservation = await db.reservation.create({
-    data: {
-      customerName,
-      phone,
-      email: email || null,
-      partySize: Number(partySize),
-      date: new Date(date),
-      status: status || 'PENDING',
-      zone: zone || null,
-      notes: notes || null,
-      tableId: tableId || null,
-      restaurantId: user.restaurantId,
-    },
-    include: { table: true },
+    customer_name: customerName,
+    phone,
+    email: email || null,
+    party_size: Number(partySize),
+    date: new Date(date).toISOString(),
+    status: status || 'PENDING',
+    shift: shift || 'DINNER',
+    zone: zone || null,
+    source: source || 'PHONE',
+    notes: notes || null,
+    table_id: tableId || null,
+    organization_id: user.organizationId,
   })
-  return NextResponse.json(reservation, { status: 201 })
+
+  const table = tableId ? await db.table.findFirst(user.organizationId, { id: tableId }) : null
+  return NextResponse.json({
+    ...reservation,
+    customerName: reservation.customer_name,
+    partySize: reservation.party_size,
+    endTime: reservation.end_time,
+    tableId: reservation.table_id,
+    organizationId: reservation.organization_id,
+    createdAt: reservation.created_at,
+    updatedAt: reservation.updated_at,
+    table,
+  }, { status: 201 })
 }

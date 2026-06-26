@@ -8,7 +8,6 @@ const schema = z.object({
   password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
 })
 
-// POST /api/auth/reset-password { token, password }
 export async function POST(req: Request) {
   try {
     const body = await req.json()
@@ -20,32 +19,18 @@ export async function POST(req: Request) {
       )
     }
     const { token, password } = parsed.data
-
-    const record = await db.verificationToken.findUnique({ where: { token } })
-    if (!record || record.type !== 'RESET_PASSWORD' || record.usedAt) {
-      return NextResponse.json(
-        { error: 'Token inválido o ya utilizado' },
-        { status: 400 }
-      )
+    const record = await db.verificationToken.findByToken(token)
+    if (!record || record.type !== 'RESET_PASSWORD' || record.used_at) {
+      return NextResponse.json({ error: 'Token inválido o ya utilizado' }, { status: 400 })
     }
-    if (record.expiresAt < new Date()) {
-      return NextResponse.json(
-        { error: 'El enlace ha caducado. Solicita uno nuevo.' },
-        { status: 400 }
-      )
+    if (new Date(record.expires_at) < new Date()) {
+      return NextResponse.json({ error: 'El enlace ha caducado. Solicita uno nuevo.' }, { status: 400 })
     }
 
     const passwordHash = await hashPassword(password)
-    await db.$transaction([
-      db.user.update({
-        where: { id: record.userId },
-        data: { passwordHash },
-      }),
-      db.verificationToken.update({
-        where: { id: record.id },
-        data: { usedAt: new Date() },
-      }),
-    ])
+    const { supabaseAdmin } = await import('@/lib/supabase/admin')
+    await supabaseAdmin.from('users').update({ password_hash: passwordHash }).eq('id', record.user_id)
+    await db.verificationToken.markUsed(record.id)
 
     return NextResponse.json({ ok: true, message: 'Contraseña actualizada correctamente' })
   } catch (e) {

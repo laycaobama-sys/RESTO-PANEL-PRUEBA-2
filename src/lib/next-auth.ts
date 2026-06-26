@@ -3,10 +3,7 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import { db } from '@/lib/db'
 import { verifyPassword } from '@/lib/auth'
 
-// Ensure a stable secret is always available. In production this MUST come
-// from the environment. If missing, we fail loudly rather than silently
-// signing JWTs with a random value (which would break sessions and trigger
-// CLIENT_FETCH_ERROR on the browser).
+// Stable secret — required for production. Fail loudly if missing.
 const NEXTAUTH_SECRET =
   process.env.NEXTAUTH_SECRET ||
   (process.env.NODE_ENV === 'production'
@@ -22,10 +19,6 @@ if (!NEXTAUTH_SECRET) {
 export const authOptions: NextAuthOptions = {
   session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 }, // 30 days
   secret: NEXTAUTH_SECRET,
-  // trustHost lets NextAuth derive the URL from the Host header. This is the
-  // recommended approach for Vercel, Docker, and any reverse-proxy setup.
-  // We still fall back to NEXTAUTH_URL if present.
-  ...(process.env.NEXTAUTH_URL ? { url: process.env.NEXTAUTH_URL } : {}),
   trustHost: true,
   pages: { signIn: '/' },
   providers: [
@@ -37,21 +30,25 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
-        const user = await db.user.findUnique({
-          where: { email: credentials.email.toLowerCase().trim() },
-          include: { restaurant: true },
-        })
+        // Look up the user in Supabase (server-side, service_role).
+        const user = await db.user.findByEmail(credentials.email.toLowerCase().trim())
         if (!user) return null
-        const ok = await verifyPassword(credentials.password, user.passwordHash)
+        const ok = await verifyPassword(credentials.password, user.password_hash)
         if (!ok) return null
+        // Fetch the organization so we can put it in the JWT.
+        const org = await db.organization.findById(user.organization_id)
+        if (!org) return null
         return {
           id: user.id,
           email: user.email,
           name: user.name,
-          role: user.role,
-          restaurantId: user.restaurantId,
-          restaurantName: user.restaurant.name,
-          restaurantSlug: user.restaurant.slug,
+          role: user.role as 'ADMIN' | 'STAFF',
+          restaurantId: org.id,           // alias for backward compat
+          restaurantName: org.name,
+          restaurantSlug: org.slug,
+          organizationId: org.id,
+          organizationName: org.name,
+          organizationSlug: org.slug,
         } as any
       },
     }),
@@ -59,21 +56,30 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = (user as any).id
-        token.role = (user as any).role
-        token.restaurantId = (user as any).restaurantId
-        token.restaurantName = (user as any).restaurantName
-        token.restaurantSlug = (user as any).restaurantSlug
+        const u = user as any
+        token.id = u.id
+        token.role = u.role
+        // Keep both naming conventions so old code doesn't break.
+        token.restaurantId = u.restaurantId
+        token.restaurantName = u.restaurantName
+        token.restaurantSlug = u.restaurantSlug
+        token.organizationId = u.organizationId
+        token.organizationName = u.organizationName
+        token.organizationSlug = u.organizationSlug
       }
       return token
     },
     async session({ session, token }) {
       if (session.user) {
-        ;(session.user as any).id = token.id
-        ;(session.user as any).role = token.role
-        ;(session.user as any).restaurantId = token.restaurantId
-        ;(session.user as any).restaurantName = token.restaurantName
-        ;(session.user as any).restaurantSlug = token.restaurantSlug
+        const u = session.user as any
+        u.id = token.id
+        u.role = token.role
+        u.restaurantId = token.restaurantId
+        u.restaurantName = token.restaurantName
+        u.restaurantSlug = token.restaurantSlug
+        u.organizationId = token.organizationId
+        u.organizationName = token.organizationName
+        u.organizationSlug = token.organizationSlug
       }
       return session
     },
@@ -89,5 +95,8 @@ export type AppSession = {
     restaurantId: string
     restaurantName: string
     restaurantSlug: string
+    organizationId: string
+    organizationName: string
+    organizationSlug: string
   }
 }

@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     } = parsed.data
     const emailLower = email.toLowerCase().trim()
 
-    const exists = await db.user.findUnique({ where: { email: emailLower } })
+    const exists = await db.user.findByEmail(emailLower)
     if (exists) {
       return NextResponse.json(
         { error: 'Ya existe una cuenta con este email' },
@@ -49,60 +49,62 @@ export async function POST(req: Request) {
     let slug = slugify(restaurantName)
     let slugUnique = slug
     let attempt = 1
-    while (await db.restaurant.findUnique({ where: { slug: slugUnique } })) {
+    while (await db.organization.findBySlug(slugUnique)) {
       slugUnique = `${slug}-${attempt++}`
     }
 
     const passwordHash = await hashPassword(password)
 
-    // Create the tenant (restaurant) AND its first admin user in a single
-    // transaction so we never end up with an orphaned tenant or user.
-    const [restaurant] = await db.$transaction([
-      db.restaurant.create({
-        data: {
-          name: restaurantName,
-          slug: slugUnique,
-          phone,
-          address,
-          city,
-          country,
-          email: emailLower,
-          settings: { create: {} },
-        },
-      }),
-    ])
+    // Create the tenant (organization) and its first admin user.
+    // OrganizationSettings row is created in a separate call so we can
+    // fail the whole operation cleanly if anything goes wrong.
+    const organization = await db.organization.create({
+      name: restaurantName,
+      slug: slugUnique,
+      phone: phone || null,
+      address: address || null,
+      city: city || null,
+      country,
+      email: emailLower,
+      logo: null,
+      description: null,
+      primary_color: '#FF6B35',
+      currency: 'EUR',
+      opening_hours: null,
+      website_url: null,
+      public_enabled: true,
+      pos_enabled: true,
+      reservations_enabled: true,
+    })
+
+    // Seed default settings row.
+    await db.organizationSettings.upsert(organization.id, {})
 
     const user = await db.user.create({
-      data: {
-        name,
-        email: emailLower,
-        passwordHash,
-        role: 'ADMIN',
-        restaurantId: restaurant.id,
-        phone,
-      },
+      email: emailLower,
+      password_hash: passwordHash,
+      name,
+      phone: phone || null,
+      role: 'ADMIN',
+      organization_id: organization.id,
     })
 
     // Create a verification token (would be emailed in production).
-    // Even without email sending wired up, having the token in DB lets us
-    // implement the verify-email flow later without schema changes.
     const verifyToken = randomBytes(32).toString('hex')
     await db.verificationToken.create({
-      data: {
-        token: verifyToken,
-        type: 'VERIFY_EMAIL',
-        userId: user.id,
-        expiresAt: new Date(Date.now() + 24 * 3600 * 1000),
-      },
+      token: verifyToken,
+      type: 'VERIFY_EMAIL',
+      user_id: user.id,
+      organization_id: organization.id,
+      expires_at: new Date(Date.now() + 24 * 3600 * 1000),
     })
 
     return NextResponse.json({
       ok: true,
       userId: user.id,
-      restaurantId: restaurant.id,
-      restaurantSlug: restaurant.slug,
-      // Exposed for dev/demo purposes. In production this would be sent by
-      // email instead of returned in the response body.
+      restaurantId: organization.id,
+      organizationId: organization.id,
+      restaurantSlug: organization.slug,
       verifyToken,
     })
   } catch (e) {

@@ -17,20 +17,35 @@ import {
   ChefHat,
   Clock,
   TrendingUp,
+  Globe,
+  ArrowLeft,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api } from "@/lib/api";
+
+type View = "auth" | "forgot" | "reset";
 
 export function AuthScreen() {
   const router = useRouter();
-  const [loading, setLoading] = useState<null | "login" | "register">(null);
+  const [loading, setLoading] = useState<null | "login" | "register" | "forgot" | "reset">(null);
+  const [view, setView] = useState<View>("auth");
 
+  // Login form (pre-filled with demo creds for convenience)
   const [loginEmail, setLoginEmail] = useState("demo@lazamorana.es");
   const [loginPassword, setLoginPassword] = useState("demo1234");
 
+  // Register form
   const [reg, setReg] = useState({
     name: "",
     email: "",
@@ -39,14 +54,20 @@ export function AuthScreen() {
     phone: "",
     address: "",
     city: "",
+    country: "España",
   });
+
+  // Forgot / reset password
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
 
   async function onLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading("login");
     try {
       const res = await signIn("credentials", {
-        email: loginEmail.toLowerCase(),
+        email: loginEmail.toLowerCase().trim(),
         password: loginPassword,
         redirect: false,
       });
@@ -56,7 +77,9 @@ export function AuthScreen() {
         return;
       }
       toast.success("¡Bienvenido de nuevo!");
-      router.refresh();
+      // Hard refresh so the server component re-runs getServerSession
+      // and the AppRouter swaps to the dashboard immediately.
+      window.location.reload();
     } catch {
       toast.error("Error al iniciar sesión");
       setLoading(null);
@@ -76,15 +99,25 @@ export function AuthScreen() {
         body: JSON.stringify(reg),
       });
       const res = await signIn("credentials", {
-        email: reg.email.toLowerCase(),
+        email: reg.email.toLowerCase().trim(),
         password: reg.password,
         redirect: false,
       });
       if (!res || res.error) {
-        toast.success("Cuenta creada. Inicia sesión para continuar.");
+        toast.success("Cuenta creada. Inicia sesión con tus credenciales.");
+        setReg({
+          name: "",
+          email: reg.email,
+          password: "",
+          restaurantName: "",
+          phone: "",
+          address: "",
+          city: "",
+          country: "España",
+        });
       } else {
         toast.success("¡Cuenta creada! Bienvenido a RestoPanel");
-        router.refresh();
+        window.location.reload();
       }
     } catch (err: any) {
       toast.error(err.message || "Error al crear la cuenta");
@@ -93,6 +126,162 @@ export function AuthScreen() {
     }
   }
 
+  async function onForgot(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading("forgot");
+    try {
+      const res = await api<{ resetToken?: string; message: string }>(
+        "/api/auth/forgot-password",
+        {
+          method: "POST",
+          body: JSON.stringify({ email: forgotEmail }),
+        }
+      );
+      if (res.resetToken) {
+        // Dev/demo: auto-fill the token so the user can reset immediately.
+        setResetToken(res.resetToken);
+        toast.info("Te hemos enviado un enlace de recuperación (modo demo).");
+        setView("reset");
+      } else {
+        toast.success("Si el email existe, recibirás un enlace de recuperación.");
+        setView("auth");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Error al solicitar el reseteo");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function onReset(e: React.FormEvent) {
+    e.preventDefault();
+    if (resetPassword.length < 6) {
+      toast.error("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+    setLoading("reset");
+    try {
+      await api("/api/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ token: resetToken, password: resetPassword }),
+      });
+      toast.success("Contraseña actualizada. Ya puedes iniciar sesión.");
+      setView("auth");
+      setLoginEmail(forgotEmail);
+      setResetToken("");
+      setResetPassword("");
+    } catch (err: any) {
+      toast.error(err.message || "Error al actualizar la contraseña");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  // ============================================================
+  // FORGOT PASSWORD VIEW
+  // ============================================================
+  if (view === "forgot") {
+    return (
+      <AuthLayout>
+        <form onSubmit={onForgot} className="space-y-4">
+          <button
+            type="button"
+            onClick={() => setView("auth")}
+            className="flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900 mb-2"
+          >
+            <ArrowLeft className="w-4 h-4" /> Volver a iniciar sesión
+          </button>
+          <div className="space-y-1.5">
+            <h2 className="text-2xl font-semibold text-neutral-900 tracking-tight">
+              Recuperar contraseña
+            </h2>
+            <p className="text-sm text-neutral-500">
+              Introduce tu email y te enviaremos un enlace para restablecerla.
+            </p>
+          </div>
+          <Field
+            icon={<Mail className="w-4 h-4 text-neutral-400" />}
+            label="Email"
+            type="email"
+            value={forgotEmail}
+            onChange={(e) => setForgotEmail(e.target.value)}
+            placeholder="tu@restaurante.com"
+            required
+          />
+          <Button
+            type="submit"
+            className="w-full bg-[#FF6B35] hover:bg-[#F94B1E] text-white h-11 font-medium"
+            disabled={loading === "forgot"}
+          >
+            {loading === "forgot" ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>Enviar enlace de recuperación</>
+            )}
+          </Button>
+        </form>
+      </AuthLayout>
+    );
+  }
+
+  // ============================================================
+  // RESET PASSWORD VIEW
+  // ============================================================
+  if (view === "reset") {
+    return (
+      <AuthLayout>
+        <form onSubmit={onReset} className="space-y-4">
+          <button
+            type="button"
+            onClick={() => setView("auth")}
+            className="flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900 mb-2"
+          >
+            <ArrowLeft className="w-4 h-4" /> Volver a iniciar sesión
+          </button>
+          <div className="space-y-1.5">
+            <h2 className="text-2xl font-semibold text-neutral-900 tracking-tight">
+              Nueva contraseña
+            </h2>
+            <p className="text-sm text-neutral-500">
+              Introduce tu nueva contraseña (mínimo 6 caracteres).
+            </p>
+          </div>
+          <Field
+            icon={<Lock className="w-4 h-4 text-neutral-400" />}
+            label="Token de recuperación"
+            value={resetToken}
+            onChange={(e) => setResetToken(e.target.value)}
+            placeholder="Enlace enviado por email"
+            required
+          />
+          <Field
+            icon={<Lock className="w-4 h-4 text-neutral-400" />}
+            label="Nueva contraseña"
+            type="password"
+            value={resetPassword}
+            onChange={(e) => setResetPassword(e.target.value)}
+            placeholder="••••••••"
+            required
+          />
+          <Button
+            type="submit"
+            className="w-full bg-[#FF6B35] hover:bg-[#F94B1E] text-white h-11 font-medium"
+            disabled={loading === "reset"}
+          >
+            {loading === "reset" ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>Actualizar contraseña</>
+            )}
+          </Button>
+        </form>
+      </AuthLayout>
+    );
+  }
+
+  // ============================================================
+  // DEFAULT AUTH VIEW (login + register tabs)
+  // ============================================================
   return (
     <div className="min-h-screen w-full grid lg:grid-cols-2 bg-white">
       {/* Left: hero / brand */}
@@ -118,7 +307,7 @@ export function AuthScreen() {
               <span className="text-white/90">controlado al detalle.</span>
             </h1>
             <p className="text-white/85 text-lg max-w-md leading-relaxed">
-              Gestiona carta, pedidos, mesas y analíticas desde un único panel.
+              Gestiona carta, pedidos, mesas y reservas desde un único panel.
               Los cambios se sincronizan al instante con tu web pública.
             </p>
           </div>
@@ -217,11 +406,10 @@ export function AuthScreen() {
                     </label>
                     <button
                       type="button"
-                      onClick={() =>
-                        toast.info(
-                          "Recuperación de contraseña disponible en producción"
-                        )
-                      }
+                      onClick={() => {
+                        setForgotEmail(loginEmail);
+                        setView("forgot");
+                      }}
                       className="text-[#FF6B35] hover:underline font-medium"
                     >
                       ¿Olvidaste tu contraseña?
@@ -243,16 +431,11 @@ export function AuthScreen() {
                   </Button>
 
                   <div className="rounded-lg bg-[#FFF3ED] border border-[#FFE0CB] p-3 text-xs text-neutral-700">
-                    <p className="font-semibold mb-0.5 text-[#9a3b18]">
-                      Cuenta demo
+                    <p className="font-semibold mb-1 text-[#9a3b18]">
+                      Cuentas demo
                     </p>
-                    <p>
-                      Email:{" "}
-                      <span className="font-mono">demo@lazamorana.es</span>
-                    </p>
-                    <p>
-                      Contraseña: <span className="font-mono">demo1234</span>
-                    </p>
+                    <p className="font-mono">demo@lazamorana.es · demo1234</p>
+                    <p className="font-mono">demo@bistrodelpuerto.es · demo1234</p>
                   </div>
                 </form>
               </TabsContent>
@@ -323,6 +506,30 @@ export function AuthScreen() {
                       placeholder="Salamanca"
                     />
                   </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium text-neutral-700">País</Label>
+                    <Select
+                      value={reg.country}
+                      onValueChange={(v) => setReg({ ...reg, country: v })}
+                    >
+                      <SelectTrigger className="h-10 bg-white border-[#ececed]">
+                        <span className="flex items-center gap-2">
+                          <Globe className="w-4 h-4 text-neutral-400" />
+                          <SelectValue />
+                        </span>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="España">España</SelectItem>
+                        <SelectItem value="México">México</SelectItem>
+                        <SelectItem value="Argentina">Argentina</SelectItem>
+                        <SelectItem value="Colombia">Colombia</SelectItem>
+                        <SelectItem value="Chile">Chile</SelectItem>
+                        <SelectItem value="Perú">Perú</SelectItem>
+                        <SelectItem value="Portugal">Portugal</SelectItem>
+                        <SelectItem value="Otro">Otro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button
                     type="submit"
                     className="w-full bg-[#FF6B35] hover:bg-[#F94B1E] text-white h-11 font-medium mt-2"
@@ -337,14 +544,38 @@ export function AuthScreen() {
                       </>
                     )}
                   </Button>
-                  <p className="text-xs text-neutral-400 text-center leading-relaxed">
-                    Al registrarte aceptas los términos de servicio y la política
-                    de privacidad de RestoPanel.
-                  </p>
+                  <div className="flex items-start gap-2 text-xs text-neutral-500 mt-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-green-500 mt-0.5 flex-shrink-0" />
+                    <p>
+                      Al registrarte aceptas los términos de servicio y la
+                      política de privacidad. Tus datos quedan aislados de
+                      otros restaurantes.
+                    </p>
+                  </div>
                 </form>
               </TabsContent>
             </Tabs>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuthLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#f6f6f7] p-6">
+      <div className="w-full max-w-md">
+        <div className="flex items-center gap-2.5 mb-8 justify-center">
+          <div className="w-10 h-10 rounded-xl bg-[#FF6B35] flex items-center justify-center text-white">
+            <UtensilsCrossed className="w-5 h-5" />
+          </div>
+          <span className="text-xl font-semibold tracking-tight text-neutral-900">
+            RestoPanel
+          </span>
+        </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-[#ececed] p-6 sm:p-8">
+          {children}
         </div>
       </div>
     </div>

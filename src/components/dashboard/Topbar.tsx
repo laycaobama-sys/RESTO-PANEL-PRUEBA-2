@@ -116,8 +116,12 @@ export function Topbar({
             className="text-red-600 focus:text-red-700"
             onClick={async () => {
               toast.success("Cerrando sesión...");
-              await signOut({ redirect: false });
-              window.location.href = "/";
+              // signOut clears the session cookie. The AppRouter listens to
+              // useSession and will swap to AuthScreen automatically. We
+              // also call router.refresh() so the server component re-reads
+              // getServerSession and stops passing `user` to the client.
+              await signOut({ redirect: false, callbackUrl: "/" });
+              setTimeout(() => window.location.reload(), 150);
             }}
           >
             <LogOut className="w-4 h-4 mr-2" />

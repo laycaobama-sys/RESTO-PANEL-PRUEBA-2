@@ -23,6 +23,7 @@ const RESERVATION_STATUS: Record<string, { label: string; cls: string }> = {
   CANCELLED: { label: "Cancelada", cls: "status-cancelled" },
   SEATED: { label: "Sentados", cls: "status-preparing" },
   COMPLETED: { label: "Completada", cls: "status-served" },
+  NO_SHOW: { label: "No show", cls: "status-cancelled" },
 };
 
 export function OrderStatusBadge({ status }: { status: string }) {
@@ -77,4 +78,17 @@ export const ZONE_LABEL: Record<string, string> = {
   INTERIOR: "Interior",
   TERRACE: "Terraza",
   BAR: "Barra",
+  VIP: "VIP",
+};
+
+export const ZONE_COLOR: Record<string, string> = {
+  INTERIOR: "bg-indigo-50 text-indigo-700 border-indigo-100",
+  TERRACE: "bg-green-50 text-green-700 border-green-100",
+  BAR: "bg-amber-50 text-amber-700 border-amber-100",
+  VIP: "bg-purple-50 text-purple-700 border-purple-100",
+};
+
+export const SHIFT_LABEL: Record<string, string> = {
+  LUNCH: "Comida",
+  DINNER: "Cena",
 };

@@ -16,6 +16,7 @@ import {
   ExternalLink,
   X,
   HelpCircle,
+  Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -174,6 +175,13 @@ export function Sidebar({
             >
               <HelpCircle className="w-4.5 h-4.5" />
               <span>Abrir API pública</span>
+            </a>
+            <a
+              href="/landing"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900"
+            >
+              <Globe className="w-4.5 h-4.5" />
+              <span>Ver landing pública</span>
             </a>
           </div>
         </nav>

@@ -11,6 +11,9 @@ declare module 'next-auth' {
       restaurantId: string
       restaurantName: string
       restaurantSlug: string
+      organizationId: string
+      organizationName: string
+      organizationSlug: string
     }
   }
   interface User {
@@ -21,6 +24,9 @@ declare module 'next-auth' {
     restaurantId: string
     restaurantName: string
     restaurantSlug: string
+    organizationId: string
+    organizationName: string
+    organizationSlug: string
   }
 }
 
@@ -31,5 +37,8 @@ declare module 'next-auth/jwt' {
     restaurantId: string
     restaurantName: string
     restaurantSlug: string
+    organizationId: string
+    organizationName: string
+    organizationSlug: string
   }
 }

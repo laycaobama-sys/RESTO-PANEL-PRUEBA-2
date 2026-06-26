@@ -1,190 +1,116 @@
-# RestoPanel · SaaS de Gestión de Restaurantes
+# RestoPanel · Guía de despliegue con Supabase
 
-Panel de control multi-restaurante (multi-tenant) donde cada dueño gestiona su carta, pedidos, mesas, cocina, reservas y analíticas. Los cambios en el panel se reflejan **al instante** en la web pública del restaurante (carta digital).
+SaaS multi-tenant de gestión de restaurantes. Cada empresa tiene su propia cuenta y sus datos están aislados en Supabase mediante Row Level Security (RLS).
 
-## Stack tecnológico
+## Stack
 
-- **Frontend**: Next.js 16 (App Router) + React 19 + TypeScript 5
-- **UI**: Tailwind CSS 4 + shadcn/ui + Lucide icons + Framer Motion
-- **State**: Zustand (UI) + TanStack Query (server state)
-- **Auth**: NextAuth.js v4 (JWT sessions, Credentials provider, bcrypt)
-- **DB**: Prisma ORM con SQLite (cambiable a PostgreSQL en producción)
-- **Charts**: Recharts
-- **Validation**: Zod
+- **Frontend**: Next.js 16 + React 19 + TypeScript + Tailwind + shadcn/ui
+- **Backend**: Next.js API Routes + NextAuth (JWT, 30 días de sesión)
+- **Base de datos**: Supabase (PostgreSQL) con RLS habilitado en todas las tablas
+- **Auth**: NextAuth con Credentials provider + bcrypt. La sesión incluye `organizationId`.
 
-## Arranque en desarrollo
+## Configuración local
+
+### 1. Crear proyecto en Supabase
+
+1. Ve a [supabase.com](https://supabase.com) y crea un proyecto nuevo.
+2. Anota la URL del proyecto y las dos API keys (anon y service_role).
+
+### 2. Ejecutar la migración SQL
+
+Abre el SQL Editor de Supabase y pega el contenido de `supabase/migrations/0001_init.sql`. Ejecútalo. Esto crea:
+
+- 10 tablas con `organization_id` en cada una
+- Triggers `updated_at` automáticos
+- **Row Level Security** en todas las tablas con políticas que filtran por `organization_id`
+- Índices para consultas rápidas por tenant
+
+### 3. Configurar `.env.local`
+
+Copia `.env.example` a `.env.local` y rellena con tus valores:
+
+```bash
+# Browser-facing (safe — RLS-protected)
+NEXT_PUBLIC_SUPABASE_URL=https://TU_PROYECTO.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...   # clave publica anon
+
+# Server-only (NUNCA la expongas al navegador)
+SUPABASE_URL=https://TU_PROYECTO.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...      # clave service_role
+
+# NextAuth
+NEXTAUTH_SECRET=$(openssl rand -base64 32)
+NEXTAUTH_URL=http://localhost:3000
+```
+
+### 4. Arrancar
 
 ```bash
 bun install
-bun run db:push        # crea/migra la base de datos SQLite
-bun run dev            # arranca en http://localhost:3000
+bun run dev                # http://localhost:3000
+curl -X POST http://localhost:3000/api/seed -H "Content-Type: application/json" -d '{"force":true}'
 ```
 
-## Cuenta demo
+## Cuentas demo
 
-- **Email**: `demo@lazamorana.es`
-- **Contraseña**: `demo1234`
-- **Restaurante**: La Zamorana (Salamanca) — con 8 categorías, 40 platos, 10 mesas, 15 pedidos y 6 reservas de ejemplo.
+Tras ejecutar el seed:
 
-Si necesitas recrear los datos demo: `curl -X POST http://localhost:3000/api/seed`.
+| Restaurante | Email | Contraseña |
+|---|---|---|
+| La Zamorana | `demo@lazamorana.es` | `demo1234` |
+| Bistró del Puerto | `demo@bistrodelpuerto.es` | `demo1234` |
 
-## Estructura del proyecto
+Los dos restaurantes están en la misma BD pero **no pueden verse entre sí** (RLS lo impide).
 
-```
-prisma/
-  schema.prisma           # Modelo multi-tenant: Restaurant, User, Category,
-                          # MenuItem, Table, Order, OrderItem, Reservation,
-                          # RestaurantSetting
-src/
-  app/
-    page.tsx              # Server component: decide AuthScreen o DashboardShell
-    layout.tsx            # Layout raíz con Inter font + Providers
-    api/
-      auth/[...nextauth]  # NextAuth handler
-      auth/register       # POST: crea restaurante + admin
-      categories/[id]     # PATCH, DELETE
-      categories          # GET, POST
-      menu/[id]           # PATCH, DELETE
-      menu                # GET, POST
-      orders/[id]         # PATCH (advance/cancel), GET
-      orders              # GET, POST
-      tables/[id]         # PATCH, DELETE
-      tables              # GET, POST
-      reservations/[id]   # PATCH, DELETE
-      reservations        # GET, POST
-      analytics           # GET (KPIs + datasets para gráficas)
-      restaurant          # GET, PATCH (ajustes del restaurante)
-      public/[slug]       # GET público (sin auth) → carta digital
-      upload              # POST (subida de imágenes)
-      seed                # POST (datos demo)
-  components/
-    providers.tsx         # SessionProvider + QueryClientProvider
-    auth/AuthScreen.tsx   # Pantalla de login/registro con tabs
-    dashboard/
-      DashboardShell.tsx  # Layout principal (sidebar + topbar + section)
-      Sidebar.tsx         # Navegación lateral
-      Topbar.tsx          # Barra superior con búsqueda y user menu
-      MenuMobile.tsx      # Nav horizontal para móvil
-      sections/
-        DashboardSection.tsx     # KPIs + gráficos
-        OrdersSection.tsx        # POS / Pedidos
-        TablesSection.tsx        # Gestión de mesas
-        KitchenSection.tsx       # KDS (Kitchen Display System)
-        MenusSection.tsx         # CRUD carta (CORE)
-        AnalyticsSection.tsx     # Analíticas
-        ReservationsSection.tsx  # Reservas
-        SettingsSection.tsx      # Ajustes del restaurante
-        PublicMenuSection.tsx    # Vista previa carta pública
-    shared/
-      StatusBadge.tsx     # Badges de estado (PENDING, AVAILABLE, etc.)
-      StatCard.tsx        # Tarjetas KPI
-      SectionHeader.tsx   # Cabecera de sección reutilizable
-  lib/
-    db.ts                 # PrismaClient singleton
-    next-auth.ts          # authOptions con Credentials + JWT callbacks
-    session.ts            # Helpers getServerSession / requireAdmin
-    auth.ts               # bcrypt hash/verify
-    format.ts             # formatCurrency, formatDate, timeAgo, slugify
-    api.ts                # fetch helper para cliente + uploadFile
-    store.ts              # Zustand: sección activa del dashboard
-    utils.ts              # cn() de tailwind-merge
-```
+## Arquitectura multi-tenant
 
-## Cómo funciona la sincronización panel ↔ web pública
+### Capa de datos (Supabase + RLS)
 
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  Panel admin    │────▶│  API REST        │────▶│   PostgreSQL    │
-│  (Next.js)      │     │  /api/menu, etc. │     │   (Prisma)      │
-└─────────────────┘     └──────────────────┘     └────────┬────────┘
-                                                         │
-                                                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  GET /api/public/[slug]  ← lectura sin auth para la web pública │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             ▼
-                  ┌─────────────────────┐
-                  │  Web del restaurante │
-                  │  (esta app o externa)│
-                  └─────────────────────┘
-```
+Cada tabla tiene `organization_id`. RLS está habilitado con políticas que solo permiten leer/escribir filas cuyo `organization_id` coincida con el del JWT del usuario. Incluso si la `anon key` se filtra, un atacante no podría leer datos de otro tenant sin un JWT válido.
 
-1. El cliente edita un plato en `Menús / Carta`.
-2. Se llama a `PATCH /api/menu/[id]` → actualiza la fila en la base de datos.
-3. Se invalida la query de TanStack Query (`public-menu`) en el cliente → se hace un `GET /api/public/[slug]` → la vista previa se actualiza.
-4. Cualquier web externa que consuma `/api/public/[slug]` (por REST o GraphQL) verá los cambios en la próxima petición. **No hace falta tocar código ni redeploy.**
+### Capa de aplicación (API routes)
 
-### Ejemplo de consumo desde una web externa
+Todas las API routes derivan `organizationId` de la sesión NextAuth (no del cliente) y lo usan como filtro en cada consulta. El cliente admin de Supabase (`src/lib/supabase/admin.ts`) se usa solo en servidor y **bypassa RLS**, por lo que la validación de tenancy ocurre en la propia aplicación. RLS es defensa en profundidad.
 
-```ts
-// En la web pública del restaurante (otra app, o un Next.js standalone)
-const res = await fetch("https://panel.tu-dominio.com/api/public/la-zamorana")
-const { restaurant, categories } = await res.json()
+### Clientes Supabase
 
-categories.forEach(c => {
-  console.log(c.name)        // "Hamburguesas"
-  c.menuItems.forEach(m => {
-    console.log(m.name, m.price)  // "Hamburguesa Clásica", 9.5
-  })
-})
-```
+| Archivo | Uso | Env vars |
+|---|---|---|
+| `src/lib/supabase/client.ts` | Browser (anon key, sujeto a RLS) | `NEXT_PUBLIC_SUPABASE_*` |
+| `src/lib/supabase/admin.ts` | Server only (service_role, bypassa RLS) | `SUPABASE_*` (sin NEXT_PUBLIC) |
 
-## Roles y permisos
+**Regla de oro**: el cliente admin NUNCA se importa en un componente cliente (`"use client"`). Si lo haces, Next.js fallará al compilar porque las variables `SUPABASE_SERVICE_ROLE_KEY` no están disponibles en el bundle del navegador.
 
-- **ADMIN** (dueño): acceso completo (CRUD de carta, ajustes, personal).
-- **STAFF**: puede gestionar pedidos, mesas y cocina, pero no tocar ajustes globales ni eliminar categorías/platos. El backend valida `user.role === 'ADMIN'` en los endpoints sensibles.
+## Despliegue en producción (Vercel)
 
-## Despliegue en producción
+1. Sube el repo a GitHub.
+2. Importa el proyecto en [vercel.com](https://vercel.com).
+3. Configura las variables de entorno en Vercel (Settings → Environment Variables):
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY` ⚠️ marca "Sensitive" para que no se muestre en logs
+   - `NEXTAUTH_SECRET` (genera uno nuevo, 32 bytes)
+   - `NEXTAUTH_URL=https://tu-dominio.com`
+4. Deploy. Vercel detecta Next.js automáticamente.
 
-### Opción A: Vercel (recomendada)
+**Importante**: en producción, cambia `NODE_ENV=production` y rota `NEXTAUTH_SECRET` regularmente.
 
-1. Push del repo a GitHub.
-2. Importa el repo en vercel.com.
-3. Variables de entorno:
-   - `DATABASE_URL` → PostgreSQL (Neon, Supabase, Vercel Postgres, etc.)
-   - `NEXTAUTH_SECRET` → `openssl rand -base64 32`
-   - `NEXTAUTH_URL` → `https://tu-dominio.com`
-4. Cambia el `datasource` en `prisma/schema.prisma` de `sqlite` a `postgresql`.
-5. `prisma db push` en el primer deploy (Vercel lo hace automático si configuras el build command).
-6. (Opcional) Mueve `/uploads` a S3/Vercel Blob para almacenamiento persistente.
+## Flujo completo de un cliente nuevo
 
-### Opción B: VPS / Docker
+1. El cliente llega a `/landing` (SEO-optimizada).
+2. Hace clic en "Crear cuenta gratis" → va a `/` (pantalla de auth).
+3. Rellena el form de registro (nombre, restaurante, email, password, teléfono, ciudad, país).
+4. Se crea la `organization` (tenant) y el primer `user` con rol `ADMIN`.
+5. El usuario entra al dashboard con sesión JWT válida 30 días.
+6. Configura su carta, mesas, reservas, horarios desde el panel.
+7. Los cambios se reflejan al instante en `/api/public/{slug}` (carta pública).
+8. Puede cerrar sesión y volver días después — los datos siguen ahí.
 
-```bash
-# 1. Build standalone
-bun run build
+## Seguridad
 
-# 2. Variables de entorno (.env)
-DATABASE_URL="file:./prod.db"  # o postgresql://...
-NEXTAUTH_SECRET="..."
-NEXTAUTH_URL="https://panel.tudominio.com"
-
-# 3. Migrar DB
-bun run db:push
-
-# 4. Arrancar
-bun run start
-```
-
-Para Docker, usa el output standalone:
-
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-COPY .next/standalone ./
-COPY .next/static ./.next/static
-COPY public ./public
-EXPOSE 3000
-CMD ["node", "server.js"]
-```
-
-## Pendientes / Próximos pasos
-
-- [ ] Recuperación de contraseña por email (estructura preparada en `authOptions.pages.signIn`).
-- [ ] Confirmación de email al registrarse.
-- [ ] WebSockets (socket.io) para push en tiempo real a cocina y POS — el helper ya está documentado en `examples/websocket/`.
-- [ ] Integración con pasarela de pago (Stripe / Redsys) para pedidos online.
-- [ ] Generación de QR codes por mesa para que los clientes pidan desde su móvil.
-- [ ] Multi-idioma (next-intl ya está instalado).
-- [ ] App móvil (PWA o React Native) para el personal de sala.
+- **Contraseñas**: bcrypt con salt de 10 rondas. Nunca se almacenan en claro.
+- **Sesiones**: JWT firmado con `NEXTAUTH_SECRET`. Cookies `httpOnly` + `secure` en producción.
+- **Aislamiento**: doble capa. (1) App filtra por `organizationId` en cada query. (2) RLS en Supabase lo impide a nivel de BD aunque la app falle.
+- **Service role key**: solo en servidor, nunca en el bundle del navegador.
+- **Tokens de verificación/reset**: caducan a las 24h (verify email) y 1h (reset password).
