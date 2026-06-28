@@ -3,7 +3,6 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import { db } from '@/lib/db'
 import { verifyPassword } from '@/lib/auth'
 
-// Stable secret — required for production. Fail loudly if missing.
 const NEXTAUTH_SECRET =
   process.env.NEXTAUTH_SECRET ||
   (process.env.NODE_ENV === 'production'
@@ -30,20 +29,44 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
-        // Look up the user in Supabase (server-side, service_role).
         const user = await db.user.findByEmail(credentials.email.toLowerCase().trim())
         if (!user) return null
         const ok = await verifyPassword(credentials.password, user.password_hash)
         if (!ok) return null
-        // Fetch the organization so we can put it in the JWT.
+
+        // SUPER_ADMIN login — no organization needed, will see global panel.
+        if (user.is_super_admin) {
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: 'SUPER_ADMIN' as const,
+            isSuperAdmin: true,
+            // No organization context for super admins.
+            restaurantId: '',
+            restaurantName: 'RestoPanel HQ',
+            restaurantSlug: '',
+            organizationId: '',
+            organizationName: 'RestoPanel HQ',
+            organizationSlug: '',
+          } as any
+        }
+
+        // Regular tenant user — load organization context.
+        if (!user.organization_id) return null
         const org = await db.organization.findById(user.organization_id)
         if (!org) return null
+
+        // Block suspended tenants from logging in.
+        if (org.status === 'SUSPENDED') return null
+
         return {
           id: user.id,
           email: user.email,
           name: user.name,
           role: user.role as 'ADMIN' | 'STAFF',
-          restaurantId: org.id,           // alias for backward compat
+          isSuperAdmin: false,
+          restaurantId: org.id,
           restaurantName: org.name,
           restaurantSlug: org.slug,
           organizationId: org.id,
@@ -54,19 +77,48 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
+      // Initial sign-in: copy user fields into the JWT.
       if (user) {
         const u = user as any
         token.id = u.id
         token.role = u.role
-        // Keep both naming conventions so old code doesn't break.
+        token.isSuperAdmin = u.isSuperAdmin || false
         token.restaurantId = u.restaurantId
         token.restaurantName = u.restaurantName
         token.restaurantSlug = u.restaurantSlug
         token.organizationId = u.organizationId
         token.organizationName = u.organizationName
         token.organizationSlug = u.organizationSlug
+        token.impersonatingOrgId = null
+        token.impersonatingOrgName = null
       }
+
+      // Read impersonation cookies (set by /api/admin/impersonate).
+      // Only super admins are allowed to impersonate; for everyone else
+      // the cookies are ignored even if somehow set.
+      if (token.isSuperAdmin) {
+        const { cookies } = await import('next/headers')
+        const cookieStore = await cookies()
+        const impId = cookieStore.get('impersonate_org_id')?.value || null
+        const impName = cookieStore.get('impersonate_org_name')?.value || null
+        token.impersonatingOrgId = impId
+        token.impersonatingOrgName = impName
+      } else {
+        token.impersonatingOrgId = null
+        token.impersonatingOrgName = null
+      }
+
+      // Allow session update via `update` trigger (used to refresh data
+      // after impersonation changes).
+      if (trigger === 'update' && session) {
+        const s = session as any
+        if (s.impersonatingOrgId !== undefined) {
+          token.impersonatingOrgId = s.impersonatingOrgId
+          token.impersonatingOrgName = s.impersonatingOrgName
+        }
+      }
+
       return token
     },
     async session({ session, token }) {
@@ -74,12 +126,27 @@ export const authOptions: NextAuthOptions = {
         const u = session.user as any
         u.id = token.id
         u.role = token.role
-        u.restaurantId = token.restaurantId
-        u.restaurantName = token.restaurantName
-        u.restaurantSlug = token.restaurantSlug
-        u.organizationId = token.organizationId
-        u.organizationName = token.organizationName
-        u.organizationSlug = token.organizationSlug
+        u.isSuperAdmin = token.isSuperAdmin
+        // If the super admin is impersonating a tenant, override the
+        // organization context so the dashboard shows that tenant's data.
+        if (token.isSuperAdmin && token.impersonatingOrgId) {
+          u.organizationId = token.impersonatingOrgId
+          u.organizationName = token.impersonatingOrgName
+          u.organizationSlug = token.impersonatingOrgId // not used for impersonated view
+          u.restaurantId = token.impersonatingOrgId
+          u.restaurantName = token.impersonatingOrgName
+          u.restaurantSlug = ''
+          u.role = 'ADMIN' // super admin acts as tenant admin while impersonating
+        } else {
+          u.restaurantId = token.restaurantId
+          u.restaurantName = token.restaurantName
+          u.restaurantSlug = token.restaurantSlug
+          u.organizationId = token.organizationId
+          u.organizationName = token.organizationName
+          u.organizationSlug = token.organizationSlug
+        }
+        u.impersonatingOrgId = token.impersonatingOrgId
+        u.impersonatingOrgName = token.impersonatingOrgName
       }
       return session
     },
@@ -91,12 +158,15 @@ export type AppSession = {
     id: string
     email: string
     name: string
-    role: 'ADMIN' | 'STAFF'
+    role: 'SUPER_ADMIN' | 'ADMIN' | 'STAFF'
+    isSuperAdmin: boolean
     restaurantId: string
     restaurantName: string
     restaurantSlug: string
     organizationId: string
     organizationName: string
     organizationSlug: string
+    impersonatingOrgId: string | null
+    impersonatingOrgName: string | null
   }
 }

@@ -41,6 +41,14 @@ export function AuthScreen() {
   const [loading, setLoading] = useState<null | "login" | "register" | "forgot" | "reset">(null);
   const [view, setView] = useState<View>("auth");
 
+  // Pre-launch mode: when LAUNCH_MODE=private, public registration is hidden.
+  // The flag is exposed via NEXT_PUBLIC_ so the browser can read it.
+  const isPrivateMode = process.env.NEXT_PUBLIC_LAUNCH_MODE === 'private';
+  // We also support the server-only LAUNCH_MODE by exposing a runtime flag.
+  // For simplicity, we read NEXT_PUBLIC_LAUNCH_MODE which mirrors LAUNCH_MODE
+  // in the .env. If not set, default to allowing registration.
+  const allowRegistration = !isPrivateMode;
+
   // Login form (pre-filled with demo creds for convenience)
   const [loginEmail, setLoginEmail] = useState("demo@lazamorana.es");
   const [loginPassword, setLoginPassword] = useState("demo1234");
@@ -350,19 +358,21 @@ export function AuthScreen() {
 
           <div className="bg-white rounded-2xl shadow-sm border border-[#ececed] p-6 sm:p-8">
             <Tabs defaultValue="login" className="w-full">
-              <TabsList className="grid grid-cols-2 w-full mb-6 bg-[#f6f6f7]">
+              <TabsList className={`bg-[#f6f6f7] mb-6 ${allowRegistration ? 'grid grid-cols-2 w-full' : 'grid-cols-1 w-full'}`}>
                 <TabsTrigger
                   value="login"
                   className="data-[state=active]:bg-white data-[state=active]:shadow-sm"
                 >
                   Iniciar sesión
                 </TabsTrigger>
-                <TabsTrigger
-                  value="register"
-                  className="data-[state=active]:bg-white data-[state=active]:shadow-sm"
-                >
-                  Crear cuenta
-                </TabsTrigger>
+                {allowRegistration && (
+                  <TabsTrigger
+                    value="register"
+                    className="data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                  >
+                    Crear cuenta
+                  </TabsTrigger>
+                )}
               </TabsList>
 
               <TabsContent value="login">
@@ -432,10 +442,16 @@ export function AuthScreen() {
 
                   <div className="rounded-lg bg-[#FFF3ED] border border-[#FFE0CB] p-3 text-xs text-neutral-700">
                     <p className="font-semibold mb-1 text-[#9a3b18]">
-                      Cuentas demo
+                      {isPrivateMode ? '🔒 Modo pre-lanzamiento (privado)' : 'Cuentas demo'}
                     </p>
+                    {isPrivateMode && (
+                      <p className="mb-1">
+                        El registro público está desactivado. Solo cuentas autorizadas pueden acceder.
+                      </p>
+                    )}
                     <p className="font-mono">demo@lazamorana.es · demo1234</p>
                     <p className="font-mono">demo@bistrodelpuerto.es · demo1234</p>
+                    <p className="font-mono mt-1 text-[#9a3b18]">owner@restopanel.es · owner2026 (SUPER ADMIN)</p>
                   </div>
                 </form>
               </TabsContent>

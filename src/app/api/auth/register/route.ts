@@ -17,6 +17,18 @@ const registerSchema = z.object({
 
 export async function POST(req: Request) {
   try {
+    // Pre-launch gate: when LAUNCH_MODE=private, public registration is disabled.
+    // Only the super admin can create new tenants from the admin panel.
+    if (process.env.LAUNCH_MODE === 'private') {
+      return NextResponse.json(
+        {
+          error:
+            'El registro público está desactivado en modo pre-lanzamiento. Contacta con el equipo de RestoPanel.',
+        },
+        { status: 403 }
+      )
+    }
+
     const body = await req.json()
     const parsed = registerSchema.safeParse(body)
     if (!parsed.success) {

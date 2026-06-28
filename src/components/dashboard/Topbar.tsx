@@ -44,6 +44,7 @@ export function Topbar({
     name: string;
     email: string;
     restaurantName: string;
+    role?: string;
   };
 }) {
   const section = useAppStore((s) => s.section);

@@ -40,6 +40,7 @@ export interface Organization {
   pos_enabled: boolean;
   reservations_enabled: boolean;
   email_verified: boolean;
+  status: 'ACTIVE' | 'SUSPENDED' | 'PENDING';
   created_at: string;
   updated_at: string;
 }
@@ -50,11 +51,28 @@ export interface User {
   password_hash: string;
   name: string;
   phone: string | null;
-  role: "ADMIN" | "STAFF";
+  role: "ADMIN" | "STAFF" | "SUPER_ADMIN";
   email_verified: boolean;
-  organization_id: string;
+  is_super_admin: boolean;
+  organization_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AuditLog {
+  id: string;
+  actor_id: string | null;
+  actor_email: string;
+  actor_role: string;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  target_name: string | null;
+  organization_id: string | null;
+  details: any;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
 }
 
 export interface Category {
@@ -802,6 +820,157 @@ export const analytics = {
 };
 
 // ============================================================
+// AUDIT LOGS — every privileged action gets recorded
+// ============================================================
+export const auditLogs = {
+  async insert(input: Omit<AuditLog, "id" | "created_at">): Promise<void> {
+    const { error } = await supabaseAdmin.from("audit_logs").insert({
+      actor_id: input.actor_id,
+      actor_email: input.actor_email,
+      actor_role: input.actor_role,
+      action: input.action,
+      target_type: input.target_type || null,
+      target_id: input.target_id || null,
+      target_name: input.target_name || null,
+      organization_id: input.organization_id || null,
+      details: input.details || null,
+      ip_address: input.ip_address || null,
+      user_agent: input.user_agent || null,
+    });
+    if (error) console.error("Failed to insert audit log:", error.message);
+  },
+  async list(opts: { limit?: number; action?: string; actorId?: string; organizationId?: string } = {}): Promise<AuditLog[]> {
+    let q = supabaseAdmin
+      .from("audit_logs")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (opts.action) q = q.eq("action", opts.action);
+    if (opts.actorId) q = q.eq("actor_id", opts.actorId);
+    if (opts.organizationId) q = q.eq("organization_id", opts.organizationId);
+    q = q.limit(opts.limit || 100);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data || []) as AuditLog[];
+  },
+};
+
+// ============================================================
+// SUPER ADMIN — global queries that span all tenants
+// ============================================================
+export const superAdmin = {
+  /** List every organization with counts of users, items, tables, reservations. */
+  async listTenants() {
+    const { data: orgs, error } = await supabaseAdmin
+      .from("organizations")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+
+    // For each org, fetch counts in parallel.
+    const enriched = await Promise.all(
+      (orgs || []).map(async (o: any) => {
+        const [users, items, tables, reservations, orders] = await Promise.all([
+          supabaseAdmin.from("users").select("id", { count: "exact", head: true }).eq("organization_id", o.id),
+          supabaseAdmin.from("menu_items").select("id", { count: "exact", head: true }).eq("organization_id", o.id),
+          supabaseAdmin.from("tables").select("id", { count: "exact", head: true }).eq("organization_id", o.id),
+          supabaseAdmin.from("reservations").select("id", { count: "exact", head: true }).eq("organization_id", o.id),
+          supabaseAdmin.from("orders").select("id", { count: "exact", head: true }).eq("organization_id", o.id),
+        ]);
+        return {
+          ...o,
+          usersCount: users.count || 0,
+          menuItemsCount: items.count || 0,
+          tablesCount: tables.count || 0,
+          reservationsCount: reservations.count || 0,
+          ordersCount: orders.count || 0,
+        };
+      })
+    );
+    return enriched;
+  },
+
+  async updateTenantStatus(id: string, status: "ACTIVE" | "SUSPENDED" | "PENDING") {
+    const { data, error } = await supabaseAdmin
+      .from("organizations")
+      .update({ status })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  /** List every user across all tenants (with org name). */
+  async listAllUsers() {
+    const { data, error } = await supabaseAdmin
+      .from("users")
+      .select("id, email, name, role, is_super_admin, organization_id, created_at, updated_at, organizations!inner(id, name)")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data || []).map((u: any) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      is_super_admin: u.is_super_admin,
+      organization_id: u.organization_id,
+      organization_name: u.organizations?.name || null,
+      created_at: u.created_at,
+      updated_at: u.updated_at,
+    }));
+  },
+
+  async setUserBlocked(id: string, blocked: boolean) {
+    // We model "blocked" as setting role to SUSPENDED — but for simplicity
+    // we use a separate column. Since we don't have one, we use email_verified=false
+    // as a proxy until a proper column is added. For now, this stub logs intent.
+    // In production you'd add a `blocked` boolean column.
+    throw new Error("setUserBlocked not implemented — see TODO in db.ts");
+  },
+
+  async getGlobalStats() {
+    const [tenants, users, items, tables, reservations, orders, logs] = await Promise.all([
+      supabaseAdmin.from("organizations").select("id, status", { count: "exact", head: false }),
+      supabaseAdmin.from("users").select("id, is_super_admin", { count: "exact", head: false }),
+      supabaseAdmin.from("menu_items").select("id", { count: "exact", head: true }),
+      supabaseAdmin.from("tables").select("id", { count: "exact", head: true }),
+      supabaseAdmin.from("reservations").select("id", { count: "exact", head: true }),
+      supabaseAdmin.from("orders").select("id", { count: "exact", head: true }),
+      supabaseAdmin.from("audit_logs").select("id", { count: "exact", head: true }),
+    ]);
+
+    const tenantsData = (tenants.data || []) as any[];
+    return {
+      tenants: {
+        total: tenants.count || 0,
+        active: tenantsData.filter((t) => t.status === "ACTIVE").length,
+        suspended: tenantsData.filter((t) => t.status === "SUSPENDED").length,
+        pending: tenantsData.filter((t) => t.status === "PENDING").length,
+      },
+      users: {
+        total: users.count || 0,
+        superAdmins: ((users.data || []) as any[]).filter((u) => u.is_super_admin).length,
+      },
+      menuItems: items.count || 0,
+      tables: tables.count || 0,
+      reservations: reservations.count || 0,
+      orders: orders.count || 0,
+      auditLogs: logs.count || 0,
+    };
+  },
+
+  async getRecentActivity(limit = 20) {
+    const { data, error } = await supabaseAdmin
+      .from("audit_logs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data || []) as AuditLog[];
+  },
+};
+
+// ============================================================
 // Export a single `db` object that mimics the Prisma client surface
 // we used before, so existing API routes keep working with minor edits.
 // ============================================================
@@ -817,4 +986,6 @@ export const db = {
   organizationSettings,
   restaurantSettings: organizationSettings, // alias for backward compat
   analytics,
+  auditLogs,
+  superAdmin,
 };

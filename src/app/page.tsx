@@ -10,9 +10,15 @@ export default async function Page() {
         name: session.user.name,
         email: session.user.email,
         role: session.user.role,
+        isSuperAdmin: session.user.isSuperAdmin,
         restaurantId: session.user.restaurantId,
         restaurantName: session.user.restaurantName,
         restaurantSlug: session.user.restaurantSlug,
+        organizationId: session.user.organizationId,
+        organizationName: session.user.organizationName,
+        organizationSlug: session.user.organizationSlug,
+        impersonatingOrgId: session.user.impersonatingOrgId,
+        impersonatingOrgName: session.user.impersonatingOrgName,
       }
     : null;
   return <AppRouter user={user} />;

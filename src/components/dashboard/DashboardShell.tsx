@@ -13,46 +13,58 @@ import { ReservationsSection } from "./sections/ReservationsSection";
 import { SettingsSection } from "./sections/SettingsSection";
 import { PublicMenuSection } from "./sections/PublicMenuSection";
 import { MenuMobile } from "./MenuMobile";
+import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
 
 interface DashboardShellProps {
   user: {
     id: string;
     name: string;
     email: string;
-    role: "ADMIN" | "STAFF";
+    role: "SUPER_ADMIN" | "ADMIN" | "STAFF";
+    isSuperAdmin?: boolean;
     restaurantId: string;
     restaurantName: string;
     restaurantSlug: string;
+    impersonatingOrgId?: string | null;
+    impersonatingOrgName?: string | null;
   };
 }
 
 export function DashboardShell({ user }: DashboardShellProps) {
   const section = useAppStore((s) => s.section);
-  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen);
 
   return (
-    <div className="min-h-screen bg-[#f6f6f7] flex">
-      <Sidebar
-        restaurantName={user.restaurantName}
-        restaurantSlug={user.restaurantSlug}
-        userName={user.name}
-        userEmail={user.email}
-        userRole={user.role}
-      />
-      <div className="flex-1 min-w-0 flex flex-col">
-        <Topbar user={user} />
-        <MenuMobile restaurantName={user.restaurantName} />
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
-          {section === "dashboard" && <DashboardSection />}
-          {section === "orders" && <OrdersSection />}
-          {section === "tables" && <TablesSection />}
-          {section === "kitchen" && <KitchenSection />}
-          {section === "menus" && <MenusSection />}
-          {section === "analytics" && <AnalyticsSection />}
-          {section === "reservations" && <ReservationsSection />}
-          {section === "settings" && <SettingsSection />}
-          {section === "public" && <PublicMenuSection slug={user.restaurantSlug} />}
-        </main>
+    <div className="min-h-screen bg-[#f6f6f7] flex flex-col">
+      {/* Impersonation banner — shown only when a super admin is impersonating a tenant */}
+      {user.isSuperAdmin && user.impersonatingOrgId && (
+        <ImpersonationBanner
+          tenantName={user.impersonatingOrgName || ""}
+          superAdminEmail={user.email}
+        />
+      )}
+      <div className="flex flex-1">
+        <Sidebar
+          restaurantName={user.restaurantName}
+          restaurantSlug={user.restaurantSlug}
+          userName={user.name}
+          userEmail={user.email}
+          userRole={user.role}
+        />
+        <div className="flex-1 min-w-0 flex flex-col">
+          <Topbar user={user} />
+          <MenuMobile restaurantName={user.restaurantName} />
+          <main className="flex-1 p-4 sm:p-6 lg:p-8">
+            {section === "dashboard" && <DashboardSection />}
+            {section === "orders" && <OrdersSection />}
+            {section === "tables" && <TablesSection />}
+            {section === "kitchen" && <KitchenSection />}
+            {section === "menus" && <MenusSection />}
+            {section === "analytics" && <AnalyticsSection />}
+            {section === "reservations" && <ReservationsSection />}
+            {section === "settings" && <SettingsSection />}
+            {section === "public" && <PublicMenuSection slug={user.restaurantSlug} />}
+          </main>
+        </div>
       </div>
     </div>
   );
