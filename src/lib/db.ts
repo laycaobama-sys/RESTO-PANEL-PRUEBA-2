@@ -722,6 +722,21 @@ export const analytics = {
       .select("id, status, zone, capacity")
       .eq("organization_id", organizationId);
 
+    // Today's reservations (for service breakdown + no-shows)
+    const { data: todayReservations } = await supabaseAdmin
+      .from("reservations")
+      .select("id, status, shift, party_size, date")
+      .eq("organization_id", organizationId)
+      .gte("date", todayStart.toISOString())
+      .lte("date", todayEnd.toISOString());
+
+    // 7-day reservations (for occupancy by day)
+    const { data: sevenDayReservations } = await supabaseAdmin
+      .from("reservations")
+      .select("id, status, shift, party_size, date")
+      .eq("organization_id", organizationId)
+      .gte("date", sevenDaysAgo.toISOString());
+
     const todays = todayOrders || [];
     const dailyMap = new Map<string, { revenue: number; orders: number }>();
     for (let i = 0; i < 7; i++) {
@@ -803,6 +818,54 @@ export const analytics = {
         revenue: Math.round(todayRevenue * 100) / 100,
         avgTicket: Math.round(avgTicket * 100) / 100,
       },
+      // Today's reservations broken down by service shift
+      todayReservations: {
+        total: (todayReservations || []).length,
+        lunch: {
+          total: (todayReservations || []).filter((r: any) => r.shift === "LUNCH").length,
+          confirmed: (todayReservations || []).filter((r: any) => r.shift === "LUNCH" && (r.status === "CONFIRMED" || r.status === "SEATED" || r.status === "COMPLETED")).length,
+          pax: (todayReservations || []).filter((r: any) => r.shift === "LUNCH" && r.status !== "CANCELLED" && r.status !== "NO_SHOW").reduce((s: number, r: any) => s + r.party_size, 0),
+        },
+        dinner: {
+          total: (todayReservations || []).filter((r: any) => r.shift === "DINNER").length,
+          confirmed: (todayReservations || []).filter((r: any) => r.shift === "DINNER" && (r.status === "CONFIRMED" || r.status === "SEATED" || r.status === "COMPLETED")).length,
+          pax: (todayReservations || []).filter((r: any) => r.shift === "DINNER" && r.status !== "CANCELLED" && r.status !== "NO_SHOW").reduce((s: number, r: any) => s + r.party_size, 0),
+        },
+        confirmed: (todayReservations || []).filter((r: any) => r.status === "CONFIRMED" || r.status === "SEATED" || r.status === "COMPLETED").length,
+        pending: (todayReservations || []).filter((r: any) => r.status === "PENDING").length,
+        cancelled: (todayReservations || []).filter((r: any) => r.status === "CANCELLED").length,
+        noShow: (todayReservations || []).filter((r: any) => r.status === "NO_SHOW").length,
+        totalPax: (todayReservations || []).filter((r: any) => r.status !== "CANCELLED" && r.status !== "NO_SHOW").reduce((s: number, r: any) => s + r.party_size, 0),
+      },
+      // 7-day reservation occupancy by day (for the occupancy chart)
+      occupancyByDay: (() => {
+        const map = new Map<string, { date: string; lunch: number; dinner: number; total: number }>()
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(sevenDaysAgo); d.setDate(d.getDate() + i); d.setHours(0, 0, 0, 0)
+          const key = d.toISOString().slice(0, 10)
+          map.set(key, { date: key, lunch: 0, dinner: 0, total: 0 })
+        }
+        for (const r of (sevenDayReservations || []) as any[]) {
+          const key = new Date(r.date).toISOString().slice(0, 10)
+          if (map.has(key) && r.status !== "CANCELLED" && r.status !== "NO_SHOW") {
+            const e = map.get(key)!
+            e.total += 1
+            if (r.shift === "LUNCH") e.lunch += 1
+            else e.dinner += 1
+          }
+        }
+        return Array.from(map.values())
+      })(),
+      // 7-day no-show rate
+      noShowRate: (() => {
+        const total = (sevenDayReservations || []).length
+        const noShows = (sevenDayReservations || []).filter((r: any) => r.status === "NO_SHOW").length
+        return total > 0 ? Math.round((noShows / total) * 100) : 0
+      })(),
+      // Average occupancy rate (occupied+reserved+preparing / total tables)
+      occupancyRate: tablesList.length > 0
+        ? Math.round(((tablesList.filter((t: any) => ["OCCUPIED", "RESERVED", "PREPARING"].includes(t.status)).length) / tablesList.length) * 100)
+        : 0,
       daily,
       monthly,
       topItems: topItemsList,

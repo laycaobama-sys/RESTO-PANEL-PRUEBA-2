@@ -46,6 +46,19 @@ interface AnalyticsData {
     revenue: number;
     avgTicket: number;
   };
+  todayReservations: {
+    total: number;
+    lunch: { total: number; confirmed: number; pax: number };
+    dinner: { total: number; confirmed: number; pax: number };
+    confirmed: number;
+    pending: number;
+    cancelled: number;
+    noShow: number;
+    totalPax: number;
+  };
+  occupancyByDay: { date: string; lunch: number; dinner: number; total: number }[];
+  noShowRate: number;
+  occupancyRate: number;
   daily: { date: string; revenue: number; orders: number }[];
   monthly: { date: string; revenue: number }[];
   topItems: {
@@ -158,6 +171,83 @@ export function DashboardSection() {
           icon={<Users className="w-5 h-5" />}
           accent="yellow"
           delay={0.35}
+        />
+      </div>
+
+      {/* Today's services: lunch / dinner breakdown */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: 0.4 }}
+        className="bg-white rounded-2xl border border-[#ececed] p-5"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold text-neutral-900">Servicios de hoy</h3>
+            <p className="text-xs text-neutral-500">Comida y cena · reservas confirmadas</p>
+          </div>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="flex items-center gap-1.5 text-neutral-600">
+              <span className="w-2 h-2 rounded-full bg-[#FF6B35]" /> Comida
+            </span>
+            <span className="flex items-center gap-1.5 text-neutral-600">
+              <span className="w-2 h-2 rounded-full bg-[#0EA5E9]" /> Cena
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <ServiceCard
+            title="Servicio de comida"
+            total={data?.todayReservations?.lunch?.total ?? 0}
+            confirmed={data?.todayReservations?.lunch?.confirmed ?? 0}
+            pax={data?.todayReservations?.lunch?.pax ?? 0}
+            color="primary"
+          />
+          <ServiceCard
+            title="Servicio de cena"
+            total={data?.todayReservations?.dinner?.total ?? 0}
+            confirmed={data?.todayReservations?.dinner?.confirmed ?? 0}
+            pax={data?.todayReservations?.dinner?.pax ?? 0}
+            color="blue"
+          />
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-[#ececed]">
+          <MiniStat label="Confirmadas" value={data?.todayReservations?.confirmed ?? 0} cls="text-green-600" />
+          <MiniStat label="Pendientes" value={data?.todayReservations?.pending ?? 0} cls="text-yellow-600" />
+          <MiniStat label="Canceladas" value={data?.todayReservations?.cancelled ?? 0} cls="text-red-600" />
+          <MiniStat label="No-shows" value={data?.todayReservations?.noShow ?? 0} cls="text-purple-600" />
+        </div>
+      </motion.div>
+
+      {/* Tertiary KPIs: no-show rate + occupancy */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <StatCard
+          label="Tasa no-show (7d)"
+          value={`${data?.noShowRate ?? 0}%`}
+          icon={<Users className="w-5 h-5" />}
+          accent="red"
+          delay={0.45}
+        />
+        <StatCard
+          label="Ocupación actual"
+          value={`${data?.occupancyRate ?? 0}%`}
+          icon={<Grid3x3 className="w-5 h-5" />}
+          accent="primary"
+          delay={0.5}
+        />
+        <StatCard
+          label="Comensales hoy"
+          value={data?.todayReservations?.totalPax ?? 0}
+          icon={<Users className="w-5 h-5" />}
+          accent="blue"
+          delay={0.55}
+        />
+        <StatCard
+          label="Reservas hoy"
+          value={data?.todayReservations?.total ?? 0}
+          icon={<ClipboardList className="w-5 h-5" />}
+          accent="yellow"
+          delay={0.6}
         />
       </div>
 
@@ -434,6 +524,45 @@ function MiniStat({
     <div className={`rounded-xl p-3 ${cls}`}>
       <p className="text-2xl font-bold">{value}</p>
       <p className="text-xs opacity-80">{label}</p>
+    </div>
+  );
+}
+
+function ServiceCard({
+  title,
+  total,
+  confirmed,
+  pax,
+  color,
+}: {
+  title: string;
+  total: number;
+  confirmed: number;
+  pax: number;
+  color: "primary" | "blue";
+}) {
+  const accentBg = color === "primary" ? "bg-[#FFF3ED] text-[#FF6B35]" : "bg-blue-50 text-blue-600";
+  const barColor = color === "primary" ? "bg-[#FF6B35]" : "bg-[#0EA5E9]";
+  const rate = total > 0 ? Math.round((confirmed / total) * 100) : 0;
+  return (
+    <div className="rounded-xl border border-[#ececed] p-4">
+      <div className="flex items-start justify-between mb-3">
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${accentBg}`}>
+          <Clock className="w-4.5 h-4.5" />
+        </div>
+        <div className="text-right">
+          <p className="text-2xl font-bold text-neutral-900">{confirmed}/{total}</p>
+          <p className="text-xs text-neutral-500">confirmadas</p>
+        </div>
+      </div>
+      <p className="font-medium text-neutral-900 text-sm">{title}</p>
+      <p className="text-xs text-neutral-500 mt-0.5">{pax} comensales esperados</p>
+      <div className="mt-2 h-1.5 rounded-full bg-neutral-100 overflow-hidden">
+        <div
+          className={`h-full ${barColor} rounded-full transition-all`}
+          style={{ width: `${rate}%` }}
+        />
+      </div>
     </div>
   );
 }

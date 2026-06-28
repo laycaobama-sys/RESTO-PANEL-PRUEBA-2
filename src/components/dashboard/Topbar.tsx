@@ -2,19 +2,14 @@
 
 import { useAppStore, type Section } from "@/lib/store";
 import { signOut } from "next-auth/react";
-import { useState } from "react";
 import { toast } from "sonner";
 import {
-  Search,
-  Bell,
   Menu as MenuIcon,
   LogOut,
   ChevronDown,
   Settings,
   User as UserIcon,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -23,7 +18,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { TenantSearch } from "./TenantSearch";
+import { TenantNotificationBell } from "./TenantNotificationBell";
 
 const SECTION_TITLES: Record<Section, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Resumen del día de tu restaurante" },
@@ -52,39 +48,34 @@ export function Topbar({
   const meta = SECTION_TITLES[section];
 
   return (
-    <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-[#ececed] h-16 flex items-center px-4 sm:px-6 gap-3">
+    <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-[#ececed] h-16 flex items-center px-3 sm:px-6 gap-2 sm:gap-3">
       <button
         onClick={() => setSidebarOpen(true)}
-        className="lg:hidden p-2 -ml-2 text-neutral-600 hover:bg-neutral-100 rounded-md"
+        className="lg:hidden p-2 -ml-1 text-neutral-600 hover:bg-neutral-100 rounded-md flex-shrink-0"
       >
         <MenuIcon className="w-5 h-5" />
       </button>
 
-      <div className="min-w-0 flex-1">
-        <h1 className="text-base sm:text-lg font-semibold text-neutral-900 leading-tight truncate">
-          {meta.title}
+      <div className="min-w-0 flex-shrink-0 lg:flex-1 lg:min-w-0">
+        <h1 className="text-sm sm:text-lg font-semibold text-neutral-900 leading-tight truncate">
+          <span className="hidden sm:inline">{meta.title}</span>
+          <span className="sm:hidden">{meta.title.split(' ')[0]}</span>
         </h1>
-        <p className="text-xs text-neutral-500 truncate hidden sm:block">
+        <p className="text-xs text-neutral-500 truncate hidden lg:block">
           {meta.subtitle}
         </p>
       </div>
 
-      <div className="hidden md:flex items-center relative w-72">
-        <Search className="w-4 h-4 absolute left-3 text-neutral-400" />
-        <Input
-          placeholder="Buscar plato, pedido, mesa..."
-          className="pl-9 h-9 bg-[#f6f6f7] border-transparent focus-visible:bg-white focus-visible:border-[#FF6B35]"
-        />
+      {/* Search: hidden on small mobile, visible from sm */}
+      <div className="hidden sm:block flex-1 max-w-md">
+        <TenantSearch />
       </div>
 
-      <button className="relative p-2 text-neutral-500 hover:bg-neutral-100 rounded-md">
-        <Bell className="w-5 h-5" />
-        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#FF6B35] rounded-full ring-2 ring-white" />
-      </button>
+      <TenantNotificationBell />
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-full hover:bg-neutral-100">
+          <button className="flex items-center gap-2 pl-1 pr-1 sm:pr-2 py-1 rounded-full hover:bg-neutral-100 flex-shrink-0">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FF6B35] to-[#F94B1E] text-white flex items-center justify-center text-xs font-semibold">
               {user.name.slice(0, 1).toUpperCase()}
             </div>
@@ -117,10 +108,6 @@ export function Topbar({
             className="text-red-600 focus:text-red-700"
             onClick={async () => {
               toast.success("Cerrando sesión...");
-              // signOut clears the session cookie. The AppRouter listens to
-              // useSession and will swap to AuthScreen automatically. We
-              // also call router.refresh() so the server component re-reads
-              // getServerSession and stops passing `user` to the client.
               await signOut({ redirect: false, callbackUrl: "/" });
               setTimeout(() => window.location.reload(), 150);
             }}

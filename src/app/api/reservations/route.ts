@@ -80,6 +80,19 @@ export async function POST(req: Request) {
     organization_id: user.organizationId,
   })
 
+  // Auto-generate a notification for the tenant's staff.
+  const { supabaseAdmin } = await import('@/lib/supabase/admin')
+  await supabaseAdmin.from('notifications').insert({
+    user_id: null, // broadcast to all tenant users
+    organization_id: user.organizationId,
+    type: 'NEW_RESERVATION',
+    severity: 'info',
+    title: `Nueva reserva: ${customerName}`,
+    message: `${partySize} pax · ${new Date(date).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${shift === 'LUNCH' ? 'Comida' : 'Cena'}${zone ? ` · ${zone}` : ''}`,
+    action_url: null,
+    metadata: { reservationId: reservation.id },
+  })
+
   const table = tableId ? await db.table.findFirst(user.organizationId, { id: tableId }) : null
   return NextResponse.json({
     ...reservation,
