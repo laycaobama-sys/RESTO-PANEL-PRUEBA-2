@@ -52,6 +52,18 @@ export async function POST(req: Request) {
     req,
   })
 
+  // Notify all super admins that an impersonation session started.
+  const { supabaseAdmin } = await import('@/lib/supabase/admin')
+  await supabaseAdmin.rpc('notify_super_admins', {
+    p_type: 'IMPERSONATION',
+    p_severity: 'info',
+    p_title: `Impersonación iniciada: ${org.name}`,
+    p_message: `${session.user.email} entró como cliente en "${org.name}"`,
+    p_organization_id: org.id,
+    p_action_url: '/admin',
+    p_metadata: { actor: session.user.email, organizationSlug: org.slug },
+  })
+
   // Set a cookie that the jwt callback will read on the next request.
   // The cookie is httpOnly + secure so it can't be tampered from JS.
   const res = NextResponse.json({ ok: true, organization: { id: org.id, name: org.name, slug: org.slug } })

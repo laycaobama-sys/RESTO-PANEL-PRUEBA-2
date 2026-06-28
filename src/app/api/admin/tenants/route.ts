@@ -38,5 +38,18 @@ export async function PATCH(req: Request) {
     details: { previousStatus: org.status, newStatus: status },
     req,
   })
+
+  // Notify all super admins about the status change
+  const { supabaseAdmin } = await import('@/lib/supabase/admin')
+  await supabaseAdmin.rpc('notify_super_admins', {
+    p_type: status === 'SUSPENDED' ? 'TENANT_SUSPENDED' : status === 'ACTIVE' ? 'TENANT_ACTIVATED' : 'TENANT_SET_PENDING',
+    p_severity: status === 'SUSPENDED' ? 'warning' : 'success',
+    p_title: status === 'SUSPENDED' ? `Empresa suspendida: ${org.name}` : status === 'ACTIVE' ? `Empresa activada: ${org.name}` : `Empresa pendiente: ${org.name}`,
+    p_message: `${user.email} cambió el estado de "${org.name}" de ${org.status} a ${status}`,
+    p_organization_id: id,
+    p_action_url: '/admin',
+    p_metadata: { previousStatus: org.status, newStatus: status, actor: user.email },
+  })
+
   return NextResponse.json(updated)
 }
