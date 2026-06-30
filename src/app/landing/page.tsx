@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { LandingPage } from "@/components/landing/LandingPage";
 
 export const metadata: Metadata = {
-  title: "RestoPanel · Software de reservas y gestión para restaurantes y ocio nocturno",
+  title: "RestoPanel · Software de reservas y gestión para hostelería y ocio nocturno",
   description:
     "Centraliza reservas de web, Google, Instagram, WhatsApp y teléfono en un solo panel. Reduce no-shows con reconfirmación automática, gestiona mesas, eventos y listas VIP. CRM propio, analítica en tiempo real. Sin intermediarios.",
   keywords: [
