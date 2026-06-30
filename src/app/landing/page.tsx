@@ -2,38 +2,42 @@ import type { Metadata } from "next";
 import { LandingPage } from "@/components/landing/LandingPage";
 
 export const metadata: Metadata = {
-  title: "RestoPanel · Software de reservas y gestión para restaurantes",
+  title: "RestoPanel · Software de reservas y gestión para restaurantes y ocio nocturno",
   description:
-    "Software todo-en-uno para restaurantes: reservas online, carta digital, plano de mesas, POS, cocina (KDS) y analíticas. Prueba gratis. Sin comisiones por reserva.",
+    "Centraliza reservas de web, Google, Instagram, WhatsApp y teléfono en un solo panel. Reduce no-shows con reconfirmación automática, gestiona mesas, eventos y listas VIP. CRM propio, analítica en tiempo real. Sin intermediarios.",
   keywords: [
     "software de reservas para restaurantes",
-    "gestión de restaurantes",
-    "carta digital",
-    "POS restaurante",
-    "plano de mesas",
-    "sistema de reservas online",
+    "sistema de reservas online para hostelería",
+    "CRM para restaurantes y discotecas",
+    "gestor de reservas para ocio nocturno",
+    "centralizar reservas en un único panel",
+    "cola virtual para restaurantes y clubs",
+    "reducir no-shows en restaurantes",
+    "fidelización de clientes en hostelería",
+    "software de gestión de experiencias gastronómicas",
+    "motor de reservas",
+    "libro de reservas online",
+    "panel de control de reservas",
     "software de hostelería",
-    "KDS cocina",
-    "multi-tenant restaurantes",
-    "reservas online España",
+    "reservas digitales",
   ],
   authors: [{ name: "RestoPanel" }],
   alternates: {
     canonical: "/landing",
   },
   openGraph: {
-    title: "RestoPanel · Software de reservas y gestión para restaurantes",
+    title: "RestoPanel · El panel de control de tu sala y tu noche",
     description:
-      "El panel de control que tu restaurante necesita: reservas, carta, mesas, cocina y analíticas en una sola plataforma. Cuenta demo gratuita.",
+      "Reservas, mesas, no-shows, CRM, eventos y analítica en una sola plataforma. Para restaurantes, discotecas, clubs y hoteles. Crea tu cuenta y empieza hoy.",
     type: "website",
     locale: "es_ES",
     siteName: "RestoPanel",
   },
   twitter: {
     card: "summary_large_image",
-    title: "RestoPanel · Software para restaurantes",
+    title: "RestoPanel · Software de reservas para hostelería y ocio nocturno",
     description:
-      "Reservas online, carta digital, plano de mesas y POS en una sola plataforma.",
+      "Centraliza reservas, reduce no-shows y fideliza clientes con datos propios. Sin intermediarios.",
   },
   robots: {
     index: true,
