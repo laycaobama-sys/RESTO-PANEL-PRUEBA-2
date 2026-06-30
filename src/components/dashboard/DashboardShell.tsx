@@ -34,8 +34,7 @@ export function DashboardShell({ user }: DashboardShellProps) {
   const section = useAppStore((s) => s.section);
 
   return (
-    <div className="min-h-screen bg-[#f6f6f7] flex flex-col">
-      {/* Impersonation banner — shown only when a super admin is impersonating a tenant */}
+    <div className="min-h-screen bg-[#0a0a0a] flex flex-col">
       {user.isSuperAdmin && user.impersonatingOrgId && (
         <ImpersonationBanner
           tenantName={user.impersonatingOrgName || ""}
@@ -53,7 +52,7 @@ export function DashboardShell({ user }: DashboardShellProps) {
         <div className="flex-1 min-w-0 flex flex-col">
           <Topbar user={user} />
           <MenuMobile restaurantName={user.restaurantName} />
-          <main className="flex-1 p-4 sm:p-6 lg:p-8">
+          <main className="flex-1 p-3 sm:p-5 lg:p-7">
             {section === "dashboard" && <DashboardSection />}
             {section === "orders" && <OrdersSection />}
             {section === "tables" && <TablesSection />}

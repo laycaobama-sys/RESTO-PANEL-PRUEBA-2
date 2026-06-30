@@ -65,7 +65,7 @@ export function NotificationBell() {
           <motion.span
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
-            className="absolute top-0.5 right-0.5 min-w-4 h-4 px-1 bg-[#FF6B35] text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-[#16161a]"
+            className="absolute top-0.5 right-0.5 min-w-4 h-4 px-1 bg-[#C5A059] text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-[#16161a]"
           >
             {unread > 9 ? '9+' : unread}
           </motion.span>
@@ -86,7 +86,7 @@ export function NotificationBell() {
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold text-white">Notificaciones</h3>
                 {unread > 0 && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#FF6B35]/15 text-[#FF6B35]">
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#C5A059]/15 text-[#C5A059]">
                     {unread} sin leer
                   </span>
                 )}
@@ -95,7 +95,7 @@ export function NotificationBell() {
                 <button
                   onClick={() => markAllReadMut.mutate()}
                   disabled={markAllReadMut.isPending}
-                  className="text-[11px] text-[#FF6B35] hover:underline flex items-center gap-1"
+                  className="text-[11px] text-[#C5A059] hover:underline flex items-center gap-1"
                 >
                   {markAllReadMut.isPending ? (
                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -127,7 +127,7 @@ export function NotificationBell() {
                     transition={{ delay: i * 0.03 }}
                     className={cn(
                       'flex items-start gap-2.5 p-3 border-b border-[#27272a] hover:bg-[#1f1f23] transition-colors group',
-                      !n.read_at && 'bg-[#FF6B35]/5'
+                      !n.read_at && 'bg-[#C5A059]/5'
                     )}
                   >
                     <div className={cn(
@@ -157,7 +157,7 @@ export function NotificationBell() {
                         {!n.read_at && (
                           <button
                             onClick={() => markReadMut.mutate(n.id)}
-                            className="text-[10px] text-[#FF6B35] hover:underline opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"
+                            className="text-[10px] text-[#C5A059] hover:underline opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"
                           >
                             <Check className="w-3 h-3" /> Marcar leída
                           </button>

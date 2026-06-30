@@ -96,7 +96,7 @@ export function TenantsSection() {
           placeholder="Buscar empresa..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="h-9 px-3 bg-[#1f1f23] border border-[#27272a] rounded-md text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#FF6B35]"
+          className="h-9 px-3 bg-[#1f1f23] border border-[#27272a] rounded-md text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#C5A059]"
         />
         <select
           value={statusFilter}
@@ -126,7 +126,7 @@ export function TenantsSection() {
             <div key={t.id} className="bg-[#16161a] rounded-xl border border-[#27272a] p-4">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#FF6B35] to-[#F94B1E] flex items-center justify-center text-white">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#C5A059] to-[#b08d4e] flex items-center justify-center text-white">
                     <Building2 className="w-5 h-5" />
                   </div>
                   <div className="min-w-0">
@@ -149,7 +149,7 @@ export function TenantsSection() {
               <div className="flex gap-2 pt-3 border-t border-[#27272a]">
                 <Button
                   size="sm"
-                  className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white h-8 text-xs flex-1"
+                  className="bg-[#C5A059] hover:bg-[#b08d4e] text-white h-8 text-xs flex-1"
                   onClick={() => setImpersonateTarget(t)}
                   disabled={t.status === "SUSPENDED"}
                 >
@@ -211,7 +211,7 @@ export function TenantsSection() {
               Cancelar
             </Button>
             <Button
-              className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+              className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
               onClick={() => impersonateTarget && impersonateMut.mutate(impersonateTarget.id)}
               disabled={impersonateMut.isPending}
             >

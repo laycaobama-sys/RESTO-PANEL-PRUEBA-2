@@ -119,14 +119,14 @@ export function TablesSection() {
         subtitle="Plano visual del salón y estado en tiempo real"
         actions={
           <>
-            <div className="flex items-center bg-white border border-[#ececed] rounded-lg p-1">
+            <div className="flex items-center bg-[#111518] border border-white/[0.06] rounded-lg p-1">
               <button
                 onClick={() => setView("floor")}
                 className={cn(
                   "px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5",
                   view === "floor"
-                    ? "bg-[#FF6B35] text-white"
-                    : "text-neutral-600"
+                    ? "bg-[#C5A059] text-white"
+                    : "text-neutral-400"
                 )}
               >
                 <MapPin className="w-3.5 h-3.5" />
@@ -137,8 +137,8 @@ export function TablesSection() {
                 className={cn(
                   "px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5",
                   view === "grid"
-                    ? "bg-[#FF6B35] text-white"
-                    : "text-neutral-600"
+                    ? "bg-[#C5A059] text-white"
+                    : "text-neutral-400"
                 )}
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
@@ -146,7 +146,7 @@ export function TablesSection() {
               </button>
             </div>
             <Button
-              className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+              className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
               onClick={() => setCreating(true)}
             >
               <Plus className="w-4 h-4 mr-1.5" />
@@ -158,12 +158,12 @@ export function TablesSection() {
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-2 sm:gap-3 mb-5">
-        <SummaryPill label="Total" value={summary.total} cls="bg-white border" />
+        <SummaryPill label="Total" value={summary.total} cls="bg-[#111518] border" />
         <SummaryPill label="Libres" value={summary.available} cls="bg-green-50 text-green-700 border border-green-100" />
         <SummaryPill label="Ocupadas" value={summary.occupied} cls="bg-red-50 text-red-700 border border-red-100" />
         <SummaryPill label="Reservadas" value={summary.reserved} cls="bg-yellow-50 text-yellow-700 border border-yellow-100" />
         <SummaryPill label="Preparando" value={summary.preparing} cls="bg-blue-50 text-blue-700 border border-blue-100" />
-        <SummaryPill label="Capacidad" value={summary.capacity} cls="bg-[#FFF3ED] text-[#9a3b18] border border-[#FFE0CB]" />
+        <SummaryPill label="Capacidad" value={summary.capacity} cls="bg-[#C5A05910] text-[#C5A059] border border-[#C5A05920]" />
       </div>
 
       {/* Zone filter */}
@@ -173,8 +173,8 @@ export function TablesSection() {
           className={cn(
             "px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap border transition-colors",
             selectedZone === "ALL"
-              ? "bg-[#FF6B35] text-white border-[#FF6B35]"
-              : "bg-white text-neutral-600 border-[#ececed] hover:bg-neutral-50"
+              ? "bg-[#C5A059] text-white border-[#C5A059]"
+              : "bg-white text-neutral-400 border-white/[0.06] hover:bg-[#1a1f24]"
           )}
         >
           Todas las zonas
@@ -186,8 +186,8 @@ export function TablesSection() {
             className={cn(
               "px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap border transition-colors flex items-center gap-1.5",
               selectedZone === z.id
-                ? "bg-[#FF6B35] text-white border-[#FF6B35]"
-                : "bg-white text-neutral-600 border-[#ececed] hover:bg-neutral-50"
+                ? "bg-[#C5A059] text-white border-[#C5A059]"
+                : "bg-white text-neutral-400 border-white/[0.06] hover:bg-[#1a1f24]"
             )}
           >
             <z.icon className="w-3 h-3" />
@@ -201,7 +201,7 @@ export function TablesSection() {
           <Loader2 className="w-5 h-5 animate-spin" />
         </div>
       ) : filteredTables.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-[#ececed]">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06]">
           <EmptyState
             icon={<Grid3x3 className="w-6 h-6" />}
             title="No hay mesas en esta zona"
@@ -231,15 +231,15 @@ export function TablesSection() {
                   )}
                 >
                   <div className="flex items-center gap-2 mb-3">
-                    <zoneMeta.icon className="w-4 h-4 text-neutral-600" />
-                    <h3 className="font-semibold text-neutral-900">
+                    <zoneMeta.icon className="w-4 h-4 text-neutral-400" />
+                    <h3 className="font-semibold text-[#f5f5f0]">
                       {ZONE_LABEL[zoneId]}
                     </h3>
                     <span className="text-xs text-neutral-500">
                       {zoneTables.length} mesas · {zoneTables.reduce((s, t) => s + t.capacity, 0)} cubiertos
                     </span>
                   </div>
-                  <div className="relative bg-white/60 backdrop-blur rounded-xl border border-white p-4 min-h-[180px]">
+                  <div className="relative bg-[#111518]/60 backdrop-blur rounded-xl border border-white p-4 min-h-[180px]">
                     {/* Use absolute positioning based on posX/posY */}
                     <div className="relative w-full h-[200px]">
                       {zoneTables.map((t) => (
@@ -386,7 +386,7 @@ function TableShape({
         {table.capacity}
       </span>
       {table.reservations && table.reservations.length > 0 && (
-        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#FF6B35] text-white text-[9px] font-bold flex items-center justify-center">
+        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#C5A059] text-white text-[9px] font-bold flex items-center justify-center">
           {table.reservations.length}
         </span>
       )}
@@ -407,7 +407,7 @@ function TableCard({
   return (
     <button
       onClick={onSelect}
-      className="bg-white rounded-2xl border border-[#ececed] p-4 text-left hover:shadow-md hover:border-[#FF6B35]/40 transition-all"
+      className="bg-[#111518] rounded-2xl border border-white/[0.06] p-4 text-left hover:shadow-md hover:border-[#C5A059]/40 transition-all"
     >
       <div className="flex items-start justify-between mb-3">
         <div
@@ -425,13 +425,13 @@ function TableCard({
         <span
           className={cn(
             "text-[10px] font-medium px-2 py-0.5 rounded-full border",
-            ZONE_COLOR[table.zone] || "bg-neutral-100 text-neutral-600"
+            ZONE_COLOR[table.zone] || "bg-[#1a1f24] text-neutral-400"
           )}
         >
           {ZONE_LABEL[table.zone]}
         </span>
       </div>
-      <p className="font-semibold text-neutral-900 text-sm">
+      <p className="font-semibold text-[#f5f5f0] text-sm">
         {table.name || `Mesa ${table.number}`}
       </p>
       <div className="flex items-center gap-1 text-xs text-neutral-500 mt-0.5">
@@ -442,8 +442,8 @@ function TableCard({
         <TableStatusBadge status={table.status} />
       </div>
       {table.reservations && table.reservations.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-[#f1f1f3] text-xs text-neutral-600">
-          <p className="font-medium text-neutral-700">Próximas reservas:</p>
+        <div className="mt-2 pt-2 border-t border-white/[0.06] text-xs text-neutral-400">
+          <p className="font-medium text-neutral-300">Próximas reservas:</p>
           {table.reservations.slice(0, 2).map((r) => (
             <p key={r.id} className="mt-0.5">
               {formatTime(r.date)} · {r.customerName} ({r.partySize})
@@ -491,18 +491,18 @@ function TableDetailDialog({
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-xs text-neutral-400">Capacidad</p>
-              <p className="font-medium text-neutral-900 flex items-center gap-1">
+              <p className="font-medium text-[#f5f5f0] flex items-center gap-1">
                 <Users className="w-3.5 h-3.5" />
                 {table.capacity} personas
               </p>
             </div>
             <div>
               <p className="text-xs text-neutral-400">Zona</p>
-              <p className="font-medium text-neutral-900">{ZONE_LABEL[table.zone]}</p>
+              <p className="font-medium text-[#f5f5f0]">{ZONE_LABEL[table.zone]}</p>
             </div>
             <div>
               <p className="text-xs text-neutral-400">Forma</p>
-              <p className="font-medium text-neutral-900">
+              <p className="font-medium text-[#f5f5f0]">
                 {SHAPES.find((s) => s.id === table.shape)?.label || table.shape}
               </p>
             </div>
@@ -526,8 +526,8 @@ function TableDetailDialog({
                   className={cn(
                     "px-3 py-2 rounded-lg text-xs font-medium border transition-colors",
                     s.id === table.status
-                      ? "bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed"
-                      : "bg-white text-neutral-700 border-[#ececed] hover:bg-neutral-50"
+                      ? "bg-[#1a1f24] text-neutral-400 border-neutral-200 cursor-not-allowed"
+                      : "bg-white text-neutral-300 border-white/[0.06] hover:bg-[#1a1f24]"
                   )}
                 >
                   {s.label}
@@ -547,17 +547,17 @@ function TableDetailDialog({
                 {table.reservations.map((r) => (
                   <div
                     key={r.id}
-                    className="flex items-center justify-between gap-2 p-2 rounded-lg bg-neutral-50"
+                    className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#1a1f24]"
                   >
                     <div>
-                      <p className="text-sm font-medium text-neutral-900">
+                      <p className="text-sm font-medium text-[#f5f5f0]">
                         {r.customerName}
                       </p>
                       <p className="text-xs text-neutral-500">
                         {formatTime(r.date)} · {r.partySize} pax · {r.shift === "LUNCH" ? "Comida" : "Cena"}
                       </p>
                     </div>
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-white border border-[#ececed] text-neutral-600">
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#111518] border border-white/[0.06] text-neutral-400">
                       {r.status}
                     </span>
                   </div>
@@ -764,7 +764,7 @@ function TableDialog({
               Cancelar
             </Button>
             <Button
-              className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+              className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
               onClick={handleSave}
               disabled={saving}
             >

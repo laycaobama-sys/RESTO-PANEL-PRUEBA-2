@@ -196,7 +196,7 @@ export function ReservationsSection() {
         subtitle="Gestión de reservas por turno, zona y estado"
         actions={
           <Button
-            className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+            className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
             onClick={() => setDialog({ open: true })}
           >
             <Plus className="w-4 h-4 mr-1.5" />
@@ -207,16 +207,16 @@ export function ReservationsSection() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3 mb-5">
-        <SummaryCard label="Total" value={summary.total} cls="bg-white border" />
+        <SummaryCard label="Total" value={summary.total} cls="bg-[#111518] border" />
         <SummaryCard label="Pendientes" value={summary.pending} cls="bg-yellow-50 text-yellow-700 border border-yellow-100" />
         <SummaryCard label="Confirmadas" value={summary.confirmed} cls="bg-green-50 text-green-700 border border-green-100" />
         <SummaryCard label="Sentados" value={summary.seated} cls="bg-blue-50 text-blue-700 border border-blue-100" />
         <SummaryCard label="Cancelados" value={summary.cancelled} cls="bg-red-50 text-red-700 border border-red-100" />
-        <SummaryCard label="Comensales" value={summary.pax} cls="bg-[#FFF3ED] text-[#9a3b18] border border-[#FFE0CB]" />
+        <SummaryCard label="Comensales" value={summary.pax} cls="bg-[#C5A05910] text-[#C5A059] border border-[#C5A05920]" />
       </div>
 
       {/* Filters bar */}
-      <div className="bg-white rounded-2xl border border-[#ececed] p-3 mb-4 flex flex-wrap items-center gap-2">
+      <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-3 mb-4 flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1.5 text-sm text-neutral-500 px-2">
           <Filter className="w-4 h-4" />
           <span className="hidden sm:inline">Filtros:</span>
@@ -227,11 +227,11 @@ export function ReservationsSection() {
             type="date"
             value={filterDate}
             onChange={(e) => setFilterDate(e.target.value)}
-            className="h-8 w-auto border-[#ececed] text-sm"
+            className="h-8 w-auto border-white/[0.06] text-sm"
           />
         </div>
         <Select value={filterShift} onValueChange={setFilterShift}>
-          <SelectTrigger className="h-8 w-auto text-sm border-[#ececed]">
+          <SelectTrigger className="h-8 w-auto text-sm border-white/[0.06]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -243,7 +243,7 @@ export function ReservationsSection() {
           </SelectContent>
         </Select>
         <Select value={filterZone} onValueChange={setFilterZone}>
-          <SelectTrigger className="h-8 w-auto text-sm border-[#ececed]">
+          <SelectTrigger className="h-8 w-auto text-sm border-white/[0.06]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -255,7 +255,7 @@ export function ReservationsSection() {
           </SelectContent>
         </Select>
         <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="h-8 w-auto text-sm border-[#ececed]">
+          <SelectTrigger className="h-8 w-auto text-sm border-white/[0.06]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -288,7 +288,7 @@ export function ReservationsSection() {
           <Loader2 className="w-5 h-5 animate-spin" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-[#ececed]">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06]">
           <EmptyState
             icon={<CalendarCheck className="w-6 h-6" />}
             title="No hay reservas para los filtros seleccionados"
@@ -300,8 +300,8 @@ export function ReservationsSection() {
           {groupedByHour.map(([hour, items]) => (
             <div key={hour}>
               <div className="flex items-center gap-2 mb-2 px-1">
-                <Clock className="w-4 h-4 text-[#FF6B35]" />
-                <h3 className="font-semibold text-neutral-900 text-sm">{hour}</h3>
+                <Clock className="w-4 h-4 text-[#C5A059]" />
+                <h3 className="font-semibold text-[#f5f5f0] text-sm">{hour}</h3>
                 <span className="text-xs text-neutral-500">
                   {items.length} reserva{items.length !== 1 ? "s" : ""} ·{" "}
                   {items
@@ -422,11 +422,11 @@ function ReservationCard({
   onNoShow: () => void;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-[#ececed] p-3 hover:shadow-sm transition-shadow">
+    <div className="bg-[#111518] rounded-xl border border-white/[0.06] p-3 hover:shadow-sm transition-shadow">
       <div className="flex items-start gap-3">
         {/* Time + pax column */}
-        <div className="flex flex-col items-center justify-center min-w-16 pr-3 border-r border-[#ececed]">
-          <p className="text-lg font-bold text-neutral-900">
+        <div className="flex flex-col items-center justify-center min-w-16 pr-3 border-r border-white/[0.06]">
+          <p className="text-lg font-bold text-[#f5f5f0]">
             {formatTime(r.date)}
           </p>
           <div className="flex items-center gap-0.5 text-xs text-neutral-500 mt-0.5">
@@ -439,7 +439,7 @@ function ReservationCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="font-semibold text-neutral-900 text-sm truncate">
+              <p className="font-semibold text-[#f5f5f0] text-sm truncate">
                 {r.customerName}
               </p>
               <p className="text-xs text-neutral-500 flex items-center gap-1 mt-0.5">
@@ -454,17 +454,17 @@ function ReservationCard({
               <span
                 className={cn(
                   "text-[10px] font-medium px-2 py-0.5 rounded-full border",
-                  ZONE_COLOR[r.zone] || "bg-neutral-100 text-neutral-600"
+                  ZONE_COLOR[r.zone] || "bg-[#1a1f24] text-neutral-400"
                 )}
               >
                 {ZONE_LABEL[r.zone] || r.zone}
               </span>
             )}
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#1a1f24] text-neutral-400">
               {SHIFT_LABEL[r.shift] || r.shift}
             </span>
             {r.table && (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#1a1f24] text-neutral-400">
                 Mesa {r.table.number}
               </span>
             )}
@@ -483,7 +483,7 @@ function ReservationCard({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-[#f1f1f3]">
+      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-white/[0.06]">
         {r.status === "PENDING" && (
           <Button
             size="sm"
@@ -545,7 +545,7 @@ function ReservationCard({
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 w-7 p-0 text-neutral-500 hover:text-[#FF6B35]"
+          className="h-7 w-7 p-0 text-neutral-500 hover:text-[#C5A059]"
           onClick={onEdit}
         >
           <Pencil className="w-3.5 h-3.5" />
@@ -734,7 +734,7 @@ function ReservationDialog({
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button
-            className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+            className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
             onClick={handleSave}
             disabled={saving}
           >

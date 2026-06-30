@@ -55,7 +55,7 @@ export function AuditLogsSection() {
             className={cn(
               "px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors border",
               actionFilter === f.id
-                ? "bg-[#FF6B35] text-white border-[#FF6B35]"
+                ? "bg-[#C5A059] text-white border-[#C5A059]"
                 : "bg-[#1f1f23] text-neutral-400 border-[#27272a] hover:bg-[#27272a]"
             )}
           >

@@ -48,25 +48,22 @@ export function Topbar({
   const meta = SECTION_TITLES[section];
 
   return (
-    <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-[#ececed] h-16 flex items-center px-3 sm:px-6 gap-2 sm:gap-3">
+    <header className="sticky top-0 z-30 bg-[#0d0f12]/85 backdrop-blur-md border-b border-white/[0.06] h-16 flex items-center px-3 sm:px-6 gap-2 sm:gap-3">
       <button
         onClick={() => setSidebarOpen(true)}
-        className="lg:hidden p-2 -ml-1 text-neutral-600 hover:bg-neutral-100 rounded-md flex-shrink-0"
+        className="lg:hidden p-2 -ml-1 text-neutral-400 hover:bg-white/[0.03] hover:text-[#f5f5f0] rounded-md flex-shrink-0"
       >
         <MenuIcon className="w-5 h-5" />
       </button>
 
       <div className="min-w-0 flex-shrink-0 lg:flex-1 lg:min-w-0">
-        <h1 className="text-sm sm:text-lg font-semibold text-neutral-900 leading-tight truncate">
+        <h1 className="text-sm sm:text-lg font-semibold text-[#f5f5f0] leading-tight truncate">
           <span className="hidden sm:inline">{meta.title}</span>
-          <span className="sm:hidden">{meta.title.split(' ')[0]}</span>
+          <span className="sm:hidden">{meta.title.split(" ")[0]}</span>
         </h1>
-        <p className="text-xs text-neutral-500 truncate hidden lg:block">
-          {meta.subtitle}
-        </p>
+        <p className="text-xs text-neutral-500 truncate hidden lg:block">{meta.subtitle}</p>
       </div>
 
-      {/* Search: hidden on small mobile, visible from sm */}
       <div className="hidden sm:block flex-1 max-w-md">
         <TenantSearch />
       </div>
@@ -75,37 +72,33 @@ export function Topbar({
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-2 pl-1 pr-1 sm:pr-2 py-1 rounded-full hover:bg-neutral-100 flex-shrink-0">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FF6B35] to-[#F94B1E] text-white flex items-center justify-center text-xs font-semibold">
+          <button className="flex items-center gap-2 pl-1 pr-1 sm:pr-2 py-1 rounded-full hover:bg-white/[0.03] flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] text-[#0a0a0a] flex items-center justify-center text-xs font-semibold">
               {user.name.slice(0, 1).toUpperCase()}
             </div>
-            <span className="hidden sm:inline text-sm font-medium text-neutral-700">
-              {user.name.split(" ")[0]}
-            </span>
-            <ChevronDown className="w-4 h-4 text-neutral-400 hidden sm:block" />
+            <span className="hidden sm:inline text-sm font-medium text-neutral-300">{user.name.split(" ")[0]}</span>
+            <ChevronDown className="w-4 h-4 text-neutral-500 hidden sm:block" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel>
+        <DropdownMenuContent align="end" className="w-56 bg-[#111518] border-white/[0.06]">
+          <DropdownMenuLabel className="text-[#f5f5f0]">
             <div>
               <p className="text-sm font-medium">{user.name}</p>
               <p className="text-xs text-neutral-500 font-normal">{user.email}</p>
             </div>
           </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem disabled>
+          <DropdownMenuSeparator className="bg-white/[0.06]" />
+          <DropdownMenuItem disabled className="text-neutral-400">
             <UserIcon className="w-4 h-4 mr-2" />
             Mi perfil
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => useAppStore.getState().setSection("settings")}
-          >
+          <DropdownMenuItem onClick={() => useAppStore.getState().setSection("settings")} className="text-neutral-300 hover:bg-white/[0.03] hover:text-[#f5f5f0]">
             <Settings className="w-4 h-4 mr-2" />
             Ajustes
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
+          <DropdownMenuSeparator className="bg-white/[0.06]" />
           <DropdownMenuItem
-            className="text-red-600 focus:text-red-700"
+            className="text-red-400 focus:text-red-300 hover:bg-red-500/10"
             onClick={async () => {
               toast.success("Cerrando sesión...");
               await signOut({ redirect: false, callbackUrl: "/" });

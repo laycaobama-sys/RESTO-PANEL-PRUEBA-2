@@ -37,7 +37,7 @@ export function UsersSection() {
           placeholder="Buscar usuario por email o nombre..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="h-9 px-3 bg-[#1f1f23] border border-[#27272a] rounded-md text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#FF6B35] flex-1 min-w-48"
+          className="h-9 px-3 bg-[#1f1f23] border border-[#27272a] rounded-md text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#C5A059] flex-1 min-w-48"
         />
         <select
           value={roleFilter}
@@ -74,7 +74,7 @@ export function UsersSection() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${
-                        u.is_super_admin ? 'bg-gradient-to-br from-[#FF6B35] to-[#F94B1E] text-white' : 'bg-[#27272a] text-neutral-300'
+                        u.is_super_admin ? 'bg-gradient-to-br from-[#C5A059] to-[#b08d4e] text-white' : 'bg-[#27272a] text-neutral-300'
                       }`}>
                         {u.name.slice(0, 1).toUpperCase()}
                       </div>

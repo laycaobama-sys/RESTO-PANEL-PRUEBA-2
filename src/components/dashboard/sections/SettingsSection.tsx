@@ -139,7 +139,7 @@ export function SettingsSection() {
         subtitle="Configura tu restaurante y tu carta pública"
         actions={
           <Button
-            className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+            className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
             disabled={!dirty || saveMutation.isPending}
             onClick={() => saveMutation.mutate()}
           >
@@ -156,27 +156,27 @@ export function SettingsSection() {
       />
 
       <Tabs defaultValue="general">
-        <TabsList className="bg-white border border-[#ececed] h-9 p-1 mb-5">
-          <TabsTrigger value="general" className="data-[state=active]:bg-[#FFF3ED] data-[state=active]:text-[#FF6B35]">
+        <TabsList className="bg-[#111518] border border-white/[0.06] h-9 p-1 mb-5">
+          <TabsTrigger value="general" className="data-[state=active]:bg-[#C5A05910] data-[state=active]:text-[#C5A059]">
             General
           </TabsTrigger>
-          <TabsTrigger value="branding" className="data-[state=active]:bg-[#FFF3ED] data-[state=active]:text-[#FF6B35]">
+          <TabsTrigger value="branding" className="data-[state=active]:bg-[#C5A05910] data-[state=active]:text-[#C5A059]">
             Branding
           </TabsTrigger>
-          <TabsTrigger value="hours" className="data-[state=active]:bg-[#FFF3ED] data-[state=active]:text-[#FF6B35]">
+          <TabsTrigger value="hours" className="data-[state=active]:bg-[#C5A05910] data-[state=active]:text-[#C5A059]">
             Horarios
           </TabsTrigger>
-          <TabsTrigger value="modules" className="data-[state=active]:bg-[#FFF3ED] data-[state=active]:text-[#FF6B35]">
+          <TabsTrigger value="modules" className="data-[state=active]:bg-[#C5A05910] data-[state=active]:text-[#C5A059]">
             Módulos
           </TabsTrigger>
         </TabsList>
 
         {/* General */}
         <TabsContent value="general">
-          <div className="bg-white rounded-2xl border border-[#ececed] p-6 max-w-2xl">
+          <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-6 max-w-2xl">
             <div className="flex items-center gap-2 mb-5">
-              <Store className="w-4 h-4 text-[#FF6B35]" />
-              <h3 className="font-semibold text-neutral-900">
+              <Store className="w-4 h-4 text-[#C5A059]" />
+              <h3 className="font-semibold text-[#f5f5f0]">
                 Información del restaurante
               </h3>
             </div>
@@ -223,9 +223,9 @@ export function SettingsSection() {
                   placeholder="https://lazamorana.es"
                 />
               </div>
-              <div className="col-span-2 rounded-lg bg-neutral-50 p-3 text-xs text-neutral-600">
-                <p className="font-medium text-neutral-700 mb-1">URL pública de tu carta</p>
-                <code className="text-[#FF6B35]">/api/public/{current.slug}</code>
+              <div className="col-span-2 rounded-lg bg-[#1a1f24] p-3 text-xs text-neutral-400">
+                <p className="font-medium text-neutral-300 mb-1">URL pública de tu carta</p>
+                <code className="text-[#C5A059]">/api/public/{current.slug}</code>
                 <p className="mt-1">Cualquier cambio en tu panel se refleja en esta URL.</p>
               </div>
             </div>
@@ -234,14 +234,14 @@ export function SettingsSection() {
 
         {/* Branding */}
         <TabsContent value="branding">
-          <div className="bg-white rounded-2xl border border-[#ececed] p-6 max-w-2xl">
+          <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-6 max-w-2xl">
             <div className="flex items-center gap-2 mb-5">
-              <ImageIcon className="w-4 h-4 text-[#FF6B35]" />
-              <h3 className="font-semibold text-neutral-900">Branding y logo</h3>
+              <ImageIcon className="w-4 h-4 text-[#C5A059]" />
+              <h3 className="font-semibold text-[#f5f5f0]">Branding y logo</h3>
             </div>
 
             <div className="flex items-center gap-4 mb-6">
-              <div className="w-24 h-24 rounded-2xl bg-neutral-100 border-2 border-dashed border-neutral-200 overflow-hidden flex items-center justify-center">
+              <div className="w-24 h-24 rounded-2xl bg-[#1a1f24] border-2 border-dashed border-neutral-200 overflow-hidden flex items-center justify-center">
                 {current.logo ? (
                   <img src={current.logo} alt="logo" className="w-full h-full object-cover" />
                 ) : (
@@ -249,7 +249,7 @@ export function SettingsSection() {
                 )}
               </div>
               <div>
-                <label className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-[#ececed] rounded-lg text-sm cursor-pointer hover:bg-neutral-50">
+                <label className="inline-flex items-center gap-2 px-3 py-2 bg-[#111518] border border-white/[0.06] rounded-lg text-sm cursor-pointer hover:bg-[#1a1f24]">
                   {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
                   {uploading ? "Subiendo..." : "Subir logo"}
                   <input
@@ -274,7 +274,7 @@ export function SettingsSection() {
                     type="color"
                     value={current.primaryColor}
                     onChange={(e) => update("primaryColor", e.target.value)}
-                    className="w-12 h-10 rounded-md border border-[#ececed] cursor-pointer"
+                    className="w-12 h-10 rounded-md border border-white/[0.06] cursor-pointer"
                   />
                   <Input value={current.primaryColor} onChange={(e) => update("primaryColor", e.target.value)} />
                 </div>
@@ -289,10 +289,10 @@ export function SettingsSection() {
 
         {/* Hours */}
         <TabsContent value="hours">
-          <div className="bg-white rounded-2xl border border-[#ececed] p-6 max-w-2xl">
+          <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-6 max-w-2xl">
             <div className="flex items-center gap-2 mb-5">
-              <Clock className="w-4 h-4 text-[#FF6B35]" />
-              <h3 className="font-semibold text-neutral-900">Horarios de apertura</h3>
+              <Clock className="w-4 h-4 text-[#C5A059]" />
+              <h3 className="font-semibold text-[#f5f5f0]">Horarios de apertura</h3>
             </div>
             <div className="space-y-2">
               {[
@@ -304,8 +304,8 @@ export function SettingsSection() {
                 { day: "Sábado", o: "satOpen", c: "satClose" },
                 { day: "Domingo", o: "sunOpen", c: "sunClose" },
               ].map((d) => (
-                <div key={d.o} className="grid grid-cols-3 items-center gap-3 py-2 border-b border-[#f1f1f3] last:border-0">
-                  <Label className="text-sm text-neutral-700">{d.day}</Label>
+                <div key={d.o} className="grid grid-cols-3 items-center gap-3 py-2 border-b border-white/[0.06] last:border-0">
+                  <Label className="text-sm text-neutral-300">{d.day}</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       type="time"
@@ -348,10 +348,10 @@ export function SettingsSection() {
 
         {/* Modules */}
         <TabsContent value="modules">
-          <div className="bg-white rounded-2xl border border-[#ececed] p-6 max-w-2xl">
+          <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-6 max-w-2xl">
             <div className="flex items-center gap-2 mb-5">
-              <ToggleLeft className="w-4 h-4 text-[#FF6B35]" />
-              <h3 className="font-semibold text-neutral-900">Módulos visibles</h3>
+              <ToggleLeft className="w-4 h-4 text-[#C5A059]" />
+              <h3 className="font-semibold text-[#f5f5f0]">Módulos visibles</h3>
             </div>
             <div className="space-y-4">
               <ModuleToggle
@@ -392,15 +392,15 @@ function ModuleToggle({
   onCheckedChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 p-3 rounded-lg border border-[#ececed]">
+    <div className="flex items-start justify-between gap-4 p-3 rounded-lg border border-white/[0.06]">
       <div className="flex-1">
-        <p className="font-medium text-sm text-neutral-900">{title}</p>
+        <p className="font-medium text-sm text-[#f5f5f0]">{title}</p>
         <p className="text-xs text-neutral-500 mt-0.5">{description}</p>
       </div>
       <Switch
         checked={checked}
         onCheckedChange={onCheckedChange}
-        className="data-[state=checked]:bg-[#FF6B35]"
+        className="data-[state=checked]:bg-[#C5A059]"
       />
     </div>
   );

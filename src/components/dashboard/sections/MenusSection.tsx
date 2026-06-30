@@ -165,7 +165,7 @@ export function MenusSection() {
               Categoría
             </Button>
             <Button
-              className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+              className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
               onClick={() => setItemDialog({ open: true })}
             >
               <Plus className="w-4 h-4 mr-1.5" />
@@ -176,11 +176,11 @@ export function MenusSection() {
       />
 
       {/* Sync notice */}
-      <div className="mb-4 flex items-start gap-2.5 bg-[#FFF3ED] border border-[#FFE0CB] rounded-xl p-3 text-sm">
-        <div className="w-8 h-8 rounded-full bg-[#FF6B35]/10 flex items-center justify-center flex-shrink-0">
-          <Check className="w-4 h-4 text-[#FF6B35]" />
+      <div className="mb-4 flex items-start gap-2.5 bg-[#C5A05910] border border-[#C5A05920] rounded-xl p-3 text-sm">
+        <div className="w-8 h-8 rounded-full bg-[#C5A059]/10 flex items-center justify-center flex-shrink-0">
+          <Check className="w-4 h-4 text-[#C5A059]" />
         </div>
-        <div className="flex-1 text-[#9a3b18]">
+        <div className="flex-1 text-[#C5A059]">
           <p className="font-medium">Sincronización con web pública activada</p>
           <p className="text-xs mt-0.5 opacity-80">
             Cualquier cambio (precio, foto, descripción, visible/oculto) se
@@ -197,8 +197,8 @@ export function MenusSection() {
           className={cn(
             "px-3.5 py-1.5 text-sm font-medium rounded-full whitespace-nowrap border transition-colors",
             activeCategory === "ALL"
-              ? "bg-[#FF6B35] text-white border-[#FF6B35]"
-              : "bg-white text-neutral-600 border-[#ececed] hover:bg-neutral-50"
+              ? "bg-[#C5A059] text-white border-[#C5A059]"
+              : "bg-white text-neutral-400 border-white/[0.06] hover:bg-[#1a1f24]"
           )}
         >
           Todos ({items.length})
@@ -212,8 +212,8 @@ export function MenusSection() {
               className={cn(
                 "px-3.5 py-1.5 text-sm font-medium rounded-full whitespace-nowrap border transition-colors flex items-center gap-1.5",
                 activeCategory === c.id
-                  ? "bg-[#FF6B35] text-white border-[#FF6B35]"
-                  : "bg-white text-neutral-600 border-[#ececed] hover:bg-neutral-50"
+                  ? "bg-[#C5A059] text-white border-[#C5A059]"
+                  : "bg-white text-neutral-400 border-white/[0.06] hover:bg-[#1a1f24]"
               )}
             >
               {c.icon && <span>{c.icon}</span>}
@@ -232,14 +232,14 @@ export function MenusSection() {
             placeholder="Buscar plato..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-10 bg-white border-[#ececed]"
+            className="pl-9 h-10 bg-[#111518] border-white/[0.06]"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm text-neutral-600 cursor-pointer bg-white border border-[#ececed] rounded-lg px-3 h-10">
+        <label className="flex items-center gap-2 text-sm text-neutral-400 cursor-pointer bg-[#111518] border border-white/[0.06] rounded-lg px-3 h-10">
           <Switch
             checked={showHidden}
             onCheckedChange={setShowHidden}
-            className="data-[state=checked]:bg-[#FF6B35]"
+            className="data-[state=checked]:bg-[#C5A059]"
           />
           Mostrar ocultos
         </label>
@@ -251,7 +251,7 @@ export function MenusSection() {
           <Loader2 className="w-5 h-5 animate-spin" />
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-[#ececed]">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06]">
           <EmptyState
             icon={<BookOpen className="w-6 h-6" />}
             title={search ? "Sin resultados" : "Tu carta está vacía"}
@@ -263,7 +263,7 @@ export function MenusSection() {
             action={
               !search && (
                 <Button
-                  className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+                  className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
                   onClick={() => setItemDialog({ open: true })}
                 >
                   <Plus className="w-4 h-4 mr-1.5" />
@@ -394,7 +394,7 @@ function ItemCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay }}
       className={cn(
-        "bg-white rounded-2xl border border-[#ececed] overflow-hidden group hover:shadow-md transition-all",
+        "bg-[#111518] rounded-2xl border border-white/[0.06] overflow-hidden group hover:shadow-md transition-all",
         !item.visible && "opacity-60"
       )}
     >
@@ -428,7 +428,7 @@ function ItemCard({
         <div className="absolute top-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={onToggleVisibility}
-            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur flex items-center justify-center text-neutral-700 hover:bg-white shadow-sm"
+            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur flex items-center justify-center text-neutral-300 hover:bg-white shadow-sm"
             title={item.visible ? "Ocultar" : "Mostrar"}
           >
             {item.visible ? (
@@ -443,10 +443,10 @@ function ItemCard({
       {/* Content */}
       <div className="p-4">
         <div className="flex items-start justify-between gap-2 mb-1">
-          <h3 className="font-semibold text-neutral-900 text-sm leading-tight">
+          <h3 className="font-semibold text-[#f5f5f0] text-sm leading-tight">
             {item.name}
           </h3>
-          <span className="font-bold text-[#FF6B35] whitespace-nowrap">
+          <span className="font-bold text-[#C5A059] whitespace-nowrap">
             {formatCurrency(item.price)}
           </span>
         </div>
@@ -460,8 +460,8 @@ function ItemCard({
             Alérgenos: {item.allergens}
           </p>
         )}
-        <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#ececed]">
-          <label className="flex items-center gap-1.5 text-xs text-neutral-600 cursor-pointer">
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
+          <label className="flex items-center gap-1.5 text-xs text-neutral-400 cursor-pointer">
             <Switch
               checked={item.available}
               onCheckedChange={onToggleAvailability}
@@ -473,7 +473,7 @@ function ItemCard({
             <Button
               size="sm"
               variant="ghost"
-              className="h-8 w-8 p-0 text-neutral-500 hover:text-[#FF6B35] hover:bg-[#FFF3ED]"
+              className="h-8 w-8 p-0 text-neutral-500 hover:text-[#C5A059] hover:bg-[#C5A05910]"
               onClick={onEdit}
             >
               <Pencil className="w-3.5 h-3.5" />
@@ -579,7 +579,7 @@ function ItemDialog({
           <div className="md:col-span-2">
             <Label className="text-xs mb-1.5 block">Imagen del plato</Label>
             <div className="flex items-center gap-4">
-              <div className="w-28 h-28 rounded-xl bg-neutral-100 border-2 border-dashed border-neutral-200 overflow-hidden flex items-center justify-center">
+              <div className="w-28 h-28 rounded-xl bg-[#1a1f24] border-2 border-dashed border-neutral-200 overflow-hidden flex items-center justify-center">
                 {image ? (
                   <img
                     src={image}
@@ -591,7 +591,7 @@ function ItemDialog({
                 )}
               </div>
               <div className="flex-1 space-y-2">
-                <label className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-[#ececed] rounded-lg text-sm cursor-pointer hover:bg-neutral-50">
+                <label className="inline-flex items-center gap-2 px-3 py-2 bg-[#111518] border border-white/[0.06] rounded-lg text-sm cursor-pointer hover:bg-[#1a1f24]">
                   {uploading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
@@ -687,7 +687,7 @@ function ItemDialog({
               <Switch
                 checked={visible}
                 onCheckedChange={setVisible}
-                className="data-[state=checked]:bg-[#FF6B35]"
+                className="data-[state=checked]:bg-[#C5A059]"
               />
               Visible en carta pública
             </label>
@@ -699,7 +699,7 @@ function ItemDialog({
             Cancelar
           </Button>
           <Button
-            className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+            className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
             onClick={handleSave}
             disabled={saving}
           >
@@ -790,7 +790,7 @@ function CategoryDialog({
             <Switch
               checked={visible}
               onCheckedChange={setVisible}
-              className="data-[state=checked]:bg-[#FF6B35]"
+              className="data-[state=checked]:bg-[#C5A059]"
             />
             Visible en la carta pública
           </label>
@@ -800,7 +800,7 @@ function CategoryDialog({
             Cancelar
           </Button>
           <Button
-            className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+            className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
             onClick={handleSave}
             disabled={saving}
           >

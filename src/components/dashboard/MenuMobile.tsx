@@ -1,7 +1,6 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { Menu as MenuIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
@@ -17,9 +16,9 @@ const SECTIONS = [
 ] as const;
 
 export function MenuMobile({ restaurantName }: { restaurantName: string }) {
-  const { section, setSection, sidebarOpen } = useAppStore();
+  const { section, setSection } = useAppStore();
   return (
-    <div className="lg:hidden sticky top-16 z-20 bg-white/85 backdrop-blur border-b border-[#ececed] overflow-x-auto">
+    <div className="lg:hidden sticky top-16 z-20 bg-[#0d0f12]/85 backdrop-blur border-b border-white/[0.06] overflow-x-auto">
       <div className="flex items-center gap-1 px-3 py-2 min-w-max">
         {SECTIONS.map((s) => (
           <button
@@ -28,8 +27,8 @@ export function MenuMobile({ restaurantName }: { restaurantName: string }) {
             className={cn(
               "px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors",
               section === s.id
-                ? "bg-[#FF6B35] text-white"
-                : "text-neutral-600 hover:bg-neutral-100"
+                ? "bg-[#C5A059] text-[#0a0a0a]"
+                : "text-neutral-400 hover:bg-white/[0.03] hover:text-[#f5f5f0]"
             )}
           >
             {s.short}

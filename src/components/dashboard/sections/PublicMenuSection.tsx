@@ -106,16 +106,16 @@ export function PublicMenuSection({ slug }: { slug: string }) {
         }
       />
 
-      <div className="bg-white rounded-2xl border border-[#ececed] overflow-hidden max-w-5xl mx-auto">
+      <div className="bg-[#111518] rounded-2xl border border-white/[0.06] overflow-hidden max-w-5xl mx-auto">
         {/* Browser chrome */}
-        <div className="border-b border-[#ececed] bg-neutral-50 px-4 py-2.5 flex items-center gap-2">
+        <div className="border-b border-white/[0.06] bg-[#1a1f24] px-4 py-2.5 flex items-center gap-2">
           <div className="flex gap-1.5">
             <div className="w-3 h-3 rounded-full bg-red-400" />
             <div className="w-3 h-3 rounded-full bg-yellow-400" />
             <div className="w-3 h-3 rounded-full bg-green-400" />
           </div>
           <div className="flex-1 mx-4">
-            <div className="bg-white border border-[#ececed] rounded-md px-3 py-1 text-xs text-neutral-500 font-mono truncate">
+            <div className="bg-[#111518] border border-white/[0.06] rounded-md px-3 py-1 text-xs text-neutral-500 font-mono truncate">
               {origin}
               {publicUrl}
             </div>
@@ -124,9 +124,9 @@ export function PublicMenuSection({ slug }: { slug: string }) {
         </div>
 
         {/* Restaurant hero */}
-        <div className="relative bg-gradient-to-br from-[#FF6B35] via-[#F94B1E] to-[#D43A12] text-white p-8 sm:p-10 overflow-hidden">
+        <div className="relative bg-gradient-to-br from-[#C5A059] via-[#b08d4e] to-[#9a7d3e] text-white p-8 sm:p-10 overflow-hidden">
           <div className="absolute inset-0 opacity-15">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-white rounded-full blur-3xl" />
+            <div className="absolute top-0 right-0 w-64 h-64 bg-[#111518] rounded-full blur-3xl" />
             <div className="absolute bottom-0 left-1/3 w-72 h-72 bg-yellow-200 rounded-full blur-3xl" />
           </div>
           <div className="relative z-10 flex items-start gap-4">
@@ -169,13 +169,13 @@ export function PublicMenuSection({ slug }: { slug: string }) {
         </div>
 
         {/* Sync indicator */}
-        <div className="bg-[#FFF3ED] border-b border-[#FFE0CB] px-6 py-2.5 flex items-center gap-2 text-xs text-[#9a3b18]">
+        <div className="bg-[#C5A05910] border-b border-[#C5A05920] px-6 py-2.5 flex items-center gap-2 text-xs text-[#C5A059]">
           <Check className="w-3.5 h-3.5" />
           Carta sincronizada en tiempo real · Última actualización: ahora mismo
         </div>
 
         {/* Categories nav */}
-        <div className="sticky top-0 bg-white border-b border-[#ececed] z-10">
+        <div className="sticky top-0 bg-[#111518] border-b border-white/[0.06] z-10">
           <div className="px-4 py-3 overflow-x-auto">
             <div className="flex gap-1 min-w-max">
               {categories.map((c) => (
@@ -185,8 +185,8 @@ export function PublicMenuSection({ slug }: { slug: string }) {
                   className={cn(
                     "px-3 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors",
                     activeCategory?.id === c.id
-                      ? "bg-[#FF6B35] text-white"
-                      : "text-neutral-600 hover:bg-neutral-100"
+                      ? "bg-[#C5A059] text-white"
+                      : "text-neutral-400 hover:bg-[#1a1f24]"
                   )}
                 >
                   {c.icon} {c.name}
@@ -200,7 +200,7 @@ export function PublicMenuSection({ slug }: { slug: string }) {
         <div className="p-4 sm:p-6">
           {activeCategory ? (
             <>
-              <h3 className="text-lg font-semibold text-neutral-900 mb-4">
+              <h3 className="text-lg font-semibold text-[#f5f5f0] mb-4">
                 {activeCategory.icon} {activeCategory.name}
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -208,13 +208,13 @@ export function PublicMenuSection({ slug }: { slug: string }) {
                   <div
                     key={item.id}
                     className={cn(
-                      "flex gap-3 p-3 rounded-xl border border-[#ececed] hover:border-[#FF6B35]/40 hover:shadow-sm transition-all",
+                      "flex gap-3 p-3 rounded-xl border border-white/[0.06] hover:border-[#C5A059]/40 hover:shadow-sm transition-all",
                       !item.available && "opacity-50"
                     )}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="font-medium text-neutral-900 text-sm">
+                        <p className="font-medium text-[#f5f5f0] text-sm">
                           {item.name}
                           {!item.available && (
                             <span className="ml-2 text-[10px] font-medium text-red-600 uppercase">
@@ -222,7 +222,7 @@ export function PublicMenuSection({ slug }: { slug: string }) {
                             </span>
                           )}
                         </p>
-                        <span className="font-bold text-[#FF6B35] whitespace-nowrap">
+                        <span className="font-bold text-[#C5A059] whitespace-nowrap">
                           {formatCurrency(item.price, restaurant.currency)}
                         </span>
                       </div>
@@ -238,7 +238,7 @@ export function PublicMenuSection({ slug }: { slug: string }) {
                       )}
                     </div>
                     {item.image && (
-                      <div className="w-20 h-20 rounded-lg overflow-hidden bg-neutral-100 flex-shrink-0">
+                      <div className="w-20 h-20 rounded-lg overflow-hidden bg-[#1a1f24] flex-shrink-0">
                         <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                       </div>
                     )}
@@ -259,7 +259,7 @@ export function PublicMenuSection({ slug }: { slug: string }) {
         </div>
 
         {/* Footer */}
-        <div className="border-t border-[#ececed] px-6 py-4 text-center text-xs text-neutral-400">
+        <div className="border-t border-white/[0.06] px-6 py-4 text-center text-xs text-neutral-400">
           © {new Date().getFullYear()} {restaurant.name} · Powered by RestoPanel
         </div>
       </div>

@@ -102,7 +102,7 @@ export function KitchenSection() {
           <Loader2 className="w-5 h-5 animate-spin" />
         </div>
       ) : orders.length === 0 && pending.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-[#ececed]">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06]">
           <EmptyState
             icon={<ChefHat className="w-6 h-6" />}
             title="Cocina al día"
@@ -115,8 +115,8 @@ export function KitchenSection() {
           {orders.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <Flame className="w-4 h-4 text-[#FF6B35]" />
-                <h3 className="font-semibold text-neutral-900">
+                <Flame className="w-4 h-4 text-[#C5A059]" />
+                <h3 className="font-semibold text-[#f5f5f0]">
                   En preparación
                 </h3>
                 <span className="text-xs text-neutral-500">
@@ -144,7 +144,7 @@ export function KitchenSection() {
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Clock className="w-4 h-4 text-yellow-500" />
-                <h3 className="font-semibold text-neutral-900">
+                <h3 className="font-semibold text-[#f5f5f0]">
                   En cola (pendientes)
                 </h3>
                 <span className="text-xs text-neutral-500">
@@ -200,20 +200,20 @@ function KitchenCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay }}
       className={cn(
-        "bg-white rounded-2xl border-2 p-4",
+        "bg-[#111518] rounded-2xl border-2 p-4",
         urgent
           ? "border-red-200"
           : warning
           ? "border-yellow-200"
           : pending
-          ? "border-[#ececed]"
-          : "border-[#FF6B35]/30"
+          ? "border-white/[0.06]"
+          : "border-[#C5A059]/30"
       )}
     >
       <div className="flex items-start justify-between mb-2">
         <div>
           <p className="text-xs text-neutral-400">#{order.number}</p>
-          <p className="font-bold text-neutral-900 text-base">
+          <p className="font-bold text-[#f5f5f0] text-base">
             {order.table?.name || order.table?.number ? `Mesa ${order.table?.number}` : "Para llevar"}
           </p>
         </div>
@@ -224,26 +224,26 @@ function KitchenCard({
               ? "bg-red-100 text-red-700"
               : warning
               ? "bg-yellow-100 text-yellow-700"
-              : "bg-neutral-100 text-neutral-600"
+              : "bg-[#1a1f24] text-neutral-400"
           )}
         >
           {minutes} min
         </div>
       </div>
 
-      <div className="space-y-1.5 mb-3 border-t border-dashed border-[#ececed] pt-3">
+      <div className="space-y-1.5 mb-3 border-t border-dashed border-white/[0.06] pt-3">
         {order.orderItems.map((i) => (
           <div key={i.id} className="text-sm">
             <div className="flex items-baseline gap-2">
               <span
                 className={cn(
                   "inline-flex items-center justify-center min-w-5 h-5 px-1 rounded text-xs font-bold",
-                  pending ? "bg-yellow-100 text-yellow-700" : "bg-[#FF6B35] text-white"
+                  pending ? "bg-yellow-100 text-yellow-700" : "bg-[#C5A059] text-white"
                 )}
               >
                 {i.quantity}
               </span>
-              <span className="font-medium text-neutral-900">
+              <span className="font-medium text-[#f5f5f0]">
                 {i.menuItem.name}
               </span>
             </div>

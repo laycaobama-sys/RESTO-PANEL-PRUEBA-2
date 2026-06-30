@@ -96,7 +96,7 @@ export function DashboardSection() {
         subtitle="Resumen de actividad de tu restaurante"
         actions={
           <Button
-            className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+            className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
             onClick={() => setSection("orders")}
           >
             <ClipboardList className="w-4 h-4 mr-1.5" />
@@ -179,18 +179,18 @@ export function DashboardSection() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: 0.4 }}
-        className="bg-white rounded-2xl border border-[#ececed] p-5"
+        className="bg-[#111518] rounded-2xl border border-white/[0.06] p-5"
       >
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="font-semibold text-neutral-900">Servicios de hoy</h3>
+            <h3 className="font-semibold text-[#f5f5f0]">Servicios de hoy</h3>
             <p className="text-xs text-neutral-500">Comida y cena · reservas confirmadas</p>
           </div>
           <div className="flex items-center gap-3 text-xs">
-            <span className="flex items-center gap-1.5 text-neutral-600">
-              <span className="w-2 h-2 rounded-full bg-[#FF6B35]" /> Comida
+            <span className="flex items-center gap-1.5 text-neutral-400">
+              <span className="w-2 h-2 rounded-full bg-[#C5A059]" /> Comida
             </span>
-            <span className="flex items-center gap-1.5 text-neutral-600">
+            <span className="flex items-center gap-1.5 text-neutral-400">
               <span className="w-2 h-2 rounded-full bg-[#0EA5E9]" /> Cena
             </span>
           </div>
@@ -211,7 +211,7 @@ export function DashboardSection() {
             color="blue"
           />
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-[#ececed]">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-white/[0.06]">
           <MiniStat label="Confirmadas" value={data?.todayReservations?.confirmed ?? 0} cls="text-green-600" />
           <MiniStat label="Pendientes" value={data?.todayReservations?.pending ?? 0} cls="text-yellow-600" />
           <MiniStat label="Canceladas" value={data?.todayReservations?.cancelled ?? 0} cls="text-red-600" />
@@ -258,11 +258,11 @@ export function DashboardSection() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.4 }}
-          className="lg:col-span-2 bg-white rounded-2xl border border-[#ececed] p-5"
+          className="lg:col-span-2 bg-[#111518] rounded-2xl border border-white/[0.06] p-5"
         >
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="font-semibold text-neutral-900">
+              <h3 className="font-semibold text-[#f5f5f0]">
                 Ventas últimos 7 días
               </h3>
               <p className="text-xs text-neutral-500">
@@ -271,7 +271,7 @@ export function DashboardSection() {
             </div>
             <div className="text-right">
               <p className="text-xs text-neutral-500">Total semana</p>
-              <p className="text-lg font-bold text-neutral-900">
+              <p className="text-lg font-bold text-[#f5f5f0]">
                 {formatCurrency(
                   data?.daily.reduce((s, d) => s + d.revenue, 0) || 0
                 )}
@@ -283,8 +283,8 @@ export function DashboardSection() {
               <AreaChart data={data?.daily || []}>
                 <defs>
                   <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#FF6B35" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#FF6B35" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#C5A059" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="#C5A059" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid
@@ -328,10 +328,10 @@ export function DashboardSection() {
                 <Area
                   type="monotone"
                   dataKey="revenue"
-                  stroke="#FF6B35"
+                  stroke="#C5A059"
                   strokeWidth={2.5}
                   fill="url(#revGrad)"
-                  dot={{ r: 4, fill: "#FF6B35", strokeWidth: 0 }}
+                  dot={{ r: 4, fill: "#C5A059", strokeWidth: 0 }}
                   activeDot={{ r: 6 }}
                 />
               </AreaChart>
@@ -344,11 +344,11 @@ export function DashboardSection() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.45 }}
-          className="bg-white rounded-2xl border border-[#ececed] p-5"
+          className="bg-[#111518] rounded-2xl border border-white/[0.06] p-5"
         >
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="font-semibold text-neutral-900">Top platos</h3>
+              <h3 className="font-semibold text-[#f5f5f0]">Top platos</h3>
               <p className="text-xs text-neutral-500">Más vendidos (7 días)</p>
             </div>
             <Utensils className="w-4 h-4 text-neutral-400" />
@@ -356,18 +356,18 @@ export function DashboardSection() {
           <div className="space-y-3">
             {(data?.topItems || []).slice(0, 5).map((item, i) => (
               <div key={i} className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center text-xs font-semibold text-neutral-500">
+                <div className="w-8 h-8 rounded-lg bg-[#1a1f24] flex items-center justify-center text-xs font-semibold text-neutral-500">
                   {i + 1}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-neutral-900 truncate">
+                  <p className="text-sm font-medium text-[#f5f5f0] truncate">
                     {item.name}
                   </p>
                   <p className="text-xs text-neutral-500">
                     {item.quantity} uds · {formatCurrency(item.price)}
                   </p>
                 </div>
-                <div className="text-sm font-semibold text-[#FF6B35]">
+                <div className="text-sm font-semibold text-[#C5A059]">
                   {item.quantity}
                 </div>
               </div>
@@ -387,11 +387,11 @@ export function DashboardSection() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.5 }}
-          className="lg:col-span-2 bg-white rounded-2xl border border-[#ececed] p-5"
+          className="lg:col-span-2 bg-[#111518] rounded-2xl border border-white/[0.06] p-5"
         >
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="font-semibold text-neutral-900">Horas punta</h3>
+              <h3 className="font-semibold text-[#f5f5f0]">Horas punta</h3>
               <p className="text-xs text-neutral-500">
                 Distribución de pedidos por hora (7 días)
               </p>
@@ -426,7 +426,7 @@ export function DashboardSection() {
                     fontSize: 12,
                   }}
                 />
-                <Bar dataKey="count" fill="#FF6B35" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="count" fill="#C5A059" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -437,13 +437,13 @@ export function DashboardSection() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.55 }}
-          className="bg-white rounded-2xl border border-[#ececed] p-5"
+          className="bg-[#111518] rounded-2xl border border-white/[0.06] p-5"
         >
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-neutral-900">Estado de mesas</h3>
+            <h3 className="font-semibold text-[#f5f5f0]">Estado de mesas</h3>
             <button
               onClick={() => setSection("tables")}
-              className="text-xs text-[#FF6B35] font-medium flex items-center gap-0.5 hover:underline"
+              className="text-xs text-[#C5A059] font-medium flex items-center gap-0.5 hover:underline"
             >
               Ver todas <ArrowUpRight className="w-3 h-3" />
             </button>
@@ -470,10 +470,10 @@ export function DashboardSection() {
               cls="bg-blue-50 text-blue-700"
             />
           </div>
-          <div className="mt-4 pt-4 border-t border-[#ececed]">
+          <div className="mt-4 pt-4 border-t border-white/[0.06]">
             <div className="flex items-center justify-between text-sm">
               <span className="text-neutral-500">Ocupación</span>
-              <span className="font-semibold text-neutral-900">
+              <span className="font-semibold text-[#f5f5f0]">
                 {data?.tablesSummary.total
                   ? Math.round(
                       ((data.tablesSummary.occupied +
@@ -485,7 +485,7 @@ export function DashboardSection() {
                 %
               </span>
             </div>
-            <div className="mt-2 h-2 rounded-full bg-neutral-100 overflow-hidden">
+            <div className="mt-2 h-2 rounded-full bg-[#1a1f24] overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{
@@ -501,7 +501,7 @@ export function DashboardSection() {
                   }%`,
                 }}
                 transition={{ duration: 0.5 }}
-                className="h-full bg-gradient-to-r from-[#FF6B35] to-[#F94B1E] rounded-full"
+                className="h-full bg-gradient-to-r from-[#C5A059] to-[#b08d4e] rounded-full"
               />
             </div>
           </div>
@@ -541,23 +541,23 @@ function ServiceCard({
   pax: number;
   color: "primary" | "blue";
 }) {
-  const accentBg = color === "primary" ? "bg-[#FFF3ED] text-[#FF6B35]" : "bg-blue-50 text-blue-600";
-  const barColor = color === "primary" ? "bg-[#FF6B35]" : "bg-[#0EA5E9]";
+  const accentBg = color === "primary" ? "bg-[#C5A05910] text-[#C5A059]" : "bg-blue-50 text-blue-600";
+  const barColor = color === "primary" ? "bg-[#C5A059]" : "bg-[#0EA5E9]";
   const rate = total > 0 ? Math.round((confirmed / total) * 100) : 0;
   return (
-    <div className="rounded-xl border border-[#ececed] p-4">
+    <div className="rounded-xl border border-white/[0.06] p-4">
       <div className="flex items-start justify-between mb-3">
         <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${accentBg}`}>
           <Clock className="w-4.5 h-4.5" />
         </div>
         <div className="text-right">
-          <p className="text-2xl font-bold text-neutral-900">{confirmed}/{total}</p>
+          <p className="text-2xl font-bold text-[#f5f5f0]">{confirmed}/{total}</p>
           <p className="text-xs text-neutral-500">confirmadas</p>
         </div>
       </div>
-      <p className="font-medium text-neutral-900 text-sm">{title}</p>
+      <p className="font-medium text-[#f5f5f0] text-sm">{title}</p>
       <p className="text-xs text-neutral-500 mt-0.5">{pax} comensales esperados</p>
-      <div className="mt-2 h-1.5 rounded-full bg-neutral-100 overflow-hidden">
+      <div className="mt-2 h-1.5 rounded-full bg-[#1a1f24] overflow-hidden">
         <div
           className={`h-full ${barColor} rounded-full transition-all`}
           style={{ width: `${rate}%` }}

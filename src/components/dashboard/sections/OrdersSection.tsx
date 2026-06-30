@@ -102,7 +102,7 @@ export function OrdersSection() {
         title="Pedidos"
         subtitle="Gestiona todos los pedidos en tiempo real"
         actions={
-          <Button className="bg-[#FF6B35] hover:bg-[#F94B1E] text-white">
+          <Button className="bg-[#C5A059] hover:bg-[#b08d4e] text-white">
             <Plus className="w-4 h-4 mr-1.5" />
             Nuevo pedido
           </Button>
@@ -111,12 +111,12 @@ export function OrdersSection() {
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
         <Tabs value={filter} onValueChange={setFilter} className="flex-1 overflow-x-auto">
-          <TabsList className="bg-white border border-[#ececed] h-9 p-1">
+          <TabsList className="bg-[#111518] border border-white/[0.06] h-9 p-1">
             {FILTERS.map((f) => (
               <TabsTrigger
                 key={f.id}
                 value={f.id}
-                className="text-xs data-[state=active]:bg-[#FFF3ED] data-[state=active]:text-[#FF6B35]"
+                className="text-xs data-[state=active]:bg-[#C5A05910] data-[state=active]:text-[#C5A059]"
               >
                 {f.label}
               </TabsTrigger>
@@ -129,7 +129,7 @@ export function OrdersSection() {
             placeholder="Buscar pedido, mesa o plato..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-9 bg-white border-[#ececed]"
+            className="pl-9 h-9 bg-[#111518] border-white/[0.06]"
           />
         </div>
       </div>
@@ -139,7 +139,7 @@ export function OrdersSection() {
           <Loader2 className="w-5 h-5 animate-spin" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-[#ececed]">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06]">
           <EmptyState
             icon={<ClipboardList className="w-6 h-6" />}
             title="No hay pedidos"
@@ -178,7 +178,7 @@ export function OrdersSection() {
                 <Info label="Hora" value={formatDateTime(selected.createdAt)} />
                 <Info label="Tiempo" value={timeAgo(selected.createdAt)} />
               </div>
-              <div className="border-t border-[#ececed] pt-3">
+              <div className="border-t border-white/[0.06] pt-3">
                 <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">
                   Platos
                 </p>
@@ -186,7 +186,7 @@ export function OrdersSection() {
                   {selected.orderItems.map((i) => (
                     <div key={i.id} className="flex items-start justify-between gap-2 text-sm">
                       <div className="flex-1">
-                        <p className="font-medium text-neutral-900">
+                        <p className="font-medium text-[#f5f5f0]">
                           {i.quantity}× {i.menuItem.name}
                         </p>
                         {i.notes && (
@@ -195,16 +195,16 @@ export function OrdersSection() {
                           </p>
                         )}
                       </div>
-                      <span className="text-neutral-600">
+                      <span className="text-neutral-400">
                         {formatCurrency(i.unitPrice * i.quantity)}
                       </span>
                     </div>
                   ))}
                 </div>
               </div>
-              <div className="border-t border-[#ececed] pt-3 flex items-center justify-between">
-                <span className="font-medium text-neutral-700">Total</span>
-                <span className="text-xl font-bold text-[#FF6B35]">
+              <div className="border-t border-white/[0.06] pt-3 flex items-center justify-between">
+                <span className="font-medium text-neutral-300">Total</span>
+                <span className="text-xl font-bold text-[#C5A059]">
                   {formatCurrency(selected.total)}
                 </span>
               </div>
@@ -217,7 +217,7 @@ export function OrdersSection() {
                 {selected.status !== "COMPLETED" && selected.status !== "CANCELLED" && (
                   <>
                     <Button
-                      className="flex-1 bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+                      className="flex-1 bg-[#C5A059] hover:bg-[#b08d4e] text-white"
                       onClick={() =>
                         advanceMutation.mutate({ id: selected.id, action: "advance" })
                       }
@@ -264,11 +264,11 @@ function OrderCard({
 }) {
   const totalItems = order.orderItems.reduce((s, i) => s + i.quantity, 0);
   return (
-    <div className="bg-white rounded-xl border border-[#ececed] p-4 hover:shadow-sm transition-shadow group">
+    <div className="bg-[#111518] rounded-xl border border-white/[0.06] p-4 hover:shadow-sm transition-shadow group">
       <div className="flex items-start justify-between mb-3">
         <div>
           <p className="text-xs text-neutral-400">#{order.number}</p>
-          <p className="font-semibold text-neutral-900">
+          <p className="font-semibold text-[#f5f5f0]">
             {order.table?.name || order.table?.number ? `Mesa ${order.table?.number}` : "Para llevar"}
           </p>
         </div>
@@ -276,8 +276,8 @@ function OrderCard({
       </div>
       <div className="space-y-1 mb-3 max-h-24 overflow-hidden">
         {order.orderItems.slice(0, 3).map((i) => (
-          <div key={i.id} className="text-xs text-neutral-600 truncate">
-            <span className="font-medium text-neutral-900">{i.quantity}×</span>{" "}
+          <div key={i.id} className="text-xs text-neutral-400 truncate">
+            <span className="font-medium text-[#f5f5f0]">{i.quantity}×</span>{" "}
             {i.menuItem.name}
           </div>
         ))}
@@ -289,7 +289,7 @@ function OrderCard({
       </div>
       <div className="flex items-center justify-between text-xs text-neutral-500 mb-3">
         <span>{totalItems} platos · {timeAgo(order.createdAt)}</span>
-        <span className="font-bold text-base text-[#FF6B35]">
+        <span className="font-bold text-base text-[#C5A059]">
           {formatCurrency(order.total)}
         </span>
       </div>
@@ -306,7 +306,7 @@ function OrderCard({
         {(order.status === "PENDING" || order.status === "PREPARING" || order.status === "SERVED") && (
           <Button
             size="sm"
-            className="flex-1 h-8 text-xs bg-[#FF6B35] hover:bg-[#F94B1E] text-white"
+            className="flex-1 h-8 text-xs bg-[#C5A059] hover:bg-[#b08d4e] text-white"
             onClick={onAdvance}
           >
             Avanzar
@@ -322,7 +322,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-xs text-neutral-400">{label}</p>
-      <p className="text-sm font-medium text-neutral-900">{value}</p>
+      <p className="text-sm font-medium text-[#f5f5f0]">{value}</p>
     </div>
   );
 }

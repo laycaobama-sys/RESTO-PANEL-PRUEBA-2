@@ -50,7 +50,7 @@ interface AnalyticsData {
   avgPrepTimeMinutes: number;
 }
 
-const COLORS = ["#FF6B35", "#4CAF50", "#2196F3", "#FFC107", "#A855F7", "#EF4444"];
+const COLORS = ["#C5A059", "#4CAF50", "#2196F3", "#FFC107", "#A855F7", "#EF4444"];
 
 export function AnalyticsSection() {
   const [period, setPeriod] = useState<"week" | "month">("week");
@@ -93,12 +93,12 @@ export function AnalyticsSection() {
         title="Analíticas"
         subtitle="Rendimiento de tu restaurante en cifras"
         actions={
-          <div className="flex items-center bg-white border border-[#ececed] rounded-lg p-1">
+          <div className="flex items-center bg-[#111518] border border-white/[0.06] rounded-lg p-1">
             <button
               onClick={() => setPeriod("week")}
               className={cn(
                 "px-3 py-1 text-xs font-medium rounded-md",
-                period === "week" ? "bg-[#FF6B35] text-white" : "text-neutral-600"
+                period === "week" ? "bg-[#C5A059] text-white" : "text-neutral-400"
               )}
             >
               Semana
@@ -107,7 +107,7 @@ export function AnalyticsSection() {
               onClick={() => setPeriod("month")}
               className={cn(
                 "px-3 py-1 text-xs font-medium rounded-md",
-                period === "month" ? "bg-[#FF6B35] text-white" : "text-neutral-600"
+                period === "month" ? "bg-[#C5A059] text-white" : "text-neutral-400"
               )}
             >
               Mes
@@ -149,10 +149,10 @@ export function AnalyticsSection() {
       </div>
 
       {/* Revenue chart */}
-      <div className="bg-white rounded-2xl border border-[#ececed] p-5 mb-4">
+      <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-5 mb-4">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="font-semibold text-neutral-900">
+            <h3 className="font-semibold text-[#f5f5f0]">
               Evolución de ventas
             </h3>
             <p className="text-xs text-neutral-500">
@@ -161,7 +161,7 @@ export function AnalyticsSection() {
           </div>
           <div className="text-right">
             <p className="text-xs text-neutral-500">Total periodo</p>
-            <p className="text-xl font-bold text-neutral-900">
+            <p className="text-xl font-bold text-[#f5f5f0]">
               {formatCurrency(period === "week" ? weekTotal : monthTotal)}
             </p>
           </div>
@@ -171,8 +171,8 @@ export function AnalyticsSection() {
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="revGrad2" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#FF6B35" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#FF6B35" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#C5A059" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#C5A059" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f1f3" />
@@ -200,10 +200,10 @@ export function AnalyticsSection() {
               <Area
                 type="monotone"
                 dataKey="revenue"
-                stroke="#FF6B35"
+                stroke="#C5A059"
                 strokeWidth={2.5}
                 fill="url(#revGrad2)"
-                dot={{ r: 3, fill: "#FF6B35", strokeWidth: 0 }}
+                dot={{ r: 3, fill: "#C5A059", strokeWidth: 0 }}
                 activeDot={{ r: 5 }}
               />
             </AreaChart>
@@ -213,10 +213,10 @@ export function AnalyticsSection() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         {/* Top items */}
-        <div className="bg-white rounded-2xl border border-[#ececed] p-5">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-5">
           <div className="flex items-center gap-2 mb-4">
-            <Award className="w-4 h-4 text-[#FF6B35]" />
-            <h3 className="font-semibold text-neutral-900">Top platos</h3>
+            <Award className="w-4 h-4 text-[#C5A059]" />
+            <h3 className="font-semibold text-[#f5f5f0]">Top platos</h3>
           </div>
           <div className="space-y-3">
             {(data?.topItems || []).slice(0, 6).map((item, i) => (
@@ -226,24 +226,24 @@ export function AnalyticsSection() {
                   i === 0 ? "bg-yellow-100 text-yellow-700" :
                   i === 1 ? "bg-gray-100 text-gray-700" :
                   i === 2 ? "bg-orange-100 text-orange-700" :
-                  "bg-neutral-100 text-neutral-500"
+                  "bg-[#1a1f24] text-neutral-500"
                 )}>
                   {i + 1}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-neutral-900 truncate">
+                  <p className="text-sm font-medium text-[#f5f5f0] truncate">
                     {item.name}
                   </p>
                   <div className="flex items-center gap-2 mt-1">
-                    <div className="flex-1 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+                    <div className="flex-1 h-1.5 bg-[#1a1f24] rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-[#FF6B35] rounded-full"
+                        className="h-full bg-[#C5A059] rounded-full"
                         style={{
                           width: `${Math.min(100, (item.quantity / (data?.topItems[0]?.quantity || 1)) * 100)}%`,
                         }}
                       />
                     </div>
-                    <span className="text-xs font-medium text-neutral-700">
+                    <span className="text-xs font-medium text-neutral-300">
                       {item.quantity}
                     </span>
                   </div>
@@ -254,10 +254,10 @@ export function AnalyticsSection() {
         </div>
 
         {/* Status distribution */}
-        <div className="bg-white rounded-2xl border border-[#ececed] p-5">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-5">
           <div className="flex items-center gap-2 mb-4">
-            <ShoppingBag className="w-4 h-4 text-[#FF6B35]" />
-            <h3 className="font-semibold text-neutral-900">Estado de pedidos hoy</h3>
+            <ShoppingBag className="w-4 h-4 text-[#C5A059]" />
+            <h3 className="font-semibold text-[#f5f5f0]">Estado de pedidos hoy</h3>
           </div>
           <div className="h-[200px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -291,10 +291,10 @@ export function AnalyticsSection() {
         </div>
 
         {/* Hourly */}
-        <div className="bg-white rounded-2xl border border-[#ececed] p-5">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-5">
           <div className="flex items-center gap-2 mb-4">
-            <Flame className="w-4 h-4 text-[#FF6B35]" />
-            <h3 className="font-semibold text-neutral-900">Horas punta</h3>
+            <Flame className="w-4 h-4 text-[#C5A059]" />
+            <h3 className="font-semibold text-[#f5f5f0]">Horas punta</h3>
           </div>
           <div className="h-[200px] -ml-2">
             <ResponsiveContainer width="100%" height="100%">
@@ -320,7 +320,7 @@ export function AnalyticsSection() {
                     fontSize: 12,
                   }}
                 />
-                <Bar dataKey="count" fill="#FF6B35" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" fill="#C5A059" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -329,22 +329,22 @@ export function AnalyticsSection() {
 
       {/* Efficiency metrics */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl border border-[#ececed] p-5">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-5">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="w-4 h-4 text-blue-500" />
             <p className="text-sm text-neutral-500">Tiempo medio preparación</p>
           </div>
-          <p className="text-2xl font-bold text-neutral-900">
+          <p className="text-2xl font-bold text-[#f5f5f0]">
             {data?.avgPrepTimeMinutes || 0} min
           </p>
           <p className="text-xs text-neutral-400 mt-1">Objetivo: 12 min</p>
         </div>
-        <div className="bg-white rounded-2xl border border-[#ececed] p-5">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-5">
           <div className="flex items-center gap-2 mb-2">
             <Calendar className="w-4 h-4 text-green-500" />
             <p className="text-sm text-neutral-500">Tasa de completado</p>
           </div>
-          <p className="text-2xl font-bold text-neutral-900">
+          <p className="text-2xl font-bold text-[#f5f5f0]">
             {data?.today.totalOrders
               ? Math.round((data.today.completed / data.today.totalOrders) * 100)
               : 0}
@@ -354,12 +354,12 @@ export function AnalyticsSection() {
             {data?.today.completed} de {data?.today.totalOrders} pedidos
           </p>
         </div>
-        <div className="bg-white rounded-2xl border border-[#ececed] p-5">
+        <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-5">
           <div className="flex items-center gap-2 mb-2">
-            <TrendingUp className="w-4 h-4 text-[#FF6B35]" />
+            <TrendingUp className="w-4 h-4 text-[#C5A059]" />
             <p className="text-sm text-neutral-500">Rotación de mesas</p>
           </div>
-          <p className="text-2xl font-bold text-neutral-900">
+          <p className="text-2xl font-bold text-[#f5f5f0]">
             {data?.tablesSummary.total
               ? (data.today.totalOrders / data.tablesSummary.total).toFixed(1)
               : "0"}

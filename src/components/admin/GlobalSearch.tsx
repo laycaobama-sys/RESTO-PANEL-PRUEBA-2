@@ -72,7 +72,7 @@ export function GlobalSearch() {
           onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveTab('all'); }}
           onFocus={() => setOpen(true)}
           placeholder="Buscar empresa, usuario, reserva... (⌘K)"
-          className="pl-9 pr-9 h-9 w-full bg-[#1f1f23] border border-[#27272a] rounded-md text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#FF6B35] transition-colors"
+          className="pl-9 pr-9 h-9 w-full bg-[#1f1f23] border border-[#27272a] rounded-md text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#C5A059] transition-colors"
         />
         {query && (
           <button
@@ -106,7 +106,7 @@ export function GlobalSearch() {
                   onClick={() => setActiveTab(t.id as any)}
                   className={cn(
                     'px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors flex items-center gap-1',
-                    activeTab === t.id ? 'bg-[#FF6B35] text-white' : 'text-neutral-400 hover:bg-[#1f1f23]'
+                    activeTab === t.id ? 'bg-[#C5A059] text-white' : 'text-neutral-400 hover:bg-[#1f1f23]'
                   )}
                 >
                   {t.label}

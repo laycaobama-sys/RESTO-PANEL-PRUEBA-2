@@ -67,7 +67,7 @@ export function SuperAdminDashboard() {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-br from-[#FF6B35] to-[#D43A12] rounded-2xl p-5 sm:p-6 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        className="bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] rounded-2xl p-5 sm:p-6 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4"
       >
         <div className="flex items-center gap-3">
           <ShieldCheck className="w-7 h-7 flex-shrink-0" />
@@ -85,7 +85,7 @@ export function SuperAdminDashboard() {
               onClick={() => setRange(o.id)}
               className={cn(
                 'px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
-                range === o.id ? 'bg-white text-[#FF6B35]' : 'text-white hover:bg-white/10'
+                range === o.id ? 'bg-white text-[#C5A059]' : 'text-white hover:bg-white/10'
               )}
             >
               {o.label}
@@ -227,8 +227,8 @@ export function SuperAdminDashboard() {
               <AreaChart data={data.revenueSeries}>
                 <defs>
                   <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#FF6B35" stopOpacity={0.4} />
-                    <stop offset="100%" stopColor="#FF6B35" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#C5A059" stopOpacity={0.4} />
+                    <stop offset="100%" stopColor="#C5A059" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#27272a" />
@@ -245,7 +245,7 @@ export function SuperAdminDashboard() {
                   labelStyle={{ color: '#a1a1aa' }}
                   formatter={(v: any) => [`${Number(v).toLocaleString('es-ES')} €`, 'Ingresos']}
                 />
-                <Area type="monotone" dataKey="value" stroke="#FF6B35" strokeWidth={2} fill="url(#revGrad)" />
+                <Area type="monotone" dataKey="value" stroke="#C5A059" strokeWidth={2} fill="url(#revGrad)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -425,7 +425,7 @@ export function SuperAdminDashboard() {
 }
 
 const ACCENT_BG: Record<string, string> = {
-  primary: 'bg-[#FF6B35]/15 text-[#FF6B35]',
+  primary: 'bg-[#C5A059]/15 text-[#C5A059]',
   green: 'bg-green-500/15 text-green-400',
   blue: 'bg-blue-500/15 text-blue-400',
   yellow: 'bg-yellow-500/15 text-yellow-400',

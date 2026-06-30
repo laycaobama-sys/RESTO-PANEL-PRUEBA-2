@@ -62,12 +62,12 @@ export function SuperAdminShell({ user }: SuperAdminShellProps) {
       >
         <div className="px-5 h-16 flex items-center justify-between border-b border-[#27272a]">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FF6B35] to-[#F94B1E] flex items-center justify-center text-white">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#C5A059] to-[#b08d4e] flex items-center justify-center text-white">
               <UtensilsCrossed className="w-4.5 h-4.5" />
             </div>
             <div>
               <p className="text-[15px] font-semibold tracking-tight leading-none">RestoPanel</p>
-              <p className="text-[11px] text-[#FF6B35] mt-0.5 leading-none font-medium">SUPER ADMIN · HQ</p>
+              <p className="text-[11px] text-[#C5A059] mt-0.5 leading-none font-medium">SUPER ADMIN · HQ</p>
             </div>
           </div>
           <button
@@ -89,7 +89,7 @@ export function SuperAdminShell({ user }: SuperAdminShellProps) {
                 onClick={() => { setSection(item.id); setSidebarOpen(false); }}
                 className={cn(
                   "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px]",
-                  active ? "bg-[#FF6B35]/15 text-[#FF6B35]" : "text-neutral-400 hover:bg-[#1f1f23] hover:text-white"
+                  active ? "bg-[#C5A059]/15 text-[#C5A059]" : "text-neutral-400 hover:bg-[#1f1f23] hover:text-white"
                 )}
               >
                 <Icon className="w-4.5 h-4.5 flex-shrink-0" />
@@ -101,7 +101,7 @@ export function SuperAdminShell({ user }: SuperAdminShellProps) {
 
         <div className="border-t border-[#27272a] p-3">
           <div className="flex items-center gap-3 px-2 py-1.5">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#FF6B35] to-[#F94B1E] text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#C5A059] to-[#b08d4e] text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
               {user.name.slice(0, 1).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
