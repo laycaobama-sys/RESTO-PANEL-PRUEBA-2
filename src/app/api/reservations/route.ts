@@ -48,6 +48,7 @@ export async function POST(req: Request) {
   const body = await req.json()
   const {
     customerName, phone, email, partySize, date, zone, notes, tableId, status, shift, source,
+    customerId, duration,
   } = body
 
   if (!customerName || !phone || !date || !partySize) {
@@ -65,6 +66,20 @@ export async function POST(req: Request) {
     }
   }
 
+  // Validate customer tenancy if provided
+  if (customerId) {
+    const { supabaseAdmin } = await import('@/lib/supabase/admin')
+    const { data: customer } = await supabaseAdmin
+      .from('customers')
+      .select('id')
+      .eq('id', customerId)
+      .eq('organization_id', user.organizationId)
+      .maybeSingle()
+    if (!customer) {
+      return NextResponse.json({ error: 'Cliente no válido' }, { status: 400 })
+    }
+  }
+
   const reservation = await db.reservation.create({
     customer_name: customerName,
     phone,
@@ -77,6 +92,8 @@ export async function POST(req: Request) {
     source: source || 'PHONE',
     notes: notes || null,
     table_id: tableId || null,
+    customer_id: customerId || null,
+    duration_minutes: Number(duration) || 120,
     organization_id: user.organizationId,
   })
 
@@ -90,7 +107,7 @@ export async function POST(req: Request) {
     title: `Nueva reserva: ${customerName}`,
     message: `${partySize} pax · ${new Date(date).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${shift === 'LUNCH' ? 'Comida' : 'Cena'}${zone ? ` · ${zone}` : ''}`,
     action_url: null,
-    metadata: { reservationId: reservation.id },
+    metadata: { reservationId: reservation.id, customerId: customerId || null },
   })
 
   const table = tableId ? await db.table.findFirst(user.organizationId, { id: tableId }) : null

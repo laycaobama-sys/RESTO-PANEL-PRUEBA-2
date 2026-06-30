@@ -10,6 +10,7 @@ import { KitchenSection } from "./sections/KitchenSection";
 import { MenusSection } from "./sections/MenusSection";
 import { AnalyticsSection } from "./sections/AnalyticsSection";
 import { ReservationsSection } from "./sections/ReservationsSection";
+import { CustomersSection } from "./sections/CustomersSection";
 import { SettingsSection } from "./sections/SettingsSection";
 import { PublicMenuSection } from "./sections/PublicMenuSection";
 import { MenuMobile } from "./MenuMobile";
@@ -60,6 +61,7 @@ export function DashboardShell({ user }: DashboardShellProps) {
             {section === "menus" && <MenusSection />}
             {section === "analytics" && <AnalyticsSection />}
             {section === "reservations" && <ReservationsSection />}
+            {section === "customers" && <CustomersSection />}
             {section === "settings" && <SettingsSection />}
             {section === "public" && <PublicMenuSection slug={user.restaurantSlug} />}
           </main>

@@ -17,6 +17,7 @@ import {
   X,
   HelpCircle,
   Globe,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -33,8 +34,9 @@ const NAV: NavItem[] = [
   { id: "tables", label: "Mesas", icon: Grid3x3, group: "Principal" },
   { id: "kitchen", label: "Cocina", icon: ChefHat, group: "Principal" },
   { id: "menus", label: "Menús / Carta", icon: BookOpen, group: "Gestión" },
-  { id: "analytics", label: "Analíticas", icon: BarChart3, group: "Gestión" },
   { id: "reservations", label: "Reservas", icon: CalendarCheck, group: "Gestión" },
+  { id: "customers", label: "Clientes (CRM)", icon: Users, group: "Gestión" },
+  { id: "analytics", label: "Analíticas", icon: BarChart3, group: "Gestión" },
   { id: "settings", label: "Ajustes", icon: Settings, group: "Gestión" },
 ];
 

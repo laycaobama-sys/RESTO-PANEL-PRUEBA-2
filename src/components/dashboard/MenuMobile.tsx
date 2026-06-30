@@ -9,8 +9,9 @@ const SECTIONS = [
   { id: "tables", label: "Mesas", short: "Mesas" },
   { id: "kitchen", label: "Cocina", short: "Cocina" },
   { id: "menus", label: "Carta", short: "Carta" },
-  { id: "analytics", label: "Analíticas", short: "Stats" },
   { id: "reservations", label: "Reservas", short: "Reservas" },
+  { id: "customers", label: "Clientes", short: "CRM" },
+  { id: "analytics", label: "Analíticas", short: "Stats" },
   { id: "settings", label: "Ajustes", short: "Ajustes" },
   { id: "public", label: "Carta pública", short: "Web" },
 ] as const;

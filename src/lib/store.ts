@@ -10,6 +10,7 @@ export type Section =
   | "menus"
   | "analytics"
   | "reservations"
+  | "customers"
   | "settings"
   | "public";
 
