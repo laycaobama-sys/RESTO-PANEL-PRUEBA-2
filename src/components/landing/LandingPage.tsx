@@ -448,7 +448,7 @@ function Automation() {
             className="relative"
           >
             <div className="relative rounded-2xl overflow-hidden shadow-2xl">
-              <img src="/landing/photo-calendar.jpeg" alt="Gestión de reservas con calendario de mesas" className="w-full h-[400px] object-cover" />
+              <img src="/landing/photo-calendar.jpeg" alt="Gestión de reservas con calendario de mesas — RestoPanel" className="w-full h-[280px] sm:h-[400px] object-cover object-center" />
               <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent" />
             </div>
 
@@ -591,7 +591,7 @@ function RealWorldSection() {
             transition={{ duration: 0.6 }}
             className="relative rounded-2xl overflow-hidden group"
           >
-            <img src="/landing/photo-confirmation.jpeg" alt="Confirmación de reserva en restaurante" className="w-full h-[320px] object-cover group-hover:scale-105 transition-transform duration-500" />
+            <img src="/landing/photo-confirmation.jpeg" alt="Confirmación automática de reserva en restaurante — RestoPanel" className="w-full h-[260px] sm:h-[320px] object-cover object-center group-hover:scale-105 transition-transform duration-500" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a]/90 via-transparent to-transparent" />
             <motion.div
               animate={{ y: [0, -6, 0] }}
@@ -619,7 +619,7 @@ function RealWorldSection() {
             transition={{ duration: 0.6, delay: 0.1 }}
             className="relative rounded-2xl overflow-hidden group"
           >
-            <img src="/landing/photo-vip.jpeg" alt="Cliente VIP en gestión de restaurante" className="w-full h-[320px] object-cover group-hover:scale-105 transition-transform duration-500" />
+            <img src="/landing/photo-vip.jpeg" alt="Cliente VIP con CRM de restaurante — RestoPanel" className="w-full h-[260px] sm:h-[320px] object-cover object-center group-hover:scale-105 transition-transform duration-500" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a]/90 via-transparent to-transparent" />
             <motion.div
               animate={{ y: [0, 8, 0] }}
@@ -674,7 +674,7 @@ function Hospitality() {
             transition={{ duration: 0.7 }}
             className="relative rounded-2xl overflow-hidden shadow-2xl"
           >
-            <img src="/landing/photo-support.jpeg" alt="Equipo de soporte de RestoPanel" className="w-full h-[360px] object-cover" />
+            <img src="/landing/photo-support.jpeg" alt="Equipo de soporte de RestoPanel disponible 365 días" className="w-full h-[300px] sm:h-[360px] object-cover object-center" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a]/80 via-transparent to-transparent" />
             <motion.div
               animate={{ y: [0, -5, 0] }}
@@ -876,7 +876,7 @@ function Footer() {
               <li><a href="#modulos" className="hover:text-[#C5A059]">Características</a></li>
               <li><a href="#casos" className="hover:text-[#C5A059]">Casos de uso</a></li>
               <li><a href="#faq" className="hover:text-[#C5A059]">FAQ</a></li>
-              <li><a href="#" className="hover:text-[#C5A059]">Contacto</a></li>
+              <li><a href="mailto:hola@restopanel.com" className="hover:text-[#C5A059]">Contacto</a></li>
             </ul>
           </div>
         </div>
@@ -884,8 +884,8 @@ function Footer() {
           <p className="text-xs text-neutral-600">© {new Date().getFullYear()} RestoPanel · Todos los derechos reservados</p>
           <div className="flex items-center gap-4 text-xs text-neutral-600">
             <span className="flex items-center gap-1"><Globe className="w-3 h-3" /> Español</span>
-            <a href="#" className="hover:text-[#C5A059]">Términos</a>
-            <a href="#" className="hover:text-[#C5A059]">Privacidad</a>
+            <a href="/landing" className="hover:text-[#C5A059]">Términos</a>
+            <a href="/landing" className="hover:text-[#C5A059]">Privacidad</a>
           </div>
         </div>
       </div>
