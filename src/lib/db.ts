@@ -149,13 +149,21 @@ export interface Reservation {
   email: string | null;
   party_size: number;
   date: string;
-  end_time: string | null;
+  // end_time is computed from date + duration_minutes; nullable in DB.
+  end_time?: string | null;
   status: string;
   shift: string;
   zone: string | null;
   source: string;
   notes: string | null;
   table_id: string | null;
+  // Fields added in migration 0006. Marked optional so callers don't
+  // have to supply them when creating a reservation (DB has defaults).
+  customer_id?: string | null;
+  duration_minutes?: number;
+  channel?: string;
+  actual_arrival?: string | null;
+  actual_departure?: string | null;
   organization_id: string;
   created_at: string;
   updated_at: string;

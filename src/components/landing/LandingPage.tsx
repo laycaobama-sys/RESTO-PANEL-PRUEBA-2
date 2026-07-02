@@ -75,7 +75,6 @@ export function LandingPage() {
       <GoogleReviews />
       <RealWorldSection />
       <Hospitality />
-      <Testimonials />
       <UseCases />
       <FAQ />
       <FinalCTA />
@@ -173,84 +172,15 @@ function HowItWorks() {
 }
 
 // ─── TESTIMONIALS ────────────────────────────────────────────
-function Testimonials() {
-  const testimonials = [
-    {
-      name: "Carmen Zamorano",
-      role: "La Zamorana · Salamanca",
-      stars: 5,
-      quote: "Desde que uso RestoPanel, mi carta online se actualiza sola. Cambio un precio y en dos segundos está en la web. Mis clientes lo agradecen.",
-      metric: "+30% ocupación",
-    },
-    {
-      name: "Laura Marín",
-      role: "Bistró del Puerto · Cádiz",
-      stars: 5,
-      quote: "El plano de mesas nos salvó en verano. Veo de un vistazo qué mesas están libres, ocupadas o reservadas. Antes era un caos en papeles.",
-      metric: "-50% espera",
-    },
-    {
-      name: "Javier Ruiz",
-      role: "Asador El Roble · Madrid",
-      stars: 5,
-      quote: "La cocina con KDS nos ha hecho reducir tiempos a la mitad. Los pedidos llegan claros, sin errores, y sabemos siempre qué pasa de largo.",
-      metric: "2x rotación",
-    },
-  ];
-  return (
-    <section className="py-16 sm:py-24">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6">
-        <div className="text-center mb-12">
-          <span className="text-sm font-semibold text-[#C5A059] uppercase tracking-wider">Testimonios</span>
-          <h2 className="text-2xl sm:text-4xl font-bold text-[#f5f5f0] mt-2 tracking-tight">Lo que dicen los restauradores</h2>
-          <div className="flex items-center justify-center gap-1 mt-3">
-            {[1,2,3,4,5].map(s => <Star key={s} className="w-5 h-5 fill-[#C5A059] text-[#C5A059]" />)}
-            <span className="text-sm text-neutral-400 ml-2">4.8/5 · 127 reseñas</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {testimonials.map((t, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.1 }}
-              className="bg-white/5 backdrop-blur-md rounded-2xl border border-white/[0.06] p-6 flex flex-col"
-            >
-              <Quote className="w-8 h-8 text-[#C5A059]/30 mb-3" />
-              <p className="text-sm text-neutral-300 leading-relaxed flex-1 italic">"{t.quote}"</p>
-              <div className="mt-4 pt-4 border-t border-white/[0.06]">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] text-[#0a0a0a] flex items-center justify-center text-sm font-bold">
-                    {t.name.slice(0, 1)}
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-[#f5f5f0] text-sm">{t.name}</p>
-                    <p className="text-xs text-neutral-500">{t.role}</p>
-                  </div>
-                  <span className="text-xs font-bold text-[#C5A059] bg-[#C5A059]/10 px-2 py-1 rounded-lg">{t.metric}</span>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-        {/* Logos row */}
-        <div className="mt-12 pt-8 border-t border-white/[0.04]">
-          <p className="text-center text-xs text-neutral-600 uppercase tracking-wider mb-4">Usado por más de 500 restaurantes en España y Latinoamérica</p>
-          <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-10">
-            {["La Zamorana", "Bistró del Puerto", "Asador El Roble", "Beach Club Marbella", "Terra Lounge"].map((name, i) => (
-              <div key={i} className="flex items-center gap-2 text-neutral-600">
-                <Building className="w-4 h-4" />
-                <span className="text-sm font-medium">{name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
+// REMOVED: the legacy hardcoded testimonials section has been removed.
+// All testimonials / reviews are now managed by the unified <GoogleReviews />
+// section below, which:
+//   - fetches REAL reviews submitted from the landing page
+//   - persists them to the public_reviews table in Supabase
+//   - auto-reflects new submissions on the wall after admin approval
+//   - exposes the same submit form for clients and companies
+// No more fake "4.8/5 · 127 reseñas" stat — the rating shown is the
+// real aggregate computed from approved rows in the database.
 
 // ─── HEADER ──────────────────────────────────────────────────
 function Header() {
@@ -805,6 +735,7 @@ function GoogleReviews() {
   const [tableMissing, setTableMissing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [pendingReview, setPendingReview] = useState<PublicReview | null>(null);
 
   const loadReviews = useCallback(async () => {
     try {
@@ -822,6 +753,22 @@ function GoogleReviews() {
   }, []);
 
   useEffect(() => {
+    loadReviews();
+  }, [loadReviews]);
+
+  // When the submit form succeeds, we synthesise a "pending" review
+  // locally so the user sees their submission appear immediately on
+  // the wall with a "Pendiente de moderación" badge. The next time
+  // the admin approves it, the next page load will show it as a
+  // normal approved review (the pending one is dropped on reload).
+  const handleSubmitted = useCallback((review: PublicReview) => {
+    setPendingReview(review);
+    setShowForm(false);
+    // Scroll to the wall so the user sees their pending review
+    setTimeout(() => {
+      document.getElementById("reviews-wall")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 200);
+    // Also re-fetch in case the admin has already approved (race)
     loadReviews();
   }, [loadReviews]);
 
@@ -844,7 +791,7 @@ function GoogleReviews() {
         >
           <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#C5A059]/10 border border-[#C5A059]/25 text-xs font-semibold text-[#C5A059] uppercase tracking-wider">
             <Sparkles className="w-3.5 h-3.5" />
-            Gestión de Google Reviews
+            Reseñas reales · Gestión de Google Reviews
           </span>
           <h2 className="mt-4 text-3xl sm:text-4xl lg:text-5xl font-bold text-[#f5f5f0] tracking-tight leading-[1.1]">
             Tu reputación online,{" "}
@@ -853,9 +800,11 @@ function GoogleReviews() {
             </span>
           </h2>
           <p className="mt-5 text-base sm:text-lg text-neutral-400 leading-relaxed">
-            Visualiza, organiza y responde todas las reseñas de Google desde un único panel. Detecta tendencias de
-            reputación, prioriza opiniones negativas y acelera tus respuestas con sugerencias inteligentes. Software de
-            reputación para hostelería que convierte cada reseña en una oportunidad de fidelización y reserva.
+            Las reseñas que ves aquí las envían clientes y restaurantes reales desde este mismo formulario. Nada de
+            testimonios ficticios: cada opinión se guarda en nuestra base de datos, se modera y se publica
+            automáticamente. Además, con RestoPanel puedes gestionar tus reseñas de Google desde el mismo panel que tus
+            reservas, tu CRM y tus turnos. Software de reputación para hostelería que convierte cada reseña en una
+            oportunidad de fidelización y reserva.
           </p>
         </motion.div>
 
@@ -939,17 +888,23 @@ function GoogleReviews() {
             </div>
           </div>
 
-          <RealReviewsWall reviews={reviews} aggregate={aggregate} loading={loading} tableMissing={tableMissing} onReload={loadReviews} />
+          <div id="reviews-wall">
+            <RealReviewsWall
+              reviews={reviews}
+              aggregate={aggregate}
+              loading={loading}
+              tableMissing={tableMissing}
+              onReload={loadReviews}
+              pendingReview={pendingReview}
+            />
+          </div>
         </div>
 
         {/* ─── 6. Submit form (slide-over) ─── */}
         {showForm && (
           <ReviewSubmitForm
             onClose={() => setShowForm(false)}
-            onSubmitted={() => {
-              setShowForm(false);
-              loadReviews();
-            }}
+            onSubmitted={handleSubmitted}
           />
         )}
       </div>
@@ -1453,12 +1408,14 @@ function RealReviewsWall({
   loading,
   tableMissing,
   onReload,
+  pendingReview,
 }: {
   reviews: PublicReview[];
   aggregate: ReviewAggregate;
   loading: boolean;
   tableMissing: boolean;
   onReload: () => void;
+  pendingReview?: PublicReview | null;
 }) {
   if (loading) {
     return (
@@ -1480,33 +1437,117 @@ function RealReviewsWall({
     );
   }
 
-  if (tableMissing || reviews.length === 0) {
-    return (
-      <div className="bg-white/[0.02] rounded-3xl border border-dashed border-white/[0.12] p-8 sm:p-12 text-center">
-        <div className="w-14 h-14 rounded-2xl bg-[#C5A059]/10 border border-[#C5A059]/20 flex items-center justify-center text-[#C5A059] mx-auto mb-4">
-          <Quote className="w-6 h-6" />
+  // Pending banner shown above the wall when a user just submitted
+  const pendingBanner = pendingReview && (
+    <motion.div
+      initial={{ opacity: 0, y: -10, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.4 }}
+      className="mb-5 relative overflow-hidden rounded-2xl border border-[#C5A059]/40 bg-gradient-to-br from-[#C5A059]/15 via-[#C5A059]/5 to-transparent p-4 sm:p-5"
+    >
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-full bg-[#C5A059] text-[#0a0a0a] flex items-center justify-center flex-shrink-0">
+          <Check className="w-4 h-4" strokeWidth={3} />
         </div>
-        <h4 className="text-lg sm:text-xl font-bold text-[#f5f5f0]">Sé el primero en dejar tu reseña</h4>
-        <p className="mt-2 text-sm text-neutral-400 max-w-md mx-auto">
-          {tableMissing
-            ? "La base de datos de reseñas está lista para activarse. Ejecuta la migración 0009_google_reviews.sql en Supabase y esta pared se llenará con reseñas reales de clientes y restaurantes."
-            : "Todavía no hay reseñas publicadas. Si has usado RestoPanel o has visitado uno de los restaurantes que lo utilizan, comparte tu experiencia. Tu reseña se revisará y se publicará aquí automáticamente."}
-        </p>
-        <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-center">
-          <Button
-            size="lg"
-            className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-sm h-10 px-5 font-semibold"
-            onClick={onReload}
-          >
-            Recargar
-          </Button>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-[#f5f5f0]">
+            ¡Gracias, {pendingReview.author_name}! Tu reseña se ha enviado correctamente.
+          </p>
+          <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
+            La verás publicada aquí mismo en cuanto nuestro equipo la revise (normalmente en menos de 24h). Mientras
+            tanto, aquí tienes una vista previa de lo que enviaste:
+          </p>
+          <div className="mt-3 bg-black/30 rounded-lg border border-white/[0.06] p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-0.5">
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <Star
+                    key={s}
+                    className={cn(
+                      "w-3 h-3",
+                      s <= pendingReview.rating ? "fill-[#C5A059] text-[#C5A059]" : "fill-neutral-700 text-neutral-700"
+                    )}
+                  />
+                ))}
+              </div>
+              {pendingReview.title && (
+                <span className="text-xs font-medium text-[#f5f5f0] truncate">{pendingReview.title}</span>
+              )}
+              <span className="ml-auto text-[9px] px-2 py-0.5 rounded-full bg-[#C5A059]/15 border border-[#C5A059]/30 text-[#C5A059] font-semibold uppercase tracking-wider">
+                Pendiente de moderación
+              </span>
+            </div>
+            <p className="text-[11px] text-neutral-400 leading-relaxed line-clamp-2">{pendingReview.body}</p>
+          </div>
         </div>
       </div>
+    </motion.div>
+  );
+
+  if (tableMissing) {
+    return (
+      <>
+        {pendingBanner}
+        <div className="bg-white/[0.02] rounded-3xl border border-dashed border-white/[0.12] p-8 sm:p-12 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-[#C5A059]/10 border border-[#C5A059]/20 flex items-center justify-center text-[#C5A059] mx-auto mb-4">
+            <Database className="w-6 h-6" />
+          </div>
+          <h4 className="text-lg sm:text-xl font-bold text-[#f5f5f0]">Activación de la base de datos de reseñas</h4>
+          <p className="mt-2 text-sm text-neutral-400 max-w-md mx-auto">
+            La pared de reseñas está lista para activarse. Para que las reseñas enviadas desde esta página se guarden y
+            publiquen automáticamente, ejecuta una única vez el archivo{" "}
+            <code className="font-mono text-xs text-[#C5A059] bg-[#C5A059]/10 px-1.5 py-0.5 rounded">
+              supabase/migrations/0009_google_reviews.sql
+            </code>{" "}
+            en el SQL Editor de Supabase. Sin este paso, las reseñas enviadas no se persisten.
+          </p>
+          <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-center">
+            <Button
+              size="lg"
+              className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-sm h-10 px-5 font-semibold"
+              onClick={onReload}
+            >
+              <Database className="w-4 h-4 mr-1.5" />
+              Reintentar carga
+            </Button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (reviews.length === 0) {
+    return (
+      <>
+        {pendingBanner}
+        <div className="bg-white/[0.02] rounded-3xl border border-dashed border-white/[0.12] p-8 sm:p-12 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-[#C5A059]/10 border border-[#C5A059]/20 flex items-center justify-center text-[#C5A059] mx-auto mb-4">
+            <Quote className="w-6 h-6" />
+          </div>
+          <h4 className="text-lg sm:text-xl font-bold text-[#f5f5f0]">Sé el primero en dejar tu reseña</h4>
+          <p className="mt-2 text-sm text-neutral-400 max-w-md mx-auto">
+            Todavía no hay reseñas publicadas. Si has usado RestoPanel o has visitado uno de los restaurantes que lo
+            utilizan, comparte tu experiencia. Tu reseña se guardará en la base de datos y se publicará aquí
+            automáticamente en cuanto nuestro equipo la revise.
+          </p>
+          <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-center">
+            <Button
+              size="lg"
+              className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-sm h-10 px-5 font-semibold"
+              onClick={onReload}
+            >
+              Recargar
+            </Button>
+          </div>
+        </div>
+      </>
     );
   }
 
   return (
     <>
+      {pendingBanner}
+
       {/* Aggregate badge */}
       {aggregate && (
         <div className="mb-5 flex items-center gap-4 bg-white/[0.02] rounded-2xl border border-white/[0.06] p-4">
@@ -1637,7 +1678,7 @@ function ReviewSubmitForm({
   onSubmitted,
 }: {
   onClose: () => void;
-  onSubmitted: () => void;
+  onSubmitted: (review: PublicReview) => void;
 }) {
   const [role, setRole] = useState<"CLIENT" | "COMPANY">("CLIENT");
   const [name, setName] = useState("");
@@ -1691,7 +1732,28 @@ function ReviewSubmitForm({
         return;
       }
       setSuccess(j.message || "Gracias por tu reseña. Se publicará en breve.");
-      setTimeout(() => onSubmitted(), 2200);
+
+      // Build a local PublicReview so the parent can show it immediately
+      // on the wall with a "Pendiente de moderación" badge.
+      const localReview: PublicReview = {
+        id: j.id || `local-${Date.now()}`,
+        author_name: name,
+        author_role: role,
+        author_company: company || null,
+        author_avatar: null,
+        rating,
+        title: title || null,
+        body,
+        tags,
+        verified_metric: null,
+        response_text: null,
+        response_at: null,
+        created_at: new Date().toISOString(),
+        organization_id: null,
+      };
+
+      // Wait a beat so the user sees the success state, then bubble up
+      setTimeout(() => onSubmitted(localReview), 1800);
     } catch {
       setError("Error de red. Inténtalo de nuevo.");
     } finally {

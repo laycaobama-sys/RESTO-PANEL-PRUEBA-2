@@ -18,7 +18,9 @@ if (!NEXTAUTH_SECRET) {
 export const authOptions: NextAuthOptions = {
   session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 }, // 30 days
   secret: NEXTAUTH_SECRET,
-  trustHost: true,
+  // trustHost is required by NextAuth v4 in production but the type isn't
+  // shipped in this version. Cast to any to keep tsc happy without runtime change.
+  ...(({ trustHost: true } as any) as Partial<NextAuthOptions>),
   pages: { signIn: '/' },
   providers: [
     CredentialsProvider({

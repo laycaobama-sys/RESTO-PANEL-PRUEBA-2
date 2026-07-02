@@ -76,6 +76,7 @@ export async function POST(req: Request) {
       phone: phone || null,
       address: address || null,
       city: city || null,
+      postal_code: null,
       country,
       email: emailLower,
       logo: null,
@@ -87,6 +88,7 @@ export async function POST(req: Request) {
       public_enabled: true,
       pos_enabled: true,
       reservations_enabled: true,
+      status: 'ACTIVE',
     })
 
     // Seed default settings row.
@@ -98,6 +100,7 @@ export async function POST(req: Request) {
       name,
       phone: phone || null,
       role: 'ADMIN',
+      is_super_admin: false,
       organization_id: organization.id,
     })
 

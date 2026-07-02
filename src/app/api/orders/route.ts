@@ -79,7 +79,7 @@ export async function POST(req: Request) {
   const number = (lastOrder?.number || 1000) + 1
 
   // If tableId provided, validate tenancy
-  let tableObj = null
+  let tableObj: { id: string; [k: string]: any } | null = null
   if (tableId) {
     tableObj = await db.table.findFirst(user.organizationId, { id: tableId })
     if (!tableObj) return NextResponse.json({ error: 'Mesa no válida' }, { status: 400 })

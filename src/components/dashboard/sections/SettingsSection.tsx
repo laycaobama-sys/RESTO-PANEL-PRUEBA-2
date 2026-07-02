@@ -67,7 +67,7 @@ export function SettingsSection() {
   });
 
   const [form, setForm] = useState<Partial<Restaurant>>({});
-  const [hoursForm, setHoursForm] = useState<Record<string, string>>({});
+  const [hoursForm, setHoursForm] = useState<Record<string, string | number>>({});
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -78,7 +78,7 @@ export function SettingsSection() {
     setForm((f) => ({ ...f, [key]: value }));
   };
 
-  const updateHours = (key: string, value: string) => {
+  const updateHours = (key: string, value: string | number) => {
     setHoursForm((h) => ({ ...h, [key]: value }));
   };
 

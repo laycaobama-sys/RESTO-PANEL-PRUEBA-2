@@ -17,7 +17,7 @@ export async function PATCH(req: Request) {
   }
 
   // Update each table position — all must belong to the tenant
-  const results = []
+  const results: Array<{ id: string; pos_x: number; pos_y: number }> = []
   for (const u of updates) {
     const patch: any = { pos_x: u.posX, pos_y: u.posY }
     if (u.zone) patch.zone = u.zone

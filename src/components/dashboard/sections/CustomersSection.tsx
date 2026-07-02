@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, formatCurrency, formatDateTime } from "@/lib/api"; import { formatCurrency as fmtCur, formatDateTime as fmtDt } from "@/lib/format";
+import { api } from "@/lib/api";
+import { formatCurrency, formatDateTime } from "@/lib/format";
 import { SectionHeader, EmptyState } from "@/components/shared/SectionHeader";
 import {
   Plus, Search, Loader2, Pencil, Trash2, Eye, Star, Phone, Mail, Users, Crown, Calendar, TrendingUp, X, Check, AlertCircle, Tag, Clock, UserPlus,
@@ -84,7 +85,7 @@ export function CustomersSection() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatPill label="Total clientes" value={stats.total} icon={<Users className="w-4 h-4" />} cls="bg-[#111518] border-white/[0.06] text-[#f5f5f0]" />
         <StatPill label="Clientes VIP" value={stats.vip} icon={<Crown className="w-4 h-4" />} cls="bg-[#C5A059]/10 border-[#C5A059]/20 text-[#C5A059]" />
-        <StatPill label="Ticket medio" value={fmtCur(stats.avgTicket)} icon={<TrendingUp className="w-4 h-4" />} cls="bg-green-500/10 border-green-500/20 text-green-400" />
+        <StatPill label="Ticket medio" value={formatCurrency(stats.avgTicket)} icon={<TrendingUp className="w-4 h-4" />} cls="bg-green-500/10 border-green-500/20 text-green-400" />
         <StatPill label="Visitas totales" value={stats.totalVisits} icon={<Calendar className="w-4 h-4" />} cls="bg-blue-500/10 border-blue-500/20 text-blue-400" />
       </div>
 
@@ -146,7 +147,7 @@ export function CustomersSection() {
                 )}
                 <div className="flex items-center justify-between text-xs text-neutral-500 pt-2 border-t border-white/[0.06]">
                   <span>{c.visitsCount} visitas</span>
-                  <span className="font-medium text-[#C5A059]">{fmtCur(c.averageTicket)}</span>
+                  <span className="font-medium text-[#C5A059]">{formatCurrency(c.averageTicket)}</span>
                 </div>
               </motion.div>
             ))}
@@ -232,7 +233,7 @@ function CustomerDetailDialog({ customerId, onClose, onEdit, onDelete }: { custo
             {/* Behavior metrics */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <Metric label="Visitas" value={data.behavior?.visitsCount ?? 0} icon={<Calendar className="w-3.5 h-3.5" />} />
-              <Metric label="Ticket medio" value={fmtCur(data.behavior?.averageTicket ?? 0)} icon={<TrendingUp className="w-3.5 h-3.5" />} />
+              <Metric label="Ticket medio" value={formatCurrency(data.behavior?.averageTicket ?? 0)} icon={<TrendingUp className="w-3.5 h-3.5" />} />
               <Metric label="Cancelaciones" value={data.behavior?.cancellationsCount ?? 0} icon={<X className="w-3.5 h-3.5" />} cls="text-red-400" />
               <Metric label="No-shows" value={data.behavior?.noShowsCount ?? 0} icon={<AlertCircle className="w-3.5 h-3.5" />} cls="text-purple-400" />
             </div>
@@ -255,7 +256,7 @@ function CustomerDetailDialog({ customerId, onClose, onEdit, onDelete }: { custo
                 <div className="max-h-48 overflow-y-auto space-y-1.5">
                   {data.reservations.map((r: any) => (
                     <div key={r.id} className="flex items-center gap-3 p-2 rounded-lg bg-[#1a1f24] text-xs">
-                      <span className="text-neutral-300 whitespace-nowrap">{fmtDt(r.date)}</span>
+                      <span className="text-neutral-300 whitespace-nowrap">{formatDateTime(r.date)}</span>
                       <span className="text-neutral-500">{r.partySize} pax</span>
                       {r.table && <span className="text-neutral-500">Mesa {r.table.number}</span>}
                       <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ml-auto", r.status === "COMPLETED" ? "bg-green-500/15 text-green-400" : r.status === "CANCELLED" ? "bg-red-500/15 text-red-400" : r.status === "NO_SHOW" ? "bg-purple-500/15 text-purple-400" : "bg-yellow-500/15 text-yellow-400")}>{r.status.replace(/_/g, " ")}</span>

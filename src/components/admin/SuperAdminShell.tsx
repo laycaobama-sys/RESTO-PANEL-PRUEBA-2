@@ -13,6 +13,7 @@ import {
   Bell,
   Menu as MenuIcon,
   X,
+  Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -20,10 +21,11 @@ import { SuperAdminDashboard } from "./sections/SuperAdminDashboard";
 import { TenantsSection } from "./sections/TenantsSection";
 import { UsersSection } from "./sections/UsersSection";
 import { AuditLogsSection } from "./sections/AuditLogsSection";
+import { ReviewsSection } from "./sections/ReviewsSection";
 import { NotificationBell } from "./NotificationBell";
 import { GlobalSearch } from "./GlobalSearch";
 
-type Section = "dashboard" | "tenants" | "users" | "logs";
+type Section = "dashboard" | "tenants" | "users" | "reviews" | "logs";
 
 interface SuperAdminShellProps {
   user: {
@@ -38,6 +40,7 @@ const NAV: { id: Section; label: string; icon: any }[] = [
   { id: "dashboard", label: "Resumen global", icon: LayoutDashboard },
   { id: "tenants", label: "Empresas", icon: Building2 },
   { id: "users", label: "Usuarios", icon: Users },
+  { id: "reviews", label: "Reseñas", icon: Star },
   { id: "logs", label: "Auditoría", icon: ScrollText },
 ];
 
@@ -150,6 +153,7 @@ export function SuperAdminShell({ user }: SuperAdminShellProps) {
           {section === "dashboard" && <SuperAdminDashboard />}
           {section === "tenants" && <TenantsSection />}
           {section === "users" && <UsersSection />}
+          {section === "reviews" && <ReviewsSection />}
           {section === "logs" && <AuditLogsSection />}
         </main>
       </div>

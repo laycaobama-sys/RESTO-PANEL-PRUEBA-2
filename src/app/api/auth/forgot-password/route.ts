@@ -19,7 +19,7 @@ export async function POST(req: Request) {
         token,
         type: 'RESET_PASSWORD',
         user_id: user.id,
-        organization_id: user.organization_id,
+        organization_id: user.organization_id ?? '',
         expires_at: new Date(Date.now() + 60 * 60 * 1000),
       })
       return NextResponse.json({
