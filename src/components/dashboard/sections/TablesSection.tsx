@@ -176,15 +176,15 @@ export function TablesSection() {
     const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left - dragOffset.current.x;
     const y = e.clientY - rect.top - dragOffset.current.y;
-    const clampedX = Math.max(0, Math.min(x, rect.width - 70));
-    const clampedY = Math.max(0, Math.min(y, rect.height - 70));
+    const clampedX = Math.max(0, Math.min(x, 800 - 70));
+    const clampedY = Math.max(0, Math.min(y, 520 - 70));
     setPendingPositions(prev => ({ ...prev, [draggingId]: { x: clampedX, y: clampedY } }));
   }, [draggingId]);
 
   const handleDragEnd = useCallback(() => { setDraggingId(null); }, []);
 
   const savePositions = () => {
-    const updates = Object.entries(pendingPositions).map(([id, pos]) => ({ id, posX: Math.round(pos.x * 3), posY: Math.round(pos.y * 3) }));
+    const updates = Object.entries(pendingPositions).map(([id, pos]) => ({ id, posX: Math.round(pos.x), posY: Math.round(pos.y) }));
     if (updates.length > 0) savePositionsMut.mutate(updates);
   };
 
@@ -195,7 +195,7 @@ export function TablesSection() {
   const getTablePos = (table: Table) => {
     const pending = pendingPositions[table.id];
     if (pending) return { left: pending.x, top: pending.y };
-    return { left: table.posX / 3, top: table.posY / 3 };
+    return { left: table.posX, top: table.posY };
   };
 
   return (
@@ -283,8 +283,8 @@ export function TablesSection() {
 
               {/* Scrollable canvas container — overflow auto on mobile, fixed on desktop */}
               <div className="overflow-x-auto overflow-y-auto rounded-xl" style={{ scrollbarWidth: "thin" }}>
-                {/* Canvas with min dimensions to prevent table overlap on mobile */}
-                <div ref={containerRef} className="relative bg-[#13151A] rounded-xl border border-white/[0.04] p-3 min-w-[800px] min-h-[500px]" style={{ touchAction: editMode ? "none" : "auto" }}>
+                {/* Canvas with fixed dimensions matching seed coordinates (800x500) */}
+                <div ref={containerRef} className="relative bg-[#13151A] rounded-xl border border-white/[0.04] p-3" style={{ width: '800px', height: '520px', touchAction: editMode ? "none" : "auto" }}>
                   {/* Gradientes radiales para profundidad */}
                   <div className="absolute inset-0 pointer-events-none rounded-xl overflow-hidden">
                     <div className="absolute top-0 left-0 w-64 h-64 rounded-full bg-green-500/5 blur-[100px]" />
@@ -295,41 +295,51 @@ export function TablesSection() {
                   <div className="absolute top-2 right-4 text-2xl opacity-15 pointer-events-none select-none">🪴</div>
                   <div className="absolute bottom-2 left-4 text-2xl opacity-15 pointer-events-none select-none">🌿</div>
 
-                  {/* Mesas por zona — positioned with absolute coords on the 800x500+ canvas */}
+                  {/* Zone separator lines — visual structure */}
+                  <div className="absolute left-3 right-3 top-[145px] h-px bg-white/[0.03] pointer-events-none" />
+                  <div className="absolute left-3 right-3 top-[305px] h-px bg-white/[0.03] pointer-events-none" />
+
+                  {/* Zone labels — fixed positions matching seed data layout */}
+                  <div className="absolute left-3 top-3 z-5 pointer-events-none">
+                    <span className="text-[10px] font-semibold text-gray-500 uppercase flex items-center gap-1 whitespace-nowrap">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />🏠 Interior · {filteredTables.filter(t => t.zone === 'INTERIOR').length}
+                    </span>
+                  </div>
+                  <div className="absolute left-3 top-[155px] z-5 pointer-events-none">
+                    <span className="text-[10px] font-semibold text-gray-500 uppercase flex items-center gap-1 whitespace-nowrap">
+                      <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />👑 VIP · {filteredTables.filter(t => t.zone === 'VIP').length}
+                    </span>
+                  </div>
+                  <div className="absolute left-[490px] top-[155px] z-5 pointer-events-none">
+                    <span className="text-[10px] font-semibold text-gray-500 uppercase flex items-center gap-1 whitespace-nowrap">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />🌿 Terraza · {filteredTables.filter(t => t.zone === 'TERRACE').length}
+                    </span>
+                  </div>
+                  <div className="absolute left-3 top-[315px] z-5 pointer-events-none">
+                    <span className="text-[10px] font-semibold text-gray-500 uppercase flex items-center gap-1 whitespace-nowrap">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />🍸 Barra · {filteredTables.filter(t => t.zone === 'BAR').length}
+                    </span>
+                  </div>
+
+                  {/* Mesas positioned with absolute pixel coords matching seed data */}
                   <div className="relative w-full h-full">
-                    {Array.from(new Set(filteredTables.map(t => t.zone))).map(zone => {
-                      const zoneTables = filteredTables.filter(t => t.zone === zone);
-                      const zoneMeta = ZONES.find(z => z.id === zone);
-                      const zoneLabelY = zoneTables.length > 0 ? Math.min(...zoneTables.map(t => t.posY / 3)) - 20 : 0;
-                      return (
-                        <div key={zone}>
-                          {/* Zone label positioned absolutely */}
-                          <div className="absolute z-5" style={{ left: 12, top: Math.max(0, zoneLabelY) }}>
-                            <span className="text-[10px] font-semibold text-gray-500 uppercase flex items-center gap-1 whitespace-nowrap">
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: zoneMeta?.color }} />
-                              {zoneMeta?.icon} {ZONE_LABEL[zone] || zone} · {zoneTables.length}
-                            </span>
-                          </div>
-                          {zoneTables.map(t => (
-                            <InteractiveTable
-                              key={t.id}
-                              table={t}
-                              reservation={tableReservationMap.get(t.id) || null}
-                              editMode={editMode}
-                              isDragging={draggingId === t.id}
-                              isSelected={selectedTable?.id === t.id}
-                              isHovered={hoveredTableId === t.id}
-                              isGroupSelected={selectedForGroup.has(t.id)}
-                              pos={getTablePos(t)}
-                              reduceMotion={!!reduceMotion}
-                              onDragStart={handleDragStart}
-                              onHover={(id) => setHoveredTableId(id)}
-                              onSelect={(t) => editMode ? toggleGroupSelection(t.id) : setSelectedTable(t)}
-                            />
-                          ))}
-                        </div>
-                      );
-                    })}
+                    {filteredTables.map(t => (
+                      <InteractiveTable
+                        key={t.id}
+                        table={t}
+                        reservation={tableReservationMap.get(t.id) || null}
+                        editMode={editMode}
+                        isDragging={draggingId === t.id}
+                        isSelected={selectedTable?.id === t.id}
+                        isHovered={hoveredTableId === t.id}
+                        isGroupSelected={selectedForGroup.has(t.id)}
+                        pos={getTablePos(t)}
+                        reduceMotion={!!reduceMotion}
+                        onDragStart={handleDragStart}
+                        onHover={(id) => setHoveredTableId(id)}
+                        onSelect={(t) => editMode ? toggleGroupSelection(t.id) : setSelectedTable(t)}
+                      />
+                    ))}
                   </div>
                 </div>
               </div>
@@ -424,7 +434,7 @@ function InteractiveTable({
       initial={reduceMotion ? {} : { opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.2 }}
-      style={{ position: "absolute", left: `${(pos.left / 400) * 100}%`, top: `${(pos.top / 300) * 100}%`, cursor: editMode ? (isDragging ? "grabbing" : "grab") : "pointer", zIndex: isDragging ? 20 : 1 }}
+      style={{ position: "absolute", left: `${pos.left}px`, top: `${pos.top}px`, cursor: editMode ? (isDragging ? "grabbing" : "grab") : "pointer", zIndex: isDragging ? 20 : 1 }}
       onMouseDown={(e) => onDragStart(e, table)}
       onMouseEnter={() => { if (!editMode) { onHover(table.id); setShowPopover(true); } }}
       onMouseLeave={() => { if (!editMode) { onHover(null); setShowPopover(false); } }}
