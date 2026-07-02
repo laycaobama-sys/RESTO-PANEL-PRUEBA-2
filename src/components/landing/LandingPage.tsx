@@ -27,6 +27,12 @@ import {
   Sparkles,
   ChevronDown,
   Award,
+  Lock,
+  Database,
+  Wifi,
+  CalendarDays,
+  Quote,
+  Building,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -54,16 +60,187 @@ export function LandingPage() {
       <Header />
       <Hero />
       <SocialProof />
+      <TrustBadges />
+      <HowItWorks />
       <Modules />
       <Automation />
       <Analytics />
       <RealWorldSection />
       <Hospitality />
+      <Testimonials />
       <UseCases />
       <FAQ />
       <FinalCTA />
       <Footer />
     </div>
+  );
+}
+
+// ─── TRUST BADGES (security + compliance) ────────────────────
+function TrustBadges() {
+  const badges = [
+    { icon: <Lock className="w-4 h-4" />, text: "Datos cifrados (RGPD)" },
+    { icon: <Database className="w-4 h-4" />, text: "CRM propio, sin intermediarios" },
+    { icon: <Wifi className="w-4 h-4" />, text: "Sincronización en tiempo real" },
+    { icon: <ShieldCheck className="w-4 h-4" />, text: "Sin comisiones por reserva" },
+  ];
+  return (
+    <section className="border-y border-white/[0.04] py-6">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {badges.map((b, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 8 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.08 }}
+              className="flex items-center gap-2.5 justify-center md:justify-start"
+            >
+              <div className="w-8 h-8 rounded-lg bg-[#C5A059]/10 border border-[#C5A059]/20 flex items-center justify-center text-[#C5A059] flex-shrink-0">
+                {b.icon}
+              </div>
+              <span className="text-xs sm:text-sm text-neutral-400">{b.text}</span>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─── HOW IT WORKS (3-step visual) ────────────────────────────
+function HowItWorks() {
+  const steps = [
+    {
+      num: "01",
+      icon: <CalendarDays className="w-5 h-5" />,
+      title: "Centraliza tus canales",
+      desc: "Conecta tu web, Google, Instagram y WhatsApp. Todas las reservas llegan al mismo panel en tiempo real.",
+    },
+    {
+      num: "02",
+      icon: <Zap className="w-5 h-5" />,
+      title: "Automatiza confirmaciones",
+      desc: "RestoPanel reconfirma cada reserva por SMS o WhatsApp. Reduce no-shows hasta un 35% sin esfuerzo manual.",
+    },
+    {
+      num: "03",
+      icon: <BarChart3 className="w-5 h-5" />,
+      title: "Analiza y fideliza",
+      desc: "Ticket medio, clientes VIP, horas punta. Lanza campañas a tu base de datos propia y fideliza sin intermediarios.",
+    },
+  ];
+  return (
+    <section className="py-16 sm:py-24 bg-[#0d0f12]">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6">
+        <div className="text-center mb-12">
+          <span className="text-sm font-semibold text-[#C5A059] uppercase tracking-wider">Cómo funciona</span>
+          <h2 className="text-2xl sm:text-4xl font-bold text-[#f5f5f0] mt-2 tracking-tight">De reserva a fidelización en 3 pasos</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
+          {/* Connecting line */}
+          <div className="hidden md:block absolute top-12 left-[16%] right-[16%] h-px bg-gradient-to-r from-transparent via-[#C5A059]/20 to-transparent" />
+          {steps.map((s, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.15 }}
+              className="relative bg-white/5 backdrop-blur-md rounded-2xl border border-white/[0.06] p-6 text-center"
+            >
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] text-[#0a0a0a] flex items-center justify-center mx-auto mb-4 relative z-10">
+                {s.icon}
+              </div>
+              <p className="text-[10px] font-bold text-[#C5A059] mb-1">{s.num}</p>
+              <h3 className="font-semibold text-[#f5f5f0] text-lg mb-2">{s.title}</h3>
+              <p className="text-sm text-neutral-400 leading-relaxed">{s.desc}</p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─── TESTIMONIALS ────────────────────────────────────────────
+function Testimonials() {
+  const testimonials = [
+    {
+      name: "Carmen Zamorano",
+      role: "La Zamorana · Salamanca",
+      stars: 5,
+      quote: "Desde que uso RestoPanel, mi carta online se actualiza sola. Cambio un precio y en dos segundos está en la web. Mis clientes lo agradecen.",
+      metric: "+30% ocupación",
+    },
+    {
+      name: "Laura Marín",
+      role: "Bistró del Puerto · Cádiz",
+      stars: 5,
+      quote: "El plano de mesas nos salvó en verano. Veo de un vistazo qué mesas están libres, ocupadas o reservadas. Antes era un caos en papeles.",
+      metric: "-50% espera",
+    },
+    {
+      name: "Javier Ruiz",
+      role: "Asador El Roble · Madrid",
+      stars: 5,
+      quote: "La cocina con KDS nos ha hecho reducir tiempos a la mitad. Los pedidos llegan claros, sin errores, y sabemos siempre qué pasa de largo.",
+      metric: "2x rotación",
+    },
+  ];
+  return (
+    <section className="py-16 sm:py-24">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="text-center mb-12">
+          <span className="text-sm font-semibold text-[#C5A059] uppercase tracking-wider">Testimonios</span>
+          <h2 className="text-2xl sm:text-4xl font-bold text-[#f5f5f0] mt-2 tracking-tight">Lo que dicen los restauradores</h2>
+          <div className="flex items-center justify-center gap-1 mt-3">
+            {[1,2,3,4,5].map(s => <Star key={s} className="w-5 h-5 fill-[#C5A059] text-[#C5A059]" />)}
+            <span className="text-sm text-neutral-400 ml-2">4.8/5 · 127 reseñas</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {testimonials.map((t, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.1 }}
+              className="bg-white/5 backdrop-blur-md rounded-2xl border border-white/[0.06] p-6 flex flex-col"
+            >
+              <Quote className="w-8 h-8 text-[#C5A059]/30 mb-3" />
+              <p className="text-sm text-neutral-300 leading-relaxed flex-1 italic">"{t.quote}"</p>
+              <div className="mt-4 pt-4 border-t border-white/[0.06]">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] text-[#0a0a0a] flex items-center justify-center text-sm font-bold">
+                    {t.name.slice(0, 1)}
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium text-[#f5f5f0] text-sm">{t.name}</p>
+                    <p className="text-xs text-neutral-500">{t.role}</p>
+                  </div>
+                  <span className="text-xs font-bold text-[#C5A059] bg-[#C5A059]/10 px-2 py-1 rounded-lg">{t.metric}</span>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+        {/* Logos row */}
+        <div className="mt-12 pt-8 border-t border-white/[0.04]">
+          <p className="text-center text-xs text-neutral-600 uppercase tracking-wider mb-4">Usado por más de 500 restaurantes en España y Latinoamérica</p>
+          <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-10">
+            {["La Zamorana", "Bistró del Puerto", "Asador El Roble", "Beach Club Marbella", "Terra Lounge"].map((name, i) => (
+              <div key={i} className="flex items-center gap-2 text-neutral-600">
+                <Building className="w-4 h-4" />
+                <span className="text-sm font-medium">{name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
