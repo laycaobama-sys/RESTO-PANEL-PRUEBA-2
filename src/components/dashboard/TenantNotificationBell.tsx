@@ -76,7 +76,7 @@ export function TenantNotificationBell() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-2 w-[360px] max-w-[calc(100vw-2rem)] bg-[#111518] border border-white/[0.06] rounded-xl shadow-2xl z-50 overflow-hidden"
+            className="absolute right-0 top-full mt-2 w-[calc(100vw-1.5rem)] sm:w-[360px] max-w-[360px] bg-[#111518] border border-white/[0.06] rounded-xl shadow-2xl z-50 overflow-hidden max-h-[calc(100vh-80px)] flex flex-col"
           >
             <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
               <div className="flex items-center gap-2">
@@ -93,7 +93,7 @@ export function TenantNotificationBell() {
               )}
             </div>
 
-            <div className="max-h-[420px] overflow-y-auto">
+            <div className="max-h-[calc(100vh-160px)] overflow-y-auto flex-1" style={{ scrollbarWidth: "thin" }}>
               {isLoading ? (
                 <div className="py-8 flex items-center justify-center text-neutral-500">
                   <Loader2 className="w-5 h-5 animate-spin" />
