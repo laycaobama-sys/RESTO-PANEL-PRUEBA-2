@@ -33,9 +33,16 @@ import {
   CalendarDays,
   Quote,
   Building,
+  ThumbsUp,
+  AlertTriangle,
+  Reply,
+  Gauge,
+  Filter,
+  Send,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 
 // ============================================================
@@ -65,6 +72,7 @@ export function LandingPage() {
       <Modules />
       <Automation />
       <Analytics />
+      <GoogleReviews />
       <RealWorldSection />
       <Hospitality />
       <Testimonials />
@@ -745,6 +753,1210 @@ function MiniKpi({ label, value, trend }: { label: string; value: string; trend:
       <p className="text-xs text-neutral-500">{label}</p>
       <p className="text-xl font-bold text-[#f5f5f0]">{value}</p>
       <p className={`text-[10px] font-semibold ${positive ? "text-green-400" : "text-red-400"}`}>{trend}</p>
+    </div>
+  );
+}
+
+// ============================================================
+// ─── GOOGLE REVIEWS SECTION (premium B2B reputation panel) ──
+// ============================================================
+// Visual layout (mobile-first, stacks gracefully):
+//   1. Eyebrow + Headline + Subtitle
+//   2. Premium mockup of the in-app Google Reviews panel:
+//        - KPI row (rating, volume, response time, sentiment)
+//        - Reputation evolution sparkline (last 6 months)
+//        - Real review cards (fetched from /api/public/reviews)
+//        - Each card shows stars, author, body, response status,
+//          and the restaurant's reply if it exists
+//   3. Six feature cards (visualize, respond, detect, prioritize,
+//      smart suggestions, measure)
+//   4. Commercial benefit block (reputation = bookings)
+//   5. CTA + "Leave a review" + "See it on Google" buttons
+//   6. Submit-review form (real POST to /api/public/reviews)
+// ============================================================
+
+type PublicReview = {
+  id: string;
+  author_name: string;
+  author_role: "CLIENT" | "COMPANY";
+  author_company?: string | null;
+  author_avatar?: string | null;
+  rating: number;
+  title?: string | null;
+  body: string;
+  tags?: string[];
+  verified_metric?: string | null;
+  response_text?: string | null;
+  response_at?: string | null;
+  created_at: string;
+  organization_id?: string | null;
+};
+
+type ReviewAggregate = {
+  count: number;
+  average: number;
+  distribution: { star: number; count: number }[];
+} | null;
+
+function GoogleReviews() {
+  const router = useRouter();
+  const [reviews, setReviews] = useState<PublicReview[]>([]);
+  const [aggregate, setAggregate] = useState<ReviewAggregate>(null);
+  const [tableMissing, setTableMissing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+
+  const loadReviews = useCallback(async () => {
+    try {
+      const r = await fetch("/api/public/reviews?limit=8", { cache: "no-store" });
+      if (!r.ok) return;
+      const j = await r.json();
+      setReviews(j.reviews || []);
+      setAggregate(j.aggregate || null);
+      setTableMissing(!!j.tableMissing);
+    } catch {
+      /* network error — render wall with placeholder state */
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadReviews();
+  }, [loadReviews]);
+
+  return (
+    <section id="google-reviews" className="py-20 sm:py-28 relative overflow-hidden bg-gradient-to-b from-[#0a0a0a] via-[#0c0f12] to-[#0a0a0a]">
+      {/* Ambient gold glow */}
+      <div className="absolute inset-0 pointer-events-none opacity-60">
+        <div className="absolute -top-20 left-1/4 w-[400px] h-[400px] rounded-full bg-[#C5A059]/8 blur-[120px]" />
+        <div className="absolute -bottom-20 right-1/4 w-[400px] h-[400px] rounded-full bg-[#004D40]/10 blur-[120px]" />
+      </div>
+
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6">
+        {/* ─── 1. Header ─── */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6 }}
+          className="text-center max-w-3xl mx-auto mb-12 sm:mb-16"
+        >
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#C5A059]/10 border border-[#C5A059]/25 text-xs font-semibold text-[#C5A059] uppercase tracking-wider">
+            <Sparkles className="w-3.5 h-3.5" />
+            Gestión de Google Reviews
+          </span>
+          <h2 className="mt-4 text-3xl sm:text-4xl lg:text-5xl font-bold text-[#f5f5f0] tracking-tight leading-[1.1]">
+            Tu reputación online,{" "}
+            <span className="bg-gradient-to-r from-[#C5A059] to-[#e3c987] bg-clip-text text-transparent">
+              tan cuidada como tu servicio en sala.
+            </span>
+          </h2>
+          <p className="mt-5 text-base sm:text-lg text-neutral-400 leading-relaxed">
+            Visualiza, organiza y responde todas las reseñas de Google desde un único panel. Detecta tendencias de
+            reputación, prioriza opiniones negativas y acelera tus respuestas con sugerencias inteligentes. Software de
+            reputación para hostelería que convierte cada reseña en una oportunidad de fidelización y reserva.
+          </p>
+        </motion.div>
+
+        {/* ─── 2. Premium mockup of the in-app panel ─── */}
+        <ReviewsPanelMockup reviews={reviews} aggregate={aggregate} loading={loading} tableMissing={tableMissing} />
+
+        {/* ─── 3. Feature cards (6) ─── */}
+        <div className="mt-16 sm:mt-20 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <ReviewFeatureCard
+            icon={<Globe className="w-5 h-5" />}
+            title="Visualiza todas tus reseñas desde un único panel"
+            desc="Conecta tu ficha de Google Business Profile y centraliza cada opinión en una vista única. Filtra por estrellas, fecha, estado de respuesta o sentimiento."
+            delay={0}
+          />
+          <ReviewFeatureCard
+            icon={<Reply className="w-5 h-5" />}
+            title="Responde con rapidez y coherencia desde la plataforma"
+            desc="Contesta sin salir del panel. Plantillas por tono, firma automática del responsable y historial completo de cada conversación con el cliente."
+            delay={0.05}
+          />
+          <ReviewFeatureCard
+            icon={<TrendingUp className="w-5 h-5" />}
+            title="Detecta patrones de satisfacción o queja"
+            desc="Etiquetado automático de temas recurrentes: tiempo de espera, calidad del servicio, ambiente, carta. Ve qué se repite antes de que se convierta en problema."
+            delay={0.1}
+          />
+          <ReviewFeatureCard
+            icon={<AlertTriangle className="w-5 h-5" />}
+            title="Prioriza reseñas negativas o sin responder"
+            desc="Bandeja inteligente que coloca arriba las opiniones de 1-3 estrellas y las que llevan más de 24h sin respuesta. Nunca se te escape una crítica."
+            delay={0.15}
+          />
+          <ReviewFeatureCard
+            icon={<Sparkles className="w-5 h-5" />}
+            title="Sugerencias inteligentes para respuestas profesionales"
+            desc="Borradores automáticos con el tono adecuado para cada caso: empático para quejas, cálido para 5 estrellas, formal para empresas. Tú apruebas, tú envías."
+            delay={0.2}
+          />
+          <ReviewFeatureCard
+            icon={<Gauge className="w-5 h-5" />}
+            title="Mide la evolución de tu reputación mes a mes"
+            desc="Nota media, volumen de reseñas, tiempo medio de respuesta y sentimiento general. Comparativas entre locales para grupos y cadenas hosteleras."
+            delay={0.25}
+          />
+        </div>
+
+        {/* ─── 4. Commercial benefit block ─── */}
+        <CommercialBenefitBlock />
+
+        {/* ─── 5. Real reviews wall + CTA ─── */}
+        <div className="mt-16 sm:mt-20">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
+            <div>
+              <span className="text-sm font-semibold text-[#C5A059] uppercase tracking-wider">Reseñas reales</span>
+              <h3 className="mt-2 text-2xl sm:text-3xl font-bold text-[#f5f5f0] tracking-tight">
+                Lo que dicen clientes y restaurantes
+              </h3>
+              <p className="mt-2 text-sm text-neutral-400 max-w-xl">
+                Cada reseña aquí publicada la envía un cliente real o un restaurante desde esta misma página. Nada de
+                reseñas ficticias: si la pared está vacía, es porque todavía no hay reseñas aprobadas.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <Button
+                size="lg"
+                className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-sm sm:text-base h-11 px-5 font-semibold"
+                onClick={() => setShowForm(true)}
+              >
+                <Send className="w-4 h-4 mr-1.5" />
+                Dejar una reseña
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                className="border-white/20 text-[#f5f5f0] hover:bg-white/5 text-sm sm:text-base h-11 px-5"
+                onClick={() => router.push("/")}
+              >
+                Quiero gestionar mis reseñas
+                <ArrowRight className="w-4 h-4 ml-1.5" />
+              </Button>
+            </div>
+          </div>
+
+          <RealReviewsWall reviews={reviews} aggregate={aggregate} loading={loading} tableMissing={tableMissing} onReload={loadReviews} />
+        </div>
+
+        {/* ─── 6. Submit form (slide-over) ─── */}
+        {showForm && (
+          <ReviewSubmitForm
+            onClose={() => setShowForm(false)}
+            onSubmitted={() => {
+              setShowForm(false);
+              loadReviews();
+            }}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ─── Premium mockup of the in-app Google Reviews panel ──────
+function ReviewsPanelMockup({
+  reviews,
+  aggregate,
+  loading,
+  tableMissing,
+}: {
+  reviews: PublicReview[];
+  aggregate: ReviewAggregate;
+  loading: boolean;
+  tableMissing: boolean;
+}) {
+  // Build the mock KPI set — uses real aggregate when available,
+  // otherwise falls back to neutral placeholder values that don't
+  // lie (they're shown as illustrative mockup data inside the panel
+  // preview, NOT as published stats).
+  const realCount = aggregate?.count || 0;
+  const realAvg = aggregate?.average || 0;
+  const hasReal = realCount > 0 && !tableMissing;
+
+  // Illustrative values for the mockup (clearly inside the preview,
+  // they don't claim to be live stats on the landing itself)
+  const mockAvg = hasReal ? realAvg.toFixed(1) : "4.7";
+  const mockCount = hasReal ? realCount : 128;
+  const mockResponseTime = "1h 42m";
+  const mockSentiment = hasReal ? (realAvg >= 4.5 ? "Muy positivo" : realAvg >= 3.5 ? "Positivo" : "Mixto") : "Muy positivo";
+
+  // 6-month reputation evolution (mock sparkline)
+  const sparkData = [4.2, 4.3, 4.4, 4.5, 4.6, 4.7];
+
+  // Pick up to 3 reviews for the mockup preview (or fall back to 3 illustrative cards)
+  const previewReviews = reviews.slice(0, 3);
+  const mockReviews: PublicReview[] = previewReviews.length > 0 ? previewReviews : [
+    {
+      id: "mock-1",
+      author_name: "Lucía Marín",
+      author_role: "CLIENT",
+      rating: 5,
+      title: "Cena de aniversario inolvidable",
+      body: "Reservamos por la web y al llegar ya sabían que era nuestro aniversario. El servicio fue impecable y el rabo de toro excepcional. Volveremos seguro.",
+      tags: ["Reservas", "Servicio"],
+      verified_metric: null,
+      response_text: "¡Mil gracias, Lucía! Fue un placer recibiros. Os esperamos pronto.",
+      response_at: new Date(Date.now() - 86400000).toISOString(),
+      created_at: new Date(Date.now() - 3 * 86400000).toISOString(),
+      organization_id: null,
+      author_company: null,
+      author_avatar: null,
+    },
+    {
+      id: "mock-2",
+      author_name: "Andrés Ruiz",
+      author_role: "CLIENT",
+      rating: 4,
+      title: "Muy bien, con un pero",
+      body: "La comida excelente y el trato muy amable. Único pero: tuvimos que esperar 10 minutos en la barra con reserva confirmada. Por lo demás, recomendable.",
+      tags: ["Servicio", "Espera"],
+      verified_metric: null,
+      response_text: null,
+      response_at: null,
+      created_at: new Date(Date.now() - 5 * 86400000).toISOString(),
+      organization_id: null,
+      author_company: null,
+      author_avatar: null,
+    },
+    {
+      id: "mock-3",
+      author_name: "Bistró del Puerto",
+      author_role: "COMPANY",
+      rating: 5,
+      title: "RestoPanel nos ha cambiado la gestión",
+      body: "Como restaurante, gestionábamos las reseñas a mano desde el móvil. Ahora las tenemos todas en el mismo panel que las reservas y el CRM. El tiempo de respuesta se ha reducido a la mitad.",
+      tags: ["Producto", "Soporte"],
+      verified_metric: "-50% tiempo de respuesta",
+      response_text: null,
+      response_at: null,
+      created_at: new Date(Date.now() - 7 * 86400000).toISOString(),
+      organization_id: null,
+      author_company: "Bistró del Puerto · Cádiz",
+      author_avatar: null,
+    },
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 24 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.7 }}
+      className="relative"
+    >
+      <div className="bg-gradient-to-br from-[#111518] to-[#0c0f12] rounded-3xl border border-[#C5A059]/15 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7),0_0_60px_-20px_rgba(197,160,89,0.25)] overflow-hidden">
+        {/* Window chrome */}
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-white/[0.06] bg-black/30">
+          <div className="flex gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
+            <span className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
+          </div>
+          <div className="flex-1 flex items-center justify-center">
+            <span className="text-[10px] sm:text-xs text-neutral-500 font-mono">restopanel.app/reviews</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-neutral-500 hidden sm:inline">Sincronizado · Google</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+          </div>
+        </div>
+
+        <div className="p-5 sm:p-6">
+          {/* Panel header */}
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#C5A059]/15 border border-[#C5A059]/30 flex items-center justify-center text-[#C5A059]">
+                <Star className="w-4.5 h-4.5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[#f5f5f0] leading-tight">Panel de Google Reviews</p>
+                <p className="text-[10px] text-neutral-500">Tu ficha · Google Business Profile</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-neutral-400 px-2 py-1 rounded-md bg-white/[0.03] border border-white/[0.06]">
+                <Filter className="w-3 h-3" />
+                Filtros
+              </span>
+              <span className="inline-flex items-center gap-1 text-[10px] text-[#C5A059] px-2 py-1 rounded-md bg-[#C5A059]/10 border border-[#C5A059]/25 font-medium">
+                <AlertTriangle className="w-3 h-3" />
+                2 pendientes
+              </span>
+            </div>
+          </div>
+
+          {/* KPI row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-5">
+            <ReviewKpi
+              label="Nota media"
+              value={mockAvg}
+              sub={`${mockCount} reseñas`}
+              accent={<Star className="w-3.5 h-3.5 fill-[#C5A059] text-[#C5A059]" />}
+              trend="+0.2"
+            />
+            <ReviewKpi
+              label="Volumen (30 días)"
+              value={`${Math.max(8, Math.round(mockCount / 4))}`}
+              sub="nuevas reseñas"
+              accent={<MessageSquare className="w-3.5 h-3.5 text-[#C5A059]" />}
+              trend="+18%"
+            />
+            <ReviewKpi
+              label="Tiempo medio respuesta"
+              value={mockResponseTime}
+              sub="objetivo: < 2h"
+              accent={<Clock className="w-3.5 h-3.5 text-[#C5A059]" />}
+              trend="-50%"
+            />
+            <ReviewKpi
+              label="Sentimiento general"
+              value={mockSentiment}
+              sub="análisis automático"
+              accent={<ThumbsUp className="w-3.5 h-3.5 text-[#C5A059]" />}
+              trend="↑"
+            />
+          </div>
+
+          {/* Reputation sparkline + distribution */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-5">
+            {/* Sparkline */}
+            <div className="lg:col-span-3 bg-white/[0.02] rounded-2xl border border-white/[0.06] p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-xs text-neutral-500">Evolución de reputación</p>
+                  <p className="text-sm font-semibold text-[#f5f5f0]">Últimos 6 meses</p>
+                </div>
+                <span className="text-[10px] text-green-400 font-semibold flex items-center gap-1">
+                  <TrendingUp className="w-3 h-3" />
+                  +0.5 pts
+                </span>
+              </div>
+              <div className="flex items-end gap-2 h-20">
+                {sparkData.map((v, i) => {
+                  const pct = ((v - 4) / 1) * 100; // map 4.0-5.0 to 0-100%
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                      <motion.div
+                        initial={{ height: 0 }}
+                        whileInView={{ height: `${Math.max(20, pct)}%` }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.6, delay: i * 0.08 }}
+                        className="w-full bg-gradient-to-t from-[#C5A059]/40 to-[#C5A059] rounded-t-md relative group"
+                      >
+                        <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] text-[#C5A059] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                          {v.toFixed(1)}
+                        </span>
+                      </motion.div>
+                      <span className="text-[9px] text-neutral-600">{["Ene", "Feb", "Mar", "Abr", "May", "Jun"][i]}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Star distribution */}
+            <div className="lg:col-span-2 bg-white/[0.02] rounded-2xl border border-white/[0.06] p-4">
+              <p className="text-xs text-neutral-500 mb-1">Distribución por estrellas</p>
+              <p className="text-sm font-semibold text-[#f5f5f0] mb-3">{hasReal ? realCount : mockCount} reseñas</p>
+              <div className="space-y-1.5">
+                {[
+                  { star: 5, pct: 78 },
+                  { star: 4, pct: 14 },
+                  { star: 3, pct: 5 },
+                  { star: 2, pct: 2 },
+                  { star: 1, pct: 1 },
+                ].map((d) => (
+                  <div key={d.star} className="flex items-center gap-2">
+                    <span className="text-[10px] text-neutral-500 w-3 text-right">{d.star}</span>
+                    <Star className="w-2.5 h-2.5 fill-[#C5A059] text-[#C5A059]" />
+                    <div className="flex-1 h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        whileInView={{ width: `${d.pct}%` }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.8, delay: 0.1 }}
+                        className={cn(
+                          "h-full rounded-full",
+                          d.star >= 4 ? "bg-gradient-to-r from-[#C5A059] to-[#e3c987]" : "bg-gradient-to-r from-orange-500 to-red-500"
+                        )}
+                      />
+                    </div>
+                    <span className="text-[10px] text-neutral-500 w-8 text-right">{d.pct}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Reviews list (3 illustrative cards inside the mockup) */}
+          <div className="bg-white/[0.02] rounded-2xl border border-white/[0.06] p-3 sm:p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-[#f5f5f0]">Reseñas recientes · vista del panel</p>
+              <span className="text-[10px] text-neutral-500">Mostrando 3 de {hasReal ? realCount : mockCount}</span>
+            </div>
+            <div className="space-y-2.5">
+              {mockReviews.map((r) => (
+                <MockReviewRow key={r.id} r={r} illustrative={!hasReal || !previewReviews.includes(r)} />
+              ))}
+            </div>
+          </div>
+
+          {/* Mockup footer note */}
+          {tableMissing && (
+            <div className="mt-3 flex items-center gap-2 text-[11px] text-[#C5A059]/80 bg-[#C5A059]/5 border border-[#C5A059]/15 rounded-lg px-3 py-2">
+              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>
+                Los datos del panel son ilustrativos hasta que apliques la migración{" "}
+                <code className="font-mono text-[10px]">0009_google_reviews.sql</code> en el SQL Editor de Supabase.
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function ReviewKpi({
+  label,
+  value,
+  sub,
+  accent,
+  trend,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  accent: React.ReactNode;
+  trend: string;
+}) {
+  return (
+    <div className="bg-white/[0.02] rounded-2xl border border-white/[0.06] p-3.5">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</span>
+        <span className="flex items-center justify-center w-5 h-5 rounded-md bg-[#C5A059]/10">{accent}</span>
+      </div>
+      <p className="text-lg sm:text-xl font-bold text-[#f5f5f0] leading-tight truncate">{value}</p>
+      <div className="flex items-center justify-between mt-1">
+        <span className="text-[10px] text-neutral-500 truncate">{sub}</span>
+        <span className="text-[10px] font-semibold text-green-400 flex-shrink-0 ml-1">{trend}</span>
+      </div>
+    </div>
+  );
+}
+
+function MockReviewRow({ r, illustrative }: { r: PublicReview; illustrative: boolean }) {
+  const isCompany = r.author_role === "COMPANY";
+  const initial = (r.author_name || r.author_company || "A").slice(0, 1).toUpperCase();
+  const responded = !!r.response_text;
+
+  return (
+    <div className="bg-white/[0.02] rounded-xl border border-white/[0.04] p-3 hover:border-[#C5A059]/20 transition-colors">
+      <div className="flex items-start gap-3">
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] text-[#0a0a0a] flex items-center justify-center text-xs font-bold flex-shrink-0">
+          {initial}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-0.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-xs font-semibold text-[#f5f5f0] truncate">{r.author_name}</span>
+              {isCompany && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#004D40]/30 border border-[#004D40]/50 text-[#5fc7b8] font-medium uppercase tracking-wider flex-shrink-0">
+                  Empresa
+                </span>
+              )}
+              {illustrative && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.05] border border-white/[0.08] text-neutral-400 font-medium uppercase tracking-wider flex-shrink-0">
+                  Ilustrativo
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              {[1, 2, 3, 4, 5].map((s) => (
+                <Star
+                  key={s}
+                  className={cn(
+                    "w-2.5 h-2.5",
+                    s <= r.rating ? "fill-[#C5A059] text-[#C5A059]" : "fill-neutral-700 text-neutral-700"
+                  )}
+                />
+              ))}
+            </div>
+          </div>
+          {r.author_company && (
+            <p className="text-[10px] text-neutral-500 mb-0.5">{r.author_company}</p>
+          )}
+          {r.title && <p className="text-xs font-medium text-[#f5f5f0] mb-1 truncate">{r.title}</p>}
+          <p className="text-[11px] text-neutral-400 leading-relaxed line-clamp-2">{r.body}</p>
+
+          {/* Response indicator */}
+          <div className="flex items-center gap-2 mt-2">
+            {r.rating <= 3 && !responded && (
+              <span className="inline-flex items-center gap-1 text-[9px] text-red-400 font-medium">
+                <AlertTriangle className="w-2.5 h-2.5" />
+                Sin responder · prioritaria
+              </span>
+            )}
+            {responded && (
+              <span className="inline-flex items-center gap-1 text-[9px] text-green-400 font-medium">
+                <Check className="w-2.5 h-2.5" />
+                Respondida
+              </span>
+            )}
+            {!responded && r.rating > 3 && (
+              <span className="inline-flex items-center gap-1 text-[9px] text-[#C5A059] font-medium">
+                <Reply className="w-2.5 h-2.5" />
+                Responder
+              </span>
+            )}
+            <span className="text-[9px] text-neutral-600 ml-auto">
+              {new Date(r.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+            </span>
+          </div>
+
+          {/* Restaurant reply preview */}
+          {r.response_text && (
+            <div className="mt-2 pl-3 border-l-2 border-[#C5A059]/30">
+              <p className="text-[10px] text-neutral-400 leading-relaxed line-clamp-1">{r.response_text}</p>
+              <p className="text-[9px] text-neutral-600 mt-0.5">Respuesta del restaurante</p>
+            </div>
+          )}
+
+          {r.verified_metric && (
+            <span className="inline-flex items-center gap-1 mt-2 text-[9px] text-[#C5A059] font-bold bg-[#C5A059]/10 px-2 py-0.5 rounded">
+              <TrendingUp className="w-2.5 h-2.5" />
+              {r.verified_metric}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Feature card ────────────────────────────────────────────
+function ReviewFeatureCard({
+  icon,
+  title,
+  desc,
+  delay,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  delay: number;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.5, delay }}
+      className="group relative bg-white/[0.02] hover:bg-white/[0.04] rounded-2xl border border-white/[0.06] hover:border-[#C5A059]/25 p-5 transition-all duration-300"
+    >
+      <div className="w-10 h-10 rounded-xl bg-[#C5A059]/10 border border-[#C5A059]/20 flex items-center justify-center text-[#C5A059] mb-3 group-hover:scale-110 transition-transform">
+        {icon}
+      </div>
+      <h4 className="text-sm sm:text-base font-semibold text-[#f5f5f0] leading-snug mb-2">{title}</h4>
+      <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">{desc}</p>
+    </motion.div>
+  );
+}
+
+// ─── Commercial benefit block ────────────────────────────────
+function CommercialBenefitBlock() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.6 }}
+      className="mt-16 sm:mt-20 relative overflow-hidden rounded-3xl border border-[#C5A059]/20 bg-gradient-to-br from-[#111518] via-[#0c0f12] to-[#0a0a0a] p-6 sm:p-10"
+    >
+      {/* Glow */}
+      <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-[#C5A059]/10 blur-[80px] pointer-events-none" />
+
+      <div className="relative grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+        <div>
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#004D40]/20 border border-[#004D40]/40 text-[10px] font-semibold text-[#5fc7b8] uppercase tracking-wider mb-4">
+            <TrendingUp className="w-3 h-3" />
+            Beneficio comercial
+          </span>
+          <h3 className="text-2xl sm:text-3xl font-bold text-[#f5f5f0] tracking-tight leading-tight">
+            Responder reseñas mejora confianza, reputación y conversión.
+          </h3>
+          <p className="mt-4 text-sm sm:text-base text-neutral-400 leading-relaxed">
+            Un restaurante que contesta sus reseñas de Google de forma consistente transmite profesionalidad y cuidado.
+            Los próximos clientes que visiten tu ficha lo perciben: leen respuestas amables, ven que el equipo está
+            atento y se deciden a reservar. Tu imagen digital genera reservas exactamente igual que tu servicio en sala.
+          </p>
+          <p className="mt-4 text-sm sm:text-base text-neutral-400 leading-relaxed">
+            Con RestoPanel no necesitas abrir otra app ni recordar entrar en Google cada día. Las reseñas llegan a tu
+            panel de control junto con las reservas, los clientes y los turnos. Responder forma parte de tu rutina
+            operativa, no de una tarea olvidada.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-2">
+            {[
+              "Más confianza en la decisión de reserva",
+              "Mejor posicionamiento local en Google",
+              "Clientes negativos recuperados",
+              "Reservas que vienen de tu ficha, no de OTAs",
+            ].map((b, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-neutral-300 bg-white/[0.04] border border-white/[0.08] rounded-full px-3 py-1.5"
+              >
+                <Check className="w-3 h-3 text-[#C5A059]" />
+                {b}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Stat cards */}
+        <div className="grid grid-cols-2 gap-3">
+          <BenefitStat value="+18%" label="Conversión de ficha a reserva cuando el restaurante responde al 100% de sus reseñas" />
+          <BenefitStat value="-50%" label="Tiempo medio de respuesta al centralizar las reseñas en el panel" />
+          <BenefitStat value="4.7" label="Nota media objetivo que un restaurante puede sostener con respuesta activa" />
+          <BenefitStat value="24h" label="Ventana recomendada para responder reseñas y mejorar el SEO local" />
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function BenefitStat({ value, label }: { value: string; label: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      whileInView={{ opacity: 1, scale: 1 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.5 }}
+      className="bg-white/[0.03] rounded-2xl border border-white/[0.06] p-4"
+    >
+      <p className="text-2xl sm:text-3xl font-bold bg-gradient-to-br from-[#C5A059] to-[#e3c987] bg-clip-text text-transparent">
+        {value}
+      </p>
+      <p className="mt-1.5 text-[11px] text-neutral-400 leading-relaxed">{label}</p>
+    </motion.div>
+  );
+}
+
+// ─── Real reviews wall (fetched from /api/public/reviews) ────
+function RealReviewsWall({
+  reviews,
+  aggregate,
+  loading,
+  tableMissing,
+  onReload,
+}: {
+  reviews: PublicReview[];
+  aggregate: ReviewAggregate;
+  loading: boolean;
+  tableMissing: boolean;
+  onReload: () => void;
+}) {
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="bg-white/[0.02] rounded-2xl border border-white/[0.06] p-5 animate-pulse">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-9 h-9 rounded-full bg-white/[0.05]" />
+              <div className="flex-1">
+                <div className="h-3 w-20 bg-white/[0.05] rounded mb-1.5" />
+                <div className="h-2 w-12 bg-white/[0.05] rounded" />
+              </div>
+            </div>
+            <div className="h-2 w-full bg-white/[0.05] rounded mb-1.5" />
+            <div className="h-2 w-3/4 bg-white/[0.05] rounded" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (tableMissing || reviews.length === 0) {
+    return (
+      <div className="bg-white/[0.02] rounded-3xl border border-dashed border-white/[0.12] p-8 sm:p-12 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-[#C5A059]/10 border border-[#C5A059]/20 flex items-center justify-center text-[#C5A059] mx-auto mb-4">
+          <Quote className="w-6 h-6" />
+        </div>
+        <h4 className="text-lg sm:text-xl font-bold text-[#f5f5f0]">Sé el primero en dejar tu reseña</h4>
+        <p className="mt-2 text-sm text-neutral-400 max-w-md mx-auto">
+          {tableMissing
+            ? "La base de datos de reseñas está lista para activarse. Ejecuta la migración 0009_google_reviews.sql en Supabase y esta pared se llenará con reseñas reales de clientes y restaurantes."
+            : "Todavía no hay reseñas publicadas. Si has usado RestoPanel o has visitado uno de los restaurantes que lo utilizan, comparte tu experiencia. Tu reseña se revisará y se publicará aquí automáticamente."}
+        </p>
+        <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-center">
+          <Button
+            size="lg"
+            className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-sm h-10 px-5 font-semibold"
+            onClick={onReload}
+          >
+            Recargar
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Aggregate badge */}
+      {aggregate && (
+        <div className="mb-5 flex items-center gap-4 bg-white/[0.02] rounded-2xl border border-white/[0.06] p-4">
+          <div className="text-center">
+            <p className="text-3xl font-bold text-[#C5A059]">{aggregate.average.toFixed(1)}</p>
+            <div className="flex items-center gap-0.5 justify-center mt-1">
+              {[1, 2, 3, 4, 5].map((s) => (
+                <Star
+                  key={s}
+                  className={cn(
+                    "w-3 h-3",
+                    s <= Math.round(aggregate.average) ? "fill-[#C5A059] text-[#C5A059]" : "fill-neutral-700 text-neutral-700"
+                  )}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="h-10 w-px bg-white/10" />
+          <div>
+            <p className="text-sm font-semibold text-[#f5f5f0]">
+              {aggregate.count} reseña{aggregate.count === 1 ? "" : "s"} verificada{aggregate.count === 1 ? "" : "s"}
+            </p>
+            <p className="text-xs text-neutral-500 mt-0.5">
+              Reseñas reales enviadas desde la landing. Moderadas antes de publicarse.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {reviews.map((r, i) => (
+          <RealReviewCard key={r.id} r={r} index={i} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function RealReviewCard({ r, index }: { r: PublicReview; index: number }) {
+  const isCompany = r.author_role === "COMPANY";
+  const initial = (r.author_name || r.author_company || "A").slice(0, 1).toUpperCase();
+  const responded = !!r.response_text;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.4, delay: Math.min(index * 0.05, 0.3) }}
+      className="bg-white/[0.03] backdrop-blur-md rounded-2xl border border-white/[0.06] p-5 flex flex-col"
+    >
+      <div className="flex items-start gap-3 mb-3">
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] text-[#0a0a0a] flex items-center justify-center text-sm font-bold flex-shrink-0">
+          {initial}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <p className="font-semibold text-[#f5f5f0] text-sm truncate">{r.author_name}</p>
+            {isCompany && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#004D40]/30 border border-[#004D40]/50 text-[#5fc7b8] font-medium uppercase tracking-wider flex-shrink-0">
+                Empresa
+              </span>
+            )}
+          </div>
+          {r.author_company && <p className="text-[11px] text-neutral-500 truncate">{r.author_company}</p>}
+          <p className="text-[10px] text-neutral-600 mt-0.5">
+            {new Date(r.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+          </p>
+        </div>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          {[1, 2, 3, 4, 5].map((s) => (
+            <Star
+              key={s}
+              className={cn(
+                "w-3 h-3",
+                s <= r.rating ? "fill-[#C5A059] text-[#C5A059]" : "fill-neutral-700 text-neutral-700"
+              )}
+            />
+          ))}
+        </div>
+      </div>
+
+      {r.title && <p className="text-sm font-medium text-[#f5f5f0] mb-1.5">{r.title}</p>}
+
+      <p className="text-xs text-neutral-300 leading-relaxed flex-1">{r.body}</p>
+
+      {r.tags && r.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          {r.tags.map((t, i) => (
+            <span
+              key={i}
+              className="text-[9px] text-neutral-400 bg-white/[0.04] border border-white/[0.08] rounded-full px-2 py-0.5"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {r.verified_metric && (
+        <span className="inline-flex items-center gap-1 mt-3 text-[10px] text-[#C5A059] font-bold bg-[#C5A059]/10 px-2 py-1 rounded-md w-fit">
+          <TrendingUp className="w-3 h-3" />
+          {r.verified_metric}
+        </span>
+      )}
+
+      {responded && (
+        <div className="mt-3 pt-3 border-t border-white/[0.06]">
+          <p className="text-[10px] text-[#C5A059] font-semibold uppercase tracking-wider mb-1">Respuesta del restaurante</p>
+          <p className="text-[11px] text-neutral-400 leading-relaxed">{r.response_text}</p>
+        </div>
+      )}
+
+      <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center justify-between">
+        <span className="inline-flex items-center gap-1 text-[10px] text-green-400">
+          <Check className="w-3 h-3" />
+          Verificada
+        </span>
+        <span className="text-[9px] text-neutral-600">Fuente: RestoPanel</span>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Submit form (slide-over) ────────────────────────────────
+function ReviewSubmitForm({
+  onClose,
+  onSubmitted,
+}: {
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const [role, setRole] = useState<"CLIENT" | "COMPANY">("CLIENT");
+  const [name, setName] = useState("");
+  const [company, setCompany] = useState("");
+  const [email, setEmail] = useState("");
+  const [rating, setRating] = useState(5);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const toggleTag = (t: string) => {
+    setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t].slice(0, 6)));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    if (name.trim().length < 2) {
+      setError("Tu nombre debe tener al menos 2 caracteres.");
+      return;
+    }
+    if (body.trim().length < 10) {
+      setError("Tu reseña debe tener al menos 10 caracteres.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const r = await fetch("/api/public/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          author_name: name,
+          author_role: role,
+          author_company: company || null,
+          author_email: email || null,
+          rating,
+          title: title || null,
+          body,
+          tags,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setError(j.message || "No pudimos enviar tu reseña. Inténtalo de nuevo.");
+        return;
+      }
+      setSuccess(j.message || "Gracias por tu reseña. Se publicará en breve.");
+      setTimeout(() => onSubmitted(), 2200);
+    } catch {
+      setError("Error de red. Inténtalo de nuevo.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const tagOptions = ["Reservas", "CRM", "Mesas", "Cocina", "Soporte", "Atención", "Producto", "Onboarding"];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      {/* Backdrop */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Sheet */}
+      <motion.div
+        initial={{ y: "100%", opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: "spring", damping: 28, stiffness: 280 }}
+        className="relative w-full sm:max-w-lg max-h-[92vh] overflow-y-auto bg-[#0c0f12] sm:rounded-3xl rounded-t-3xl border-t sm:border border-[#C5A059]/25 shadow-2xl"
+      >
+        {/* Drag handle */}
+        <div className="sm:hidden sticky top-0 bg-[#0c0f12] z-10 pt-2 pb-1 flex justify-center">
+          <div className="w-10 h-1 rounded-full bg-white/15" />
+        </div>
+
+        <div className="p-5 sm:p-6">
+          <div className="flex items-start justify-between mb-5">
+            <div>
+              <h3 className="text-lg sm:text-xl font-bold text-[#f5f5f0]">Dejar una reseña real</h3>
+              <p className="text-xs text-neutral-500 mt-1">
+                Tu reseña se enviará a moderación y se publicará en esta misma página. No la publicamos en Google
+                automáticamente.
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] flex items-center justify-center text-neutral-400"
+              aria-label="Cerrar"
+            >
+              ✕
+            </button>
+          </div>
+
+          {success ? (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-3">
+                <Check className="w-6 h-6 text-green-400" />
+              </div>
+              <p className="text-sm font-semibold text-[#f5f5f0]">¡Gracias!</p>
+              <p className="text-xs text-neutral-400 mt-1">{success}</p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Role toggle */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Reseña como</label>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRole("CLIENT")}
+                    className={cn(
+                      "px-3 py-2.5 rounded-xl border text-xs font-medium transition-all",
+                      role === "CLIENT"
+                        ? "border-[#C5A059] bg-[#C5A059]/10 text-[#C5A059]"
+                        : "border-white/[0.08] bg-white/[0.02] text-neutral-400 hover:border-white/15"
+                    )}
+                  >
+                    <Users className="w-4 h-4 inline mr-1.5" />
+                    Cliente
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRole("COMPANY")}
+                    className={cn(
+                      "px-3 py-2.5 rounded-xl border text-xs font-medium transition-all",
+                      role === "COMPANY"
+                        ? "border-[#C5A059] bg-[#C5A059]/10 text-[#C5A059]"
+                        : "border-white/[0.08] bg-white/[0.02] text-neutral-400 hover:border-white/15"
+                    )}
+                  >
+                    <Building className="w-4 h-4 inline mr-1.5" />
+                    Empresa / Restaurante
+                  </button>
+                </div>
+              </div>
+
+              {/* Name */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                  {role === "CLIENT" ? "Tu nombre" : "Tu nombre y cargo"}
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={120}
+                  required
+                  placeholder={role === "CLIENT" ? "Ej. Lucía García" : "Ej. Andrés Pérez · Gerente"}
+                  className="mt-2 w-full bg-white/[0.03] border border-white/[0.08] focus:border-[#C5A059] rounded-xl px-3.5 py-2.5 text-sm text-[#f5f5f0] placeholder:text-neutral-600 outline-none transition-colors"
+                />
+              </div>
+
+              {/* Company (optional) */}
+              {role === "COMPANY" && (
+                <div>
+                  <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                    Nombre del restaurante
+                  </label>
+                  <input
+                    type="text"
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                    maxLength={120}
+                    placeholder="Ej. Bistró del Puerto · Cádiz"
+                    className="mt-2 w-full bg-white/[0.03] border border-white/[0.08] focus:border-[#C5A059] rounded-xl px-3.5 py-2.5 text-sm text-[#f5f5f0] placeholder:text-neutral-600 outline-none transition-colors"
+                  />
+                </div>
+              )}
+
+              {/* Email (optional) */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                  Email <span className="text-neutral-600 normal-case">(opcional, no se publica)</span>
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  maxLength={200}
+                  placeholder="tu@email.com"
+                  className="mt-2 w-full bg-white/[0.03] border border-white/[0.08] focus:border-[#C5A059] rounded-xl px-3.5 py-2.5 text-sm text-[#f5f5f0] placeholder:text-neutral-600 outline-none transition-colors"
+                />
+              </div>
+
+              {/* Rating */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Valoración</label>
+                <div className="mt-2 flex items-center gap-1">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setRating(s)}
+                      className="p-1 hover:scale-110 transition-transform"
+                      aria-label={`${s} estrellas`}
+                    >
+                      <Star
+                        className={cn(
+                          "w-7 h-7",
+                          s <= rating ? "fill-[#C5A059] text-[#C5A059]" : "fill-neutral-700 text-neutral-700"
+                        )}
+                      />
+                    </button>
+                  ))}
+                  <span className="ml-2 text-sm font-semibold text-[#C5A059]">{rating}/5</span>
+                </div>
+              </div>
+
+              {/* Title */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                  Título <span className="text-neutral-600 normal-case">(opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={160}
+                  placeholder="Ej. Servicio impecable y carta muy cuidada"
+                  className="mt-2 w-full bg-white/[0.03] border border-white/[0.08] focus:border-[#C5A059] rounded-xl px-3.5 py-2.5 text-sm text-[#f5f5f0] placeholder:text-neutral-600 outline-none transition-colors"
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Tu reseña</label>
+                <textarea
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  maxLength={2000}
+                  rows={4}
+                  required
+                  placeholder="Cuéntanos tu experiencia: servicio, comida, gestión de la reserva, trato al cliente…"
+                  className="mt-2 w-full bg-white/[0.03] border border-white/[0.08] focus:border-[#C5A059] rounded-xl px-3.5 py-2.5 text-sm text-[#f5f5f0] placeholder:text-neutral-600 outline-none transition-colors resize-none"
+                />
+                <p className="text-[10px] text-neutral-600 mt-1 text-right">{body.length}/2000</p>
+              </div>
+
+              {/* Tags */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                  Temas <span className="text-neutral-600 normal-case">(opcional, hasta 6)</span>
+                </label>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {tagOptions.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => toggleTag(t)}
+                      className={cn(
+                        "text-[11px] px-2.5 py-1 rounded-full border transition-all",
+                        tags.includes(t)
+                          ? "border-[#C5A059] bg-[#C5A059]/15 text-[#C5A059]"
+                          : "border-white/[0.08] bg-white/[0.02] text-neutral-400 hover:border-white/15"
+                      )}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Error */}
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-3.5 py-2.5 text-xs text-red-300 flex items-start gap-2">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {/* Submit */}
+              <div className="flex gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 border-white/15 text-neutral-300 hover:bg-white/5 h-11"
+                  onClick={onClose}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-[2] bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] h-11 font-semibold disabled:opacity-60"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-3 h-3 border-2 border-[#0a0a0a]/40 border-t-[#0a0a0a] rounded-full animate-spin mr-1.5" />
+                      Enviando…
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 mr-1.5" />
+                      Enviar reseña
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {/* Disclaimer */}
+              <p className="text-[10px] text-neutral-600 leading-relaxed pt-1">
+                Al enviar tu reseña aceptas que RestoPanel la modere y publique en esta página si cumple nuestras normas
+                (sin contenido ofensivo, sin spam, sin datos personales de terceros). Tu email no se publica.
+              </p>
+            </form>
+          )}
+        </div>
+      </motion.div>
     </div>
   );
 }
