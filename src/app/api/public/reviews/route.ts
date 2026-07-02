@@ -137,6 +137,16 @@ export async function POST(req: Request) {
   }
 
   try {
+    // ─── AUTO-APPROVAL ────────────────────────────────────────
+    // Reviews are auto-approved so they appear on the landing wall
+    // immediately. The super admin can still:
+    //   - reject a review later from /admin → Reseñas
+    //   - delete spam or offensive content
+    //   - reply publicly to any review
+    // This keeps the flow fully automated: a client or restaurant
+    // submits a review and it goes live instantly, no manual gate.
+    // We still keep the status field so the admin can REJECTED
+    // a review and it disappears from the public wall.
     const { data, error } = await supabaseAdmin
       .from("public_reviews")
       .insert({
@@ -151,7 +161,7 @@ export async function POST(req: Request) {
         tags,
         organization_id: organization_id || null,
         source: "LANDING",
-        status: "PENDING",
+        status: "APPROVED", // auto-approved so it shows on the wall instantly
       })
       .select("id, created_at")
       .single();
@@ -174,8 +184,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       id: data?.id,
-      status: "PENDING",
-      message: "Gracias por tu reseña. Nuestro equipo la revisará y se publicará en breve.",
+      status: "APPROVED",
+      message: "¡Gracias! Tu reseña se ha publicado directamente en la pared.",
     });
   } catch (err) {
     console.error("[reviews/POST] exception", err);

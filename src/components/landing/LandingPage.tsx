@@ -756,19 +756,19 @@ function GoogleReviews() {
     loadReviews();
   }, [loadReviews]);
 
-  // When the submit form succeeds, we synthesise a "pending" review
-  // locally so the user sees their submission appear immediately on
-  // the wall with a "Pendiente de moderación" badge. The next time
-  // the admin approves it, the next page load will show it as a
-  // normal approved review (the pending one is dropped on reload).
+  // When the submit form succeeds, we synthesise a "just published"
+  // review locally so the user sees their submission appear immediately
+  // on the wall with a "Recién publicada" badge. The next page reload
+  // will show it as a normal approved review (the local pending copy
+  // is dropped on reload).
   const handleSubmitted = useCallback((review: PublicReview) => {
     setPendingReview(review);
     setShowForm(false);
-    // Scroll to the wall so the user sees their pending review
+    // Scroll to the wall so the user sees their published review
     setTimeout(() => {
       document.getElementById("reviews-wall")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 200);
-    // Also re-fetch in case the admin has already approved (race)
+    // Re-fetch so the wall reflects the new review from the server
     loadReviews();
   }, [loadReviews]);
 
@@ -1437,25 +1437,24 @@ function RealReviewsWall({
     );
   }
 
-  // Pending banner shown above the wall when a user just submitted
+  // Confirmation banner shown above the wall when a user just submitted
   const pendingBanner = pendingReview && (
     <motion.div
       initial={{ opacity: 0, y: -10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.4 }}
-      className="mb-5 relative overflow-hidden rounded-2xl border border-[#C5A059]/40 bg-gradient-to-br from-[#C5A059]/15 via-[#C5A059]/5 to-transparent p-4 sm:p-5"
+      className="mb-5 relative overflow-hidden rounded-2xl border border-green-500/40 bg-gradient-to-br from-green-500/15 via-green-500/5 to-transparent p-4 sm:p-5"
     >
       <div className="flex items-start gap-3">
-        <div className="w-9 h-9 rounded-full bg-[#C5A059] text-[#0a0a0a] flex items-center justify-center flex-shrink-0">
+        <div className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center flex-shrink-0">
           <Check className="w-4 h-4" strokeWidth={3} />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-[#f5f5f0]">
-            ¡Gracias, {pendingReview.author_name}! Tu reseña se ha enviado correctamente.
+            ¡Gracias, {pendingReview.author_name}! Tu reseña se ha publicado correctamente.
           </p>
           <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-            La verás publicada aquí mismo en cuanto nuestro equipo la revise (normalmente en menos de 24h). Mientras
-            tanto, aquí tienes una vista previa de lo que enviaste:
+            Ya está visible en la pared de reseñas de esta página. Aquí tienes una vista previa:
           </p>
           <div className="mt-3 bg-black/30 rounded-lg border border-white/[0.06] p-3">
             <div className="flex items-center gap-2 mb-1">
@@ -1473,8 +1472,8 @@ function RealReviewsWall({
               {pendingReview.title && (
                 <span className="text-xs font-medium text-[#f5f5f0] truncate">{pendingReview.title}</span>
               )}
-              <span className="ml-auto text-[9px] px-2 py-0.5 rounded-full bg-[#C5A059]/15 border border-[#C5A059]/30 text-[#C5A059] font-semibold uppercase tracking-wider">
-                Pendiente de moderación
+              <span className="ml-auto text-[9px] px-2 py-0.5 rounded-full bg-green-500/15 border border-green-500/30 text-green-400 font-semibold uppercase tracking-wider">
+                Recién publicada
               </span>
             </div>
             <p className="text-[11px] text-neutral-400 leading-relaxed line-clamp-2">{pendingReview.body}</p>
@@ -1527,8 +1526,7 @@ function RealReviewsWall({
           <h4 className="text-lg sm:text-xl font-bold text-[#f5f5f0]">Sé el primero en dejar tu reseña</h4>
           <p className="mt-2 text-sm text-neutral-400 max-w-md mx-auto">
             Todavía no hay reseñas publicadas. Si has usado RestoPanel o has visitado uno de los restaurantes que lo
-            utilizan, comparte tu experiencia. Tu reseña se guardará en la base de datos y se publicará aquí
-            automáticamente en cuanto nuestro equipo la revise.
+            utilizan, comparte tu experiencia. Tu reseña se publicará aquí automáticamente al enviarla.
           </p>
           <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-center">
             <Button
@@ -1571,7 +1569,7 @@ function RealReviewsWall({
               {aggregate.count} reseña{aggregate.count === 1 ? "" : "s"} verificada{aggregate.count === 1 ? "" : "s"}
             </p>
             <p className="text-xs text-neutral-500 mt-0.5">
-              Reseñas reales enviadas desde la landing. Moderadas antes de publicarse.
+              Reseñas reales enviadas desde la landing. Publicadas automáticamente.
             </p>
           </div>
         </div>
@@ -1734,7 +1732,7 @@ function ReviewSubmitForm({
       setSuccess(j.message || "Gracias por tu reseña. Se publicará en breve.");
 
       // Build a local PublicReview so the parent can show it immediately
-      // on the wall with a "Pendiente de moderación" badge.
+      // on the wall with a "Recién publicada" badge.
       const localReview: PublicReview = {
         id: j.id || `local-${Date.now()}`,
         author_name: name,
@@ -1791,7 +1789,7 @@ function ReviewSubmitForm({
             <div>
               <h3 className="text-lg sm:text-xl font-bold text-[#f5f5f0]">Dejar una reseña real</h3>
               <p className="text-xs text-neutral-500 mt-1">
-                Tu reseña se enviará a moderación y se publicará en esta misma página. No la publicamos en Google
+                Tu reseña se publicará automáticamente en la pared de reseñas de esta página. No la publicamos en Google
                 automáticamente.
               </p>
             </div>
@@ -2012,8 +2010,8 @@ function ReviewSubmitForm({
 
               {/* Disclaimer */}
               <p className="text-[10px] text-neutral-600 leading-relaxed pt-1">
-                Al enviar tu reseña aceptas que RestoPanel la modere y publique en esta página si cumple nuestras normas
-                (sin contenido ofensivo, sin spam, sin datos personales de terceros). Tu email no se publica.
+                Al enviar tu reseña se publicará automáticamente en esta página. RestoPanel se reserva el derecho de
+                retirar reseñas con contenido ofensivo, spam o datos personales de terceros. Tu email no se publica.
               </p>
             </form>
           )}
