@@ -18,7 +18,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   );
   return (
-    <SessionProvider>
+    <SessionProvider
+      // Poll every 60s instead of on every focus. Reduces unnecessary
+      // fetches that can trigger CLIENT_FETCH_ERROR during dev recompiles.
+      refetchInterval={60 * 1000}
+      // Don't refetch on window focus in dev — this is the #1 cause of
+      // CLIENT_FETCH_ERROR because the dev server returns HTML (not JSON)
+      // while recompiling.
+      refetchOnWindowFocus={false}
+    >
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     </SessionProvider>
   );
