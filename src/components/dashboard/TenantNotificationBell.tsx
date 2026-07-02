@@ -71,29 +71,37 @@ export function TenantNotificationBell() {
 
       <AnimatePresence>
         {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-2 w-[calc(100vw-1.5rem)] sm:w-[360px] max-w-[360px] bg-[#111518] border border-white/[0.06] rounded-xl shadow-2xl z-50 overflow-hidden max-h-[calc(100vh-80px)] flex flex-col"
-          >
-            <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-[#f5f5f0]">Notificaciones</h3>
-                {unread > 0 && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#C5A059]/15 text-[#C5A059]">{unread} sin leer</span>
-                )}
+          <>
+            {/* Backdrop for mobile */}
+            <div className="fixed inset-0 z-[99] lg:hidden" onClick={() => setOpen(false)} />
+            <motion.div
+              initial={{ opacity: 0, y: -10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.95 }}
+              transition={{ duration: 0.15 }}
+              className="fixed top-16 left-4 right-4 max-w-[calc(100vw-32px)] sm:absolute sm:top-full sm:left-auto sm:right-0 sm:bottom-auto sm:w-[360px] sm:max-w-[360px] bg-[#1A1D24] border border-white/10 rounded-xl shadow-2xl z-[100] sm:z-50 max-h-[70vh] sm:max-h-[calc(100vh-80px)] overflow-y-auto flex flex-col"
+            >
+              <div className="flex items-center justify-between p-3 border-b border-white/[0.06] sticky top-0 bg-[#1A1D24] z-10">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-white">Notificaciones</h3>
+                  {unread > 0 && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-400/15 text-yellow-400">{unread} sin leer</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {unread > 0 && (
+                    <button onClick={() => markAllReadMut.mutate()} disabled={markAllReadMut.isPending} className="text-[11px] text-yellow-400 hover:underline flex items-center gap-1">
+                      {markAllReadMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                      Marcar
+                    </button>
+                  )}
+                  <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-white sm:hidden">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              {unread > 0 && (
-                <button onClick={() => markAllReadMut.mutate()} disabled={markAllReadMut.isPending} className="text-[11px] text-[#C5A059] hover:underline flex items-center gap-1">
-                  {markAllReadMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-                  Marcar todas
-                </button>
-              )}
-            </div>
 
-            <div className="max-h-[calc(100vh-160px)] overflow-y-auto flex-1" style={{ scrollbarWidth: "thin" }}>
+              <div className="overflow-y-auto flex-1" style={{ scrollbarWidth: "thin" }}>
               {isLoading ? (
                 <div className="py-8 flex items-center justify-center text-neutral-500">
                   <Loader2 className="w-5 h-5 animate-spin" />
@@ -147,6 +155,7 @@ export function TenantNotificationBell() {
               )}
             </div>
           </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>

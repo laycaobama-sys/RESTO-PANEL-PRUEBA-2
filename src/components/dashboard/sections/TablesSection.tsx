@@ -281,33 +281,35 @@ export function TablesSection() {
                 </div>
               </div>
 
-              {/* Canvas con fondo #13151A + gradientes radiales */}
-              <div ref={containerRef} className="relative bg-[#13151A] rounded-xl border border-white/[0.04] p-3 min-h-[340px] overflow-hidden" style={{ touchAction: editMode ? "none" : "auto" }}>
-                {/* Gradientes radiales para profundidad */}
-                <div className="absolute inset-0 pointer-events-none">
-                  <div className="absolute top-0 left-0 w-64 h-64 rounded-full bg-green-500/5 blur-[100px]" />
-                  <div className="absolute bottom-0 right-0 w-64 h-64 rounded-full bg-yellow-400/5 blur-[100px]" />
-                  <div className="absolute top-1/2 left-1/2 w-48 h-48 rounded-full bg-blue-500/3 blur-[80px]" />
-                </div>
-                {/* Decoración */}
-                <div className="absolute top-2 right-4 text-2xl opacity-15 pointer-events-none select-none">🪴</div>
-                <div className="absolute bottom-2 left-4 text-2xl opacity-15 pointer-events-none select-none">🌿</div>
+              {/* Scrollable canvas container — overflow auto on mobile, fixed on desktop */}
+              <div className="overflow-x-auto overflow-y-auto rounded-xl" style={{ scrollbarWidth: "thin" }}>
+                {/* Canvas with min dimensions to prevent table overlap on mobile */}
+                <div ref={containerRef} className="relative bg-[#13151A] rounded-xl border border-white/[0.04] p-3 min-w-[800px] min-h-[500px]" style={{ touchAction: editMode ? "none" : "auto" }}>
+                  {/* Gradientes radiales para profundidad */}
+                  <div className="absolute inset-0 pointer-events-none rounded-xl overflow-hidden">
+                    <div className="absolute top-0 left-0 w-64 h-64 rounded-full bg-green-500/5 blur-[100px]" />
+                    <div className="absolute bottom-0 right-0 w-64 h-64 rounded-full bg-yellow-400/5 blur-[100px]" />
+                    <div className="absolute top-1/2 left-1/2 w-48 h-48 rounded-full bg-blue-500/3 blur-[80px]" />
+                  </div>
+                  {/* Decoración */}
+                  <div className="absolute top-2 right-4 text-2xl opacity-15 pointer-events-none select-none">🪴</div>
+                  <div className="absolute bottom-2 left-4 text-2xl opacity-15 pointer-events-none select-none">🌿</div>
 
-                {/* Mesas por zona */}
-                <div className="relative space-y-3">
-                  {Array.from(new Set(filteredTables.map(t => t.zone))).map(zone => {
-                    const zoneTables = filteredTables.filter(t => t.zone === zone);
-                    const zoneMeta = ZONES.find(z => z.id === zone);
-                    return (
-                      <div key={zone}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-[10px] font-semibold text-gray-500 uppercase flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: zoneMeta?.color }} />
-                            {zoneMeta?.icon} {ZONE_LABEL[zone] || zone} · {zoneTables.length}
-                          </span>
-                          <div className="flex-1 h-px bg-white/[0.04]" />
-                        </div>
-                        <div className="relative w-full" style={{ height: `${Math.max(80, Math.max(...zoneTables.map(t => t.posY)) / 3 + 50)}px` }}>
+                  {/* Mesas por zona — positioned with absolute coords on the 800x500+ canvas */}
+                  <div className="relative w-full h-full">
+                    {Array.from(new Set(filteredTables.map(t => t.zone))).map(zone => {
+                      const zoneTables = filteredTables.filter(t => t.zone === zone);
+                      const zoneMeta = ZONES.find(z => z.id === zone);
+                      const zoneLabelY = zoneTables.length > 0 ? Math.min(...zoneTables.map(t => t.posY / 3)) - 20 : 0;
+                      return (
+                        <div key={zone}>
+                          {/* Zone label positioned absolutely */}
+                          <div className="absolute z-5" style={{ left: 12, top: Math.max(0, zoneLabelY) }}>
+                            <span className="text-[10px] font-semibold text-gray-500 uppercase flex items-center gap-1 whitespace-nowrap">
+                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: zoneMeta?.color }} />
+                              {zoneMeta?.icon} {ZONE_LABEL[zone] || zone} · {zoneTables.length}
+                            </span>
+                          </div>
                           {zoneTables.map(t => (
                             <InteractiveTable
                               key={t.id}
@@ -326,9 +328,9 @@ export function TablesSection() {
                             />
                           ))}
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
