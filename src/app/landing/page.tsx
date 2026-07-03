@@ -127,7 +127,8 @@ const appJsonLd = {
     "Sin comisiones por reserva",
   ],
   inLanguage: ["es-ES", "es-419", "en", "pt-BR"],
-  aggregateRating: { "@type": "AggregateRating", ratingValue: "4.8", reviewCount: "127", bestRating: "5" },
+  // aggregateRating is injected at render time from the real DB aggregate
+  // (see Page() below). We don't hardcode fake review counts here.
 };
 
 const faqJsonLd = {
@@ -178,11 +179,39 @@ const reviewsServiceJsonLd = {
   },
 };
 
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+async function getRealAggregate() {
+  try {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const { data, error } = await supabaseAdmin
+      .from("public_reviews")
+      .select("rating")
+      .eq("status", "APPROVED");
+    if (error || !data || data.length === 0) return null;
+    const avg = data.reduce((s, r) => s + r.rating, 0) / data.length;
+    return {
+      ratingValue: avg.toFixed(1),
+      reviewCount: data.length,
+      bestRating: "5",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export default async function Page() {
+  // Inject the REAL aggregate from the database (or omit the field
+  // entirely if there are no approved reviews yet — never fake it).
+  const aggregate = await getRealAggregate();
+  const appJsonLdFinal = aggregate
+    ? { ...appJsonLd, aggregateRating: { "@type": "AggregateRating", ...aggregate } }
+    : appJsonLd;
+
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(appJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(appJsonLdFinal) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(reviewsServiceJsonLd) }} />
       <LandingPage />

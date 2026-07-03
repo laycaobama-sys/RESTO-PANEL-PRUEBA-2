@@ -54,6 +54,7 @@ export interface User {
   role: "ADMIN" | "STAFF" | "SUPER_ADMIN";
   email_verified: boolean;
   is_super_admin: boolean;
+  blocked?: boolean;
   organization_id: string | null;
   created_at: string;
   updated_at: string;
@@ -992,11 +993,13 @@ export const superAdmin = {
   },
 
   async setUserBlocked(id: string, blocked: boolean) {
-    // We model "blocked" as setting role to SUSPENDED — but for simplicity
-    // we use a separate column. Since we don't have one, we use email_verified=false
-    // as a proxy until a proper column is added. For now, this stub logs intent.
-    // In production you'd add a `blocked` boolean column.
-    throw new Error("setUserBlocked not implemented — see TODO in db.ts");
+    // Sets the `blocked` flag on a user. A blocked user cannot log in
+    // (checked in authorize()). The column is added in migration 0011.
+    const { error } = await supabaseAdmin
+      .from("users")
+      .update({ blocked, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
   },
 
   async getGlobalStats() {

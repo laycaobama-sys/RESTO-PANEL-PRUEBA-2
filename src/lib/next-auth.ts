@@ -3,11 +3,7 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import { db } from '@/lib/db'
 import { verifyPassword } from '@/lib/auth'
 
-const NEXTAUTH_SECRET =
-  process.env.NEXTAUTH_SECRET ||
-  (process.env.NODE_ENV === 'production'
-    ? undefined
-    : 'RestoPanel_Dev_Secret_2026_ChangeMe_8f7a9b2c4e1d')
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET
 
 if (!NEXTAUTH_SECRET) {
   throw new Error(
@@ -33,6 +29,8 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) return null
         const user = await db.user.findByEmail(credentials.email.toLowerCase().trim())
         if (!user) return null
+        // Blocked users cannot log in.
+        if (user.blocked) return null
         const ok = await verifyPassword(credentials.password, user.password_hash)
         if (!ok) return null
 

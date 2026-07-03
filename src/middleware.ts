@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET
+if (!NEXTAUTH_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('NEXTAUTH_SECRET is required in production.')
+}
+
 /**
  * Middleware de protección de rutas.
  *
@@ -21,7 +26,7 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith('/api/admin') || pathname === '/admin') {
     const token = await getToken({
       req,
-      secret: process.env.NEXTAUTH_SECRET || 'RestoPanel_Dev_Secret_2026_ChangeMe_8f7a9b2c4e1d',
+      secret: NEXTAUTH_SECRET || '',
     })
 
     if (!token) {

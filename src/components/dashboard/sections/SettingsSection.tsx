@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { SectionHeader } from "@/components/shared/SectionHeader";
+import { WebImport } from "@/components/dashboard/sections/WebImport";
 import {
   Loader2,
   Save,
@@ -156,9 +157,12 @@ export function SettingsSection() {
       />
 
       <Tabs defaultValue="general">
-        <TabsList className="bg-[#111518] border border-white/[0.06] h-9 p-1 mb-5">
+        <TabsList className="bg-[#111518] border border-white/[0.06] h-9 p-1 mb-5 flex-wrap">
           <TabsTrigger value="general" className="data-[state=active]:bg-[#C5A05910] data-[state=active]:text-[#C5A059]">
             General
+          </TabsTrigger>
+          <TabsTrigger value="import" className="data-[state=active]:bg-[#C5A05910] data-[state=active]:text-[#C5A059]">
+            Importar web
           </TabsTrigger>
           <TabsTrigger value="branding" className="data-[state=active]:bg-[#C5A05910] data-[state=active]:text-[#C5A059]">
             Branding
@@ -229,6 +233,13 @@ export function SettingsSection() {
                 <p className="mt-1">Cualquier cambio en tu panel se refleja en esta URL.</p>
               </div>
             </div>
+          </div>
+        </TabsContent>
+
+        {/* Import from web */}
+        <TabsContent value="import">
+          <div className="max-w-3xl">
+            <WebImport />
           </div>
         </TabsContent>
 

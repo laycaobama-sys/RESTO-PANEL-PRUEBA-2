@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion, AnimatePresence } from "framer-motion";
 import {
   UtensilsCrossed,
   CalendarCheck,
@@ -185,6 +185,15 @@ function HowItWorks() {
 // ─── HEADER ──────────────────────────────────────────────────
 function Header() {
   const router = useRouter();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const navLinks = [
+    { href: "#modulos", label: "Módulos" },
+    { href: "#automatizacion", label: "Automatización" },
+    { href: "#analitica", label: "Analítica" },
+    { href: "#google-reviews", label: "Reseñas" },
+    { href: "#casos", label: "Casos de uso" },
+    { href: "#faq", label: "FAQ" },
+  ];
   return (
     <header className="sticky top-0 z-40 bg-[#0a0a0a]/85 backdrop-blur-md border-b border-white/5">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
@@ -196,29 +205,53 @@ function Header() {
             Resto<span className="text-[#C5A059]">Panel</span>
           </span>
         </Link>
-        <nav className="hidden md:flex items-center gap-8 text-sm text-neutral-400">
-          <a href="#modulos" className="hover:text-[#C5A059] transition-colors">Módulos</a>
-          <a href="#automatizacion" className="hover:text-[#C5A059] transition-colors">Automatización</a>
-          <a href="#analitica" className="hover:text-[#C5A059] transition-colors">Analítica</a>
-          <a href="#casos" className="hover:text-[#C5A059] transition-colors">Casos de uso</a>
-          <a href="#faq" className="hover:text-[#C5A059] transition-colors">FAQ</a>
+        <nav className="hidden md:flex items-center gap-6 lg:gap-8 text-sm text-neutral-400">
+          {navLinks.map((l) => (
+            <a key={l.href} href={l.href} className="hover:text-[#C5A059] transition-colors whitespace-nowrap">{l.label}</a>
+          ))}
         </nav>
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
             className="text-sm hidden sm:inline-flex text-neutral-400 hover:text-[#f5f5f0] hover:bg-white/5"
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/login")}
           >
             Entrar al panel
           </Button>
           <Button
             className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-sm font-semibold"
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/login")}
           >
             Crear cuenta gratis
           </Button>
+          {/* Mobile nav toggle */}
+          <button
+            onClick={() => setMobileNavOpen((v) => !v)}
+            className="md:hidden w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-neutral-300"
+            aria-label="Abrir menú"
+            aria-expanded={mobileNavOpen}
+          >
+            {mobileNavOpen ? <ChevronDown className="w-4 h-4 rotate-180" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
         </div>
       </div>
+      {/* Mobile nav dropdown */}
+      {mobileNavOpen && (
+        <div className="md:hidden border-t border-white/5 bg-[#0a0a0a]/95 backdrop-blur-md">
+          <nav className="max-w-7xl mx-auto px-4 py-3 flex flex-col gap-1">
+            {navLinks.map((l) => (
+              <a
+                key={l.href}
+                href={l.href}
+                onClick={() => setMobileNavOpen(false)}
+                className="px-3 py-2.5 text-sm text-neutral-300 hover:text-[#C5A059] hover:bg-white/[0.04] rounded-lg transition-colors"
+              >
+                {l.label}
+              </a>
+            ))}
+          </nav>
+        </div>
+      )}
     </header>
   );
 }
@@ -284,7 +317,7 @@ function Hero() {
             <Button
               size="lg"
               className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-base h-12 px-8 font-semibold"
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/login")}
             >
               Crear cuenta gratis
               <ArrowRight className="w-4 h-4 ml-1" />
@@ -438,10 +471,13 @@ function SocialProof() {
   return (
     <section className="border-b border-white/5 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <p className="text-center text-[10px] uppercase tracking-wider text-neutral-600 mb-5">
+          Métricas objetivo del producto
+        </p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-          <Stat value="+500" label="restaurantes y clubs activos" />
-          <Stat value="2M+" label="reservas gestionadas al año" />
-          <Stat value="-35%" label="no-shows con reconfirmación auto" />
+          <Stat value="-35%" label="no-shows con reconfirmación automática" />
+          <Stat value="100%" label="datos propios, sin intermediarios" />
+          <Stat value="0€" label="comisiones por reserva" />
           <Stat value="24/7" label="sincronización multicanal" />
         </div>
       </div>
@@ -880,7 +916,7 @@ function GoogleReviews() {
                 size="lg"
                 variant="outline"
                 className="border-white/20 text-[#f5f5f0] hover:bg-white/5 text-sm sm:text-base h-11 px-5"
-                onClick={() => router.push("/")}
+                onClick={() => router.push("/login")}
               >
                 Quiero gestionar mis reseñas
                 <ArrowRight className="w-4 h-4 ml-1.5" />
@@ -901,12 +937,14 @@ function GoogleReviews() {
         </div>
 
         {/* ─── 6. Submit form (slide-over) ─── */}
-        {showForm && (
-          <ReviewSubmitForm
-            onClose={() => setShowForm(false)}
-            onSubmitted={handleSubmitted}
-          />
-        )}
+        <AnimatePresence>
+          {showForm && (
+            <ReviewSubmitForm
+              onClose={() => setShowForm(false)}
+              onSubmitted={handleSubmitted}
+            />
+          )}
+        </AnimatePresence>
       </div>
     </section>
   );
@@ -2179,7 +2217,7 @@ function UseCases() {
     <section id="casos" className="py-20 sm:py-28 bg-[#0d1410]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="max-w-2xl mx-auto text-center mb-14">
-          <span className="text-sm font-semibold text-[#C5A059] uppercase tracking-wider">Casos reales</span>
+          <span className="text-sm font-semibold text-[#C5A059] uppercase tracking-wider">Casos de uso</span>
           <h2 className="text-3xl sm:text-4xl font-bold text-[#f5f5f0] mt-2 tracking-tight">Tres negocios, tres problemas resueltos</h2>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -2276,11 +2314,11 @@ function FinalCTA() {
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-[#f5f5f0]">Empieza hoy. Sin riesgos.</h2>
           <p className="mt-4 text-lg text-neutral-400 max-w-2xl mx-auto">Crea tu cuenta en minutos, configura tu sala y empieza a recibir reservas centralizadas desde el primer día. Si no te convence, cancelas cuando quieras.</p>
           <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
-            <Button size="lg" className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-base h-12 px-8 font-semibold" onClick={() => router.push("/")}>
+            <Button size="lg" className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-base h-12 px-8 font-semibold" onClick={() => router.push("/login")}>
               Crear cuenta gratis
               <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
-            <Button size="lg" variant="outline" className="border-white/20 text-[#f5f5f0] hover:bg-white/5 text-base h-12 px-8" onClick={() => router.push("/")}>
+            <Button size="lg" variant="outline" className="border-white/20 text-[#f5f5f0] hover:bg-white/5 text-base h-12 px-8" onClick={() => router.push("/login")}>
               Entrar al panel
             </Button>
           </div>
@@ -2333,8 +2371,8 @@ function Footer() {
           <p className="text-xs text-neutral-600">© {new Date().getFullYear()} RestoPanel · Todos los derechos reservados</p>
           <div className="flex items-center gap-4 text-xs text-neutral-600">
             <span className="flex items-center gap-1"><Globe className="w-3 h-3" /> Español</span>
-            <a href="/landing" className="hover:text-[#C5A059]">Términos</a>
-            <a href="/landing" className="hover:text-[#C5A059]">Privacidad</a>
+            <a href="mailto:hola@restopanel.com" className="hover:text-[#C5A059]">Términos</a>
+            <a href="mailto:hola@restopanel.com" className="hover:text-[#C5A059]">Privacidad</a>
           </div>
         </div>
       </div>

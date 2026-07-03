@@ -43,8 +43,8 @@ export function AuthScreen() {
   const [loading, setLoading] = useState<null | "login" | "register" | "forgot" | "reset">(null);
   const [view, setView] = useState<View>("auth");
 
-  const [loginEmail, setLoginEmail] = useState("demo@lazamorana.es");
-  const [loginPassword, setLoginPassword] = useState("demo1234");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
 
   const [reg, setReg] = useState({
     name: "",
@@ -289,11 +289,17 @@ export function AuthScreen() {
                   </Button>
 
                   <div className="rounded-lg bg-[#C5A059]/5 border border-[#C5A059]/15 p-3 text-xs text-neutral-400">
-                    <p className="font-semibold mb-1 text-[#C5A059]">{isPrivateMode ? "🔒 Modo pre-lanzamiento (privado)" : "Cuentas demo"}</p>
-                    {isPrivateMode && <p className="mb-1">El registro público está desactivado. Solo cuentas autorizadas pueden acceder.</p>}
-                    <p className="font-mono">demo@lazamorana.es · demo1234</p>
-                    <p className="font-mono">demo@bistrodelpuerto.es · demo1234</p>
-                    <p className="font-mono mt-1 text-[#C5A059]">owner@restopanel.es · owner2026 (SUPER ADMIN)</p>
+                    {isPrivateMode ? (
+                      <>
+                        <p className="font-semibold mb-1 text-[#C5A059]">Modo pre-lanzamiento (privado)</p>
+                        <p>El registro público está desactivado. Solo cuentas autorizadas pueden acceder.</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-semibold mb-1 text-[#C5A059]">¿Primera vez?</p>
+                        <p>Crea tu cuenta gratis con el botón “Crear cuenta”. Tus datos se guardan automáticamente.</p>
+                      </>
+                    )}
                   </div>
                 </form>
               </TabsContent>
