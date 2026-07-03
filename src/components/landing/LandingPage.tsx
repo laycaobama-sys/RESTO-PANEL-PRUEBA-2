@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { motion, useReducedMotion, AnimatePresence } from "framer-motion";
 import {
@@ -599,7 +600,7 @@ function Automation() {
             className="relative"
           >
             <div className="relative rounded-2xl overflow-hidden shadow-2xl">
-              <img src="/landing/photo-calendar.jpeg" alt="Gestión de reservas con calendario de mesas — RestoPanel" className="w-full h-[280px] sm:h-[400px] object-cover object-center" />
+              <Image src="/landing/photo-calendar.jpeg" alt="Gestión de reservas con calendario de mesas — RestoPanel" width={800} height={400} className="w-full h-[280px] sm:h-[400px] object-cover object-center" sizes="(max-width: 768px) 100vw, 50vw" />
               <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent" />
             </div>
 
@@ -2078,7 +2079,7 @@ function RealWorldSection() {
             transition={{ duration: 0.6 }}
             className="relative rounded-2xl overflow-hidden group"
           >
-            <img src="/landing/photo-confirmation.jpeg" alt="Confirmación automática de reserva en restaurante — RestoPanel" className="w-full h-[260px] sm:h-[320px] object-cover object-center group-hover:scale-105 transition-transform duration-500" />
+            <Image src="/landing/photo-confirmation.jpeg" alt="Confirmación automática de reserva en restaurante — RestoPanel" width={600} height={320} className="w-full h-[260px] sm:h-[320px] object-cover object-center group-hover:scale-105 transition-transform duration-500" sizes="(max-width: 768px) 100vw, 50vw" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a]/90 via-transparent to-transparent" />
             <motion.div
               animate={{ y: [0, -6, 0] }}
@@ -2106,7 +2107,7 @@ function RealWorldSection() {
             transition={{ duration: 0.6, delay: 0.1 }}
             className="relative rounded-2xl overflow-hidden group"
           >
-            <img src="/landing/photo-vip.jpeg" alt="Cliente VIP con CRM de restaurante — RestoPanel" className="w-full h-[260px] sm:h-[320px] object-cover object-center group-hover:scale-105 transition-transform duration-500" />
+            <Image src="/landing/photo-vip.jpeg" alt="Cliente VIP con CRM de restaurante — RestoPanel" width={600} height={320} className="w-full h-[260px] sm:h-[320px] object-cover object-center group-hover:scale-105 transition-transform duration-500" sizes="(max-width: 768px) 100vw, 50vw" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a]/90 via-transparent to-transparent" />
             <motion.div
               animate={{ y: [0, 8, 0] }}
@@ -2161,7 +2162,7 @@ function Hospitality() {
             transition={{ duration: 0.7 }}
             className="relative rounded-2xl overflow-hidden shadow-2xl"
           >
-            <img src="/landing/photo-support.jpeg" alt="Equipo de soporte de RestoPanel disponible 365 días" className="w-full h-[300px] sm:h-[360px] object-cover object-center" />
+            <Image src="/landing/photo-support.jpeg" alt="Equipo de soporte de RestoPanel disponible 365 días" width={600} height={360} className="w-full h-[300px] sm:h-[360px] object-cover object-center" sizes="(max-width: 768px) 100vw, 50vw" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a]/80 via-transparent to-transparent" />
             <motion.div
               animate={{ y: [0, -5, 0] }}

@@ -104,7 +104,7 @@ export async function POST(req: Request) {
       organization_id: organization.id,
     })
 
-    // Create a verification token (would be emailed in production).
+    // Create a verification token and send verification email
     const verifyToken = randomBytes(32).toString('hex')
     await db.verificationToken.create({
       token: verifyToken,
@@ -113,6 +113,35 @@ export async function POST(req: Request) {
       organization_id: organization.id,
       expires_at: new Date(Date.now() + 24 * 3600 * 1000),
     })
+
+    // Send welcome + verification emails (via Resend if configured,
+    // otherwise logged to console in dev mode)
+    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
+    try {
+      const { sendEmailAndLog, emailTemplates } = await import('@/lib/email')
+      await sendEmailAndLog({
+        to: user.email,
+        subject: `¡Bienvenido a RestoPanel, ${name}! 🎉`,
+        template: emailTemplates.welcome({
+          name,
+          restaurantName,
+          loginUrl: `${baseUrl}/login`,
+        }),
+        organizationId: organization.id,
+      })
+      await sendEmailAndLog({
+        to: user.email,
+        subject: 'Verifica tu email · RestoPanel',
+        template: emailTemplates.emailVerification({
+          name,
+          verifyUrl: `${baseUrl}/verify-email?token=${verifyToken}`,
+        }),
+        organizationId: organization.id,
+      })
+    } catch (emailErr) {
+      // Don't fail registration if email fails
+      console.warn('Welcome email failed:', emailErr)
+    }
 
     return NextResponse.json({
       ok: true,

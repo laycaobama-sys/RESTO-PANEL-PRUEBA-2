@@ -110,6 +110,51 @@ export async function POST(req: Request) {
     metadata: { reservationId: reservation.id, customerId: customerId || null },
   })
 
+  // Send WhatsApp confirmation to the customer (if phone is provided).
+  // The WhatsApp service queues the message and processes it asynchronously.
+  // In dev mode (no WHATSAPP_TOKEN), it just logs to DB + console.
+  if (phone) {
+    try {
+      const { sendReservationConfirmation } = await import('@/lib/whatsapp')
+      await sendReservationConfirmation({
+        to: phone,
+        organizationId: user.organizationId,
+        reservationId: reservation.id,
+        restaurantName: user.organizationName || user.restaurantName || 'RestoPanel',
+        date: new Date(date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }),
+        time: new Date(date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+        partySize: Number(partySize),
+      })
+    } catch (e) {
+      // Don't fail the reservation if WhatsApp fails
+      console.warn('WhatsApp send failed:', e)
+    }
+  }
+
+  // Send email confirmation to the customer (if email is provided).
+  if (email) {
+    try {
+      const { sendEmailAndLog, emailTemplates } = await import('@/lib/email')
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
+      await sendEmailAndLog({
+        to: email,
+        subject: `Reserva confirmada · ${user.organizationName || user.restaurantName}`,
+        template: emailTemplates.reservationConfirmation({
+          customerName,
+          restaurantName: user.organizationName || user.restaurantName || 'RestoPanel',
+          date: new Date(date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }),
+          time: new Date(date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+          partySize: Number(partySize),
+          zone: zone || undefined,
+          cancelUrl: `${baseUrl}/cancel-reservation?id=${reservation.id}`,
+        }),
+        organizationId: user.organizationId,
+      })
+    } catch (e) {
+      console.warn('Email send failed:', e)
+    }
+  }
+
   const table = tableId ? await db.table.findFirst(user.organizationId, { id: tableId }) : null
   return NextResponse.json({
     ...reservation,

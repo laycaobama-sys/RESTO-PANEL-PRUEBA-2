@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
 import { randomBytes } from 'crypto'
+import { sendEmailAndLog, emailTemplates } from '@/lib/email'
 
 const schema = z.object({ email: z.string().email() })
 
 // In-memory rate limiter — max 3 reset requests per 10 min per IP.
-// Prevents enumeration via timing and brute-force token guessing.
 const WINDOW_MS = 10 * 60 * 1000
 const MAX_PER_WINDOW = 3
 const attempts = new Map<string, { count: number; firstAt: number }>()
@@ -29,7 +29,6 @@ function rateLimited(ip: string): boolean {
 }
 
 export async function POST(req: Request) {
-  // Rate limit
   const ip = getIp(req)
   if (rateLimited(ip)) {
     return NextResponse.json(
@@ -45,8 +44,6 @@ export async function POST(req: Request) {
     const email = parsed.data.email.toLowerCase().trim()
     const user = await db.user.findByEmail(email)
 
-    // Always return the same response whether the email exists or not,
-    // to prevent user-enumeration attacks.
     const genericMessage = 'Si el email existe, recibirás un enlace de recuperación.'
 
     if (user) {
@@ -59,16 +56,27 @@ export async function POST(req: Request) {
         expires_at: new Date(Date.now() + 60 * 60 * 1000),
       })
 
-      // In development, return the token so the user can reset without email.
-      // In production, NEVER expose the token — wire up a real email provider.
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
+      const resetUrl = `${baseUrl}/reset?token=${token}`
+
+      // Send the email via Resend (or log in dev mode)
+      await sendEmailAndLog({
+        to: user.email,
+        subject: 'Restablece tu contraseña · RestoPanel',
+        template: emailTemplates.passwordReset({
+          name: user.name,
+          resetUrl,
+          expiresIn: '1 hora',
+        }),
+      })
+
+      // In dev mode, also return the token so the UI can auto-redirect
+      // (no email actually sent unless RESEND_API_KEY is set)
       const isDev = process.env.NODE_ENV !== 'production'
       if (isDev) {
         return NextResponse.json({ ok: true, message: genericMessage, resetToken: token })
       }
 
-      // Production: here you would send the email with the reset link.
-      // Example: await sendEmail(user.email, 'reset-password', `${process.env.NEXTAUTH_URL}/reset?token=${token}`)
-      // For now we just acknowledge the request without exposing the token.
       return NextResponse.json({ ok: true, message: genericMessage })
     }
 
