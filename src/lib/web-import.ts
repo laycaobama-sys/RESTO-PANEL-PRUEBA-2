@@ -135,8 +135,43 @@ async function setCachedHtml(url: string, html: string, statusCode: number): Pro
   } catch {}
 }
 
-// ─── Fetch with cache + timeout ───────────────────────────────
+// ─── SSRF protection ──────────────────────────────────────────
+// Block requests to private/internal IP ranges to prevent
+// server-side request forgery attacks.
+function isPrivateUrl(urlStr: string): boolean {
+  try {
+    const u = new URL(urlStr);
+    const host = u.hostname;
+
+    // Block common private/internal hostnames
+    if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0") return true;
+    if (host === "::1" || host === "[::1]") return true;
+
+    // Block private IP ranges (10.x, 172.16-31.x, 192.168.x)
+    if (/^10\.\d+\.\d+\.\d+$/.test(host)) return true;
+    if (/^192\.168\.\d+\.\d+$/.test(host)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host)) return true;
+
+    // Block metadata endpoints (cloud providers)
+    if (host === "169.254.169.254") return true;
+    if (host === "metadata.google.internal") return true;
+
+    // Block link-local
+    if (/^169\.254\.\d+\.\d+$/.test(host)) return true;
+
+    return false;
+  } catch {
+    return true; // invalid URL = block
+  }
+}
+
+// ─── Fetch with cache + timeout + SSRF protection ─────────────
 async function fetchHtml(url: string, timeoutMs = 12000): Promise<{ html: string; finalUrl: string; status: number; cacheHit: boolean }> {
+  // SSRF check
+  if (isPrivateUrl(url)) {
+    throw new Error("URL apunta a una dirección privada o interna (no permitida)");
+  }
+
   // Check cache first
   const cached = await getCachedHtml(url);
   if (cached) {
