@@ -1,0 +1,28 @@
+# ============================================================
+# RestoPanel · Cloudflare Configuration (Wrangler)
+# ============================================================
+# This file configures Cloudflare Pages deployment.
+# The CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+# must be set in .env before running `npm run deploy:cf`.
+# ============================================================
+
+name = "restopanel"
+compatibility_date = "2025-01-01"
+pages_build_output_dir = ".next/standalone"
+
+# Environment variables (non-secret)
+[vars]
+NEXT_PUBLIC_SUPABASE_URL = "https://cttemgwmabzuhrbqzpsg.supabase.co"
+NEXT_PUBLIC_LAUNCH_MODE = "public"
+NODE_ENV = "production"
+
+# Secrets (set via: npx wrangler pages secret put NAME)
+# These are set through the dashboard or CLI, not in this file:
+# - SUPABASE_SERVICE_ROLE_KEY
+# - SUPABASE_DB_PASSWORD
+# - NEXTAUTH_SECRET
+# - NEXTAUTH_URL
+# - RESEND_API_KEY
+# - FROM_EMAIL
+# - WHATSAPP_TOKEN
+# - WHATSAPP_PHONE_NUMBER_ID
