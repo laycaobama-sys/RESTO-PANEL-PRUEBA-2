@@ -30,6 +30,7 @@ const SECTION_TITLES: Record<Section, { title: string; subtitle: string }> = {
   analytics: { title: "Analíticas", subtitle: "Métricas y rendimiento del restaurante" },
   reservations: { title: "Reservas", subtitle: "Listado y gestión de reservas" },
   customers: { title: "Clientes (CRM)", subtitle: "Fichas de clientes, historial y fidelización" },
+  whatsapp: { title: "WhatsApp Business", subtitle: "Mensajería automatizada y monitorización" },
   settings: { title: "Ajustes", subtitle: "Configuración del restaurante" },
   public: { title: "Carta pública", subtitle: "Vista que ven tus clientes" },
 };

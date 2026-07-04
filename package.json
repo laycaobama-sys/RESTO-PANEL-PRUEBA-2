@@ -17,6 +17,7 @@
     "test:email": "node scripts/test_email.mjs",
     "smoke-test": "node scripts/smoke_test.mjs",
     "rollback": "node scripts/rollback.mjs",
+    "cf:setup-token": "node scripts/create_cf_token.mjs",
     "db:setup": "node scripts/db_setup.cjs",
     "db:apply": "node scripts/apply_migrations.mjs",
     "db:push": "prisma db push",
