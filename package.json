@@ -15,6 +15,7 @@
     "dns:setup": "node scripts/setup_cloudflare_dns.mjs",
     "test:whatsapp": "node scripts/test_whatsapp.mjs",
     "test:email": "node scripts/test_email.mjs",
+    "verify:email": "node scripts/check_email_domain.mjs",
     "smoke-test": "node scripts/smoke_test.mjs",
     "rollback": "node scripts/rollback.mjs",
     "cf:setup-token": "node scripts/create_cf_token.mjs",
