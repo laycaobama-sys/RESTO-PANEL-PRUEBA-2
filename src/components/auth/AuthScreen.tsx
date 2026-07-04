@@ -319,9 +319,9 @@ export function AuthScreen() {
                     <Field icon={<MapPin className="w-4 h-4" />} label="Ciudad" value={reg.city} onChange={(e) => setReg({ ...reg, city: e.target.value })} placeholder="Salamanca" />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-neutral-400">País</Label>
+                    <Label htmlFor="reg-country" className="text-xs font-medium text-neutral-400">País</Label>
                     <Select value={reg.country} onValueChange={(v) => setReg({ ...reg, country: v })}>
-                      <SelectTrigger className="h-10 bg-[#1a1f24] border-white/[0.06] text-[#f5f5f0]"><span className="flex items-center gap-2"><Globe className="w-4 h-4 text-neutral-500" /><SelectValue /></span></SelectTrigger>
+                      <SelectTrigger id="reg-country" className="h-10 bg-[#1a1f24] border-white/[0.06] text-[#f5f5f0]"><span className="flex items-center gap-2"><Globe className="w-4 h-4 text-neutral-500" /><SelectValue /></span></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="España">España</SelectItem>
                         <SelectItem value="México">México</SelectItem>
@@ -379,13 +379,14 @@ function Feature({ icon, title, desc }: { icon: React.ReactNode; title: string; 
   );
 }
 
-function Field({ icon, label, type = "text", ...props }: { icon: React.ReactNode; label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+function Field({ icon, label, type = "text", id, ...props }: { icon: React.ReactNode; label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  const fieldId = id || `field-${label.toLowerCase().replace(/\s+/g, "-")}`;
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-neutral-400">{label}</Label>
+      <Label htmlFor={fieldId} className="text-xs font-medium text-neutral-400">{label}</Label>
       <div className="relative">
         <div className="absolute left-3 top-1/2 -translate-y-1/2">{icon}</div>
-        <Input type={type} className="pl-9 h-10 bg-[#1a1f24] border-white/[0.06] text-[#f5f5f0] placeholder:text-neutral-600 focus-visible:ring-[#C5A059] focus-visible:ring-offset-0 focus-visible:border-[#C5A059]" {...props} />
+        <Input id={fieldId} type={type} className="pl-9 h-10 bg-[#1a1f24] border-white/[0.06] text-[#f5f5f0] placeholder:text-neutral-600 focus-visible:ring-[#C5A059] focus-visible:ring-offset-0 focus-visible:border-[#C5A059]" {...props} />
       </div>
     </div>
   );
