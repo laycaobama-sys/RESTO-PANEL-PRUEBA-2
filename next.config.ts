@@ -7,20 +7,43 @@ const nextConfig: NextConfig = {
   },
   reactStrictMode: false,
   images: {
-    // Allow images from any remote source (restaurant logos, menu item
-    // images imported from their websites, customer photos, etc.)
-    // Next.js Image optimizer will proxy and optimize them.
     remotePatterns: [
       { protocol: "https", hostname: "**" },
       { protocol: "http", hostname: "**" },
     ],
-    // Modern formats
     formats: ["image/avif", "image/webp"],
-    // Allow placeholder data URLs for avatars
     dangerouslyAllowSVG: true,
     contentDispositionType: "attachment",
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
+  // ─── Security headers ──────────────────────────────────────
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          { key: "X-DNS-Prefetch-Control", value: "on" },
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+        ],
+      },
+      {
+        // API routes get stricter CSP
+        source: "/api/(.*)",
+        headers: [
+          { key: "Content-Type", value: "application/json" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+        ],
+      },
+    ];
+  },
+  // ─── Compression ───────────────────────────────────────────
+  compress: true,
+  // ─── Powered-by header removal ─────────────────────────────
+  poweredByHeader: false,
 };
 
 export default nextConfig;

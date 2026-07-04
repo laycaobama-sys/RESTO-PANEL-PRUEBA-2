@@ -85,6 +85,7 @@ const MIGRATION_PROBES = [
   { file: "0010_fix_rls_recursion.sql", probe: async () => true },
   { file: "0011_user_blocked.sql", probe: async () => await probeColumn("users", "blocked") },
   { file: "0012_whatsapp_messages.sql", probe: async () => await probeTable("whatsapp_messages") },
+  { file: "0013_import_jobs.sql", probe: async () => await probeTable("import_jobs") },
 ];
 
 async function main() {

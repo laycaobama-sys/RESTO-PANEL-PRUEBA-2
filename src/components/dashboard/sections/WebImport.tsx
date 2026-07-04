@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Globe,
@@ -20,6 +20,8 @@ import {
   ArrowDown,
   Minus,
   Plus,
+  History,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +33,20 @@ interface MenuItemPreview {
   price?: string;
   category?: string;
   image?: string;
+  sourceUrl?: string;
+}
+
+interface ImportJob {
+  id: string;
+  url: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  progress: number;
+  progress_label: string | null;
+  pages_crawled: number;
+  items_detected: number;
+  items_imported: number;
+  created_at: string;
+  error: string | null;
 }
 
 interface Preview {
@@ -48,15 +64,7 @@ interface Preview {
     priceRange: string | null;
     website: string;
   };
-  social: {
-    instagram?: string;
-    facebook?: string;
-    twitter?: string;
-    whatsapp?: string;
-    tripadvisor?: string;
-    tiktok?: string;
-    youtube?: string;
-  };
+  social: Record<string, string>;
   menuItems: MenuItemPreview[];
   diff?: {
     newItems: MenuItemPreview[];
@@ -64,22 +72,40 @@ interface Preview {
     unchangedItems: string[];
     removedItems: string[];
   };
-  crawledPages: Array<{ url: string; status: number }>;
+  crawledPages: Array<{ url: string; status: number; itemsFound: number }>;
+  sitemapUrls: string[];
   meta: {
     totalMenuItems: number;
     htmlSize: number;
-    ogLocale: string | null;
     detectedVia: string;
-    crawlError?: string | null;
+    cacheHit: boolean;
   };
 }
 
 export function WebImport() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  const [history, setHistory] = useState<ImportJob[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const r = await fetch("/api/restaurant/import-web");
+      if (r.ok) {
+        const j = await r.json();
+        setHistory(j.jobs || []);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   async function handleImport(e: React.FormEvent) {
     e.preventDefault();
@@ -87,6 +113,14 @@ export function WebImport() {
     setLoading(true);
     setError(null);
     setPreview(null);
+    setProgress(0);
+    setProgressLabel("Iniciando análisis...");
+
+    // Simulate progress polling (the job runs server-side)
+    const progressInterval = setInterval(() => {
+      setProgress((p) => Math.min(p + 5, 90));
+    }, 800);
+
     try {
       const r = await fetch("/api/restaurant/import-web", {
         method: "POST",
@@ -94,6 +128,9 @@ export function WebImport() {
         body: JSON.stringify({ url: url.trim() }),
       });
       const j = await r.json();
+      clearInterval(progressInterval);
+      setProgress(100);
+
       if (!r.ok) {
         setError(j.message || "No pudimos importar la web.");
         toast.error(j.message || "Error al importar");
@@ -105,7 +142,9 @@ export function WebImport() {
       toast.success(
         `Análisis completado. ${itemsCount} platos detectados${newCount > 0 ? `, ${newCount} nuevos` : ""}.`
       );
+      loadHistory();
     } catch {
+      clearInterval(progressInterval);
       setError("Error de red al conectar con la web.");
     } finally {
       setLoading(false);
@@ -134,7 +173,6 @@ export function WebImport() {
         if (r.ok) created++;
       }
       toast.success(`${created} platos añadidos a tu carta.`);
-      // Re-analyze to refresh diff
       await handleReanalyze();
     } catch {
       toast.error("Error al añadir platos");
@@ -189,6 +227,7 @@ export function WebImport() {
       if (r.ok) {
         setPreview(j.preview);
         toast.success("Análisis actualizado.");
+        loadHistory();
       }
     } catch {
       // silent
@@ -205,16 +244,67 @@ export function WebImport() {
           <div className="w-10 h-10 rounded-xl bg-[#C5A059] text-[#0a0a0a] flex items-center justify-center flex-shrink-0">
             <Globe className="w-5 h-5" />
           </div>
-          <div>
-            <h3 className="text-base font-semibold text-[#f5f5f0]">Importar desde tu web actual</h3>
+          <div className="flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-semibold text-[#f5f5f0]">Importar desde tu web actual</h3>
+              {history.length > 0 && (
+                <Button
+                  onClick={() => setShowHistory((v) => !v)}
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-neutral-400 hover:text-[#C5A059] h-7"
+                >
+                  <History className="w-3.5 h-3.5 mr-1" />
+                  Historial ({history.length})
+                </Button>
+              )}
+            </div>
             <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-              Introduce la URL de tu restaurante. Analizamos automáticamente la página principal y las sub-páginas
-              relacionadas (carta, contacto, horarios), extraemos toda la información pública disponible y la comparamos
-              con lo que ya tienes en tu panel para mostrarte solo lo que ha cambiado.
+              Analizamos tu web completa: página principal, sitemap, sub-páginas (carta, contacto, horarios),
+              OpenGraph, JSON-LD y microdata. Detectamos automáticamente platos, precios, imágenes y datos de contacto,
+              y los comparamos con tu carta actual para mostrarte solo lo que ha cambiado.
             </p>
           </div>
         </div>
       </div>
+
+      {/* History */}
+      <AnimatePresence>
+        {showHistory && history.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="bg-[#111518] rounded-xl border border-white/[0.06] p-4">
+              <p className="text-[10px] uppercase tracking-wider text-neutral-500 mb-3">Importaciones recientes</p>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {history.map((job) => (
+                  <div key={job.id} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      job.status === "completed" ? "bg-green-400" :
+                      job.status === "failed" ? "bg-red-400" :
+                      job.status === "running" ? "bg-yellow-400 animate-pulse" : "bg-neutral-500"
+                    }`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-[#f5f5f0] truncate">{job.url}</p>
+                      <p className="text-[10px] text-neutral-500">
+                        {new Date(job.created_at).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                        {job.items_detected > 0 && ` · ${job.items_detected} platos`}
+                        {job.error && ` · ${job.error.substring(0, 60)}`}
+                      </p>
+                    </div>
+                    {job.progress_label && job.status === "completed" && (
+                      <span className="text-[10px] text-green-400 flex-shrink-0">{job.progress_label.substring(0, 40)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* URL input */}
       <form onSubmit={handleImport} className="flex gap-2">
@@ -234,6 +324,30 @@ export function WebImport() {
         </Button>
       </form>
 
+      {/* Progress bar */}
+      <AnimatePresence>
+        {loading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="bg-[#111518] rounded-xl border border-white/[0.06] p-4"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-neutral-400">{progressLabel || "Analizando..."}</span>
+              <span className="text-xs font-bold text-[#C5A059]">{progress}%</span>
+            </div>
+            <div className="h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
+              <motion.div
+                className="h-full bg-gradient-to-r from-[#C5A059] to-[#e3c987]"
+                animate={{ width: `${progress}%` }}
+                transition={{ duration: 0.3 }}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Error */}
       <AnimatePresence>
         {error && (
@@ -248,9 +362,8 @@ export function WebImport() {
               <p className="text-sm font-medium text-red-300">No pudimos importar la web</p>
               <p className="text-xs text-red-400/80 mt-1">{error}</p>
               <p className="text-[11px] text-neutral-500 mt-2">
-                Causas comunes: la web bloquea bots (Cloudflare), requiere JavaScript para renderizar el contenido, o
-                sirve la carta desde una API privada. En ese caso puedes introducir los datos manualmente en las otras
-                pestañas, o subir tu carta en formato PDF/imagen y la procesaremos aparte.
+                Causas comunes: la web bloquea bots (Cloudflare), requiere JavaScript, o sirve la carta desde una API.
+                Puedes introducir los datos manualmente en las otras pestañas.
               </p>
             </div>
           </motion.div>
@@ -266,8 +379,8 @@ export function WebImport() {
             exit={{ opacity: 0 }}
             className="space-y-4"
           >
-            {/* Preview header */}
             <div className="bg-[#111518] rounded-2xl border border-white/[0.06] overflow-hidden">
+              {/* Preview header */}
               <div className="bg-gradient-to-r from-[#C5A059]/15 to-transparent px-5 py-3 border-b border-white/[0.06] flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2 min-w-0">
                   <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
@@ -275,9 +388,9 @@ export function WebImport() {
                 </div>
                 <div className="flex items-center gap-3 text-[10px] text-neutral-500">
                   <span>Detectado vía: <span className="text-[#C5A059]">{preview.meta.detectedVia}</span></span>
-                  {preview.crawledPages.length > 0 && (
-                    <span>{preview.crawledPages.length} sub-páginas analizadas</span>
-                  )}
+                  {preview.meta.cacheHit && <span className="text-green-400">desde caché</span>}
+                  {preview.crawledPages.length > 0 && <span>{preview.crawledPages.length} sub-páginas</span>}
+                  {preview.sitemapUrls.length > 0 && <span>{preview.sitemapUrls.length} URLs en sitemap</span>}
                 </div>
               </div>
 
@@ -418,7 +531,8 @@ export function WebImport() {
                     <ul className="mt-1.5 space-y-0.5 pl-3">
                       {preview.crawledPages.map((p, i) => (
                         <li key={i} className="truncate">
-                          <span className={p.status === 200 ? "text-green-400" : "text-neutral-600"}>{p.status}</span> {p.url}
+                          <span className={p.status === 200 ? "text-green-400" : "text-neutral-600"}>{p.status}</span>
+                          {" · "}{p.itemsFound} platos{" · "}{p.url}
                         </li>
                       ))}
                     </ul>
@@ -428,17 +542,16 @@ export function WebImport() {
                 {/* Limitations */}
                 <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3">
                   <p className="text-[11px] text-blue-300/80 leading-relaxed">
-                    <strong>Cómo funciona:</strong> El importador lee el HTML público de tu web y extrae la información
-                    automáticamente. Los platos nuevos se añaden a tu carta con un clic. Los cambios de precio y los
-                    platos no detectados se muestran para que decidas qué hacer. La sincronización no es automática hacia
-                    tu web — para eso necesitas una integración oficial (WordPress, Shopify, etc.).
+                    <strong>Cómo funciona:</strong> El importador lee el HTML público, sitemap.xml y robots.txt de tu web.
+                    Parsea OpenGraph, JSON-LD schema.org y microdata. Los resultados se cachean 24h para evitar
+                    re-fetches. La sincronización hacia tu web requiere integración oficial (WordPress, Shopify, etc.).
                   </p>
                 </div>
 
                 {/* Actions */}
                 <div className="flex gap-2 pt-2">
                   <Button onClick={handleReanalyze} variant="outline" className="border-white/15 text-neutral-300 hover:bg-white/5 h-10">
-                    <Globe className="w-4 h-4 mr-1.5" />Re-analizar
+                    <RefreshCw className="w-4 h-4 mr-1.5" />Re-analizar
                   </Button>
                   <Button
                     onClick={() => { setPreview(null); setUrl(""); }}

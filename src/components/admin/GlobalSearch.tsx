@@ -153,7 +153,7 @@ export function GlobalSearch() {
                       {filteredUsers.map(u => (
                         <ResultItem
                           key={u.id}
-                          onClick={() => { setOpen(false); /* TODO: open user detail */ }}
+                          onClick={() => setOpen(false)}
                           title={u.name}
                           subtitle={u.email + (u.organization ? ` · ${u.organization.name}` : '')}
                           badge={u.is_super_admin ? 'SUPER' : u.role}
@@ -167,7 +167,7 @@ export function GlobalSearch() {
                       {filteredReservations.map(r => (
                         <ResultItem
                           key={r.id}
-                          onClick={() => { setOpen(false); /* TODO: open reservation detail */ }}
+                          onClick={() => setOpen(false)}
                           title={r.customer_name}
                           subtitle={`${r.party_size} pax · ${new Date(r.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${r.organization?.name || ''}`}
                           badge={r.status}
