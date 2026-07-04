@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { signOut } from "next-auth/react";
 import { toast } from "sonner";
+import dynamic from "next/dynamic";
 import {
   UtensilsCrossed,
   LayoutDashboard,
@@ -17,13 +18,16 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { SuperAdminDashboard } from "./sections/SuperAdminDashboard";
-import { TenantsSection } from "./sections/TenantsSection";
-import { UsersSection } from "./sections/UsersSection";
-import { AuditLogsSection } from "./sections/AuditLogsSection";
-import { ReviewsSection } from "./sections/ReviewsSection";
+import { LoadingScreen } from "@/components/LoadingScreen";
 import { NotificationBell } from "./NotificationBell";
 import { GlobalSearch } from "./GlobalSearch";
+
+// Lazy-loaded admin sections
+const SuperAdminDashboard = dynamic(() => import("./sections/SuperAdminDashboard").then(m => m.SuperAdminDashboard), { loading: () => <LoadingScreen /> });
+const TenantsSection = dynamic(() => import("./sections/TenantsSection").then(m => m.TenantsSection), { loading: () => <LoadingScreen /> });
+const UsersSection = dynamic(() => import("./sections/UsersSection").then(m => m.UsersSection), { loading: () => <LoadingScreen /> });
+const AuditLogsSection = dynamic(() => import("./sections/AuditLogsSection").then(m => m.AuditLogsSection), { loading: () => <LoadingScreen /> });
+const ReviewsSection = dynamic(() => import("./sections/ReviewsSection").then(m => m.ReviewsSection), { loading: () => <LoadingScreen /> });
 
 type Section = "dashboard" | "tenants" | "users" | "reviews" | "logs";
 

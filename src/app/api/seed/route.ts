@@ -19,7 +19,7 @@ export async function POST(req: Request) {
       // Wipe all tenant data. Order matters for FK constraints.
       const wipe = async (table: string) => {
         const { error } = await supabaseAdmin.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000')
-        if (error) console.log(`skip ${table}:`, error.message)
+        if (error) console.warn(`[seed] skip ${table}:`, error.message)
       }
       await wipe('order_items')
       await wipe('orders')

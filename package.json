@@ -8,6 +8,8 @@
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "setup": "node scripts/setup.cjs",
+    "predeploy": "node scripts/predeploy.mjs",
+    "backup": "node scripts/backup.mjs",
     "db:setup": "node scripts/db_setup.cjs",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",

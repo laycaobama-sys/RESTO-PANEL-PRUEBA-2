@@ -3,6 +3,7 @@
 import { useAppStore, type Section } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
+import { useEffect } from "react";
 import {
   LayoutDashboard,
   ClipboardList,
@@ -26,18 +27,19 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   group?: string;
+  shortcut?: number; // Alt+N
 }
 
 const NAV: NavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Principal" },
-  { id: "orders", label: "Pedidos", icon: ClipboardList, group: "Principal" },
-  { id: "tables", label: "Mesas", icon: Grid3x3, group: "Principal" },
-  { id: "kitchen", label: "Cocina", icon: ChefHat, group: "Principal" },
-  { id: "menus", label: "Menús / Carta", icon: BookOpen, group: "Gestión" },
-  { id: "reservations", label: "Reservas", icon: CalendarCheck, group: "Gestión" },
-  { id: "customers", label: "Clientes (CRM)", icon: Users, group: "Gestión" },
-  { id: "analytics", label: "Analíticas", icon: BarChart3, group: "Gestión" },
-  { id: "settings", label: "Ajustes", icon: Settings, group: "Gestión" },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Principal", shortcut: 1 },
+  { id: "orders", label: "Pedidos", icon: ClipboardList, group: "Principal", shortcut: 2 },
+  { id: "tables", label: "Mesas", icon: Grid3x3, group: "Principal", shortcut: 3 },
+  { id: "kitchen", label: "Cocina", icon: ChefHat, group: "Principal", shortcut: 4 },
+  { id: "menus", label: "Menús / Carta", icon: BookOpen, group: "Gestión", shortcut: 5 },
+  { id: "reservations", label: "Reservas", icon: CalendarCheck, group: "Gestión", shortcut: 6 },
+  { id: "customers", label: "Clientes (CRM)", icon: Users, group: "Gestión", shortcut: 7 },
+  { id: "analytics", label: "Analíticas", icon: BarChart3, group: "Gestión", shortcut: 8 },
+  { id: "settings", label: "Ajustes", icon: Settings, group: "Gestión", shortcut: 9 },
 ];
 
 interface SidebarProps {
@@ -58,6 +60,24 @@ export function Sidebar({
   const { section, setSection, sidebarOpen, setSidebarOpen } = useAppStore();
   const groups = Array.from(new Set(NAV.map((n) => n.group)));
   const publicUrl = `/api/public/${restaurantSlug}`;
+
+  // Keyboard shortcuts: Alt+1..9 to switch sections
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.altKey && !e.metaKey && !e.ctrlKey) {
+        const num = parseInt(e.key, 10);
+        if (num >= 1 && num <= 9) {
+          const item = NAV.find((n) => n.shortcut === num);
+          if (item) {
+            e.preventDefault();
+            setSection(item.id);
+          }
+        }
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [setSection]);
 
   return (
     <>
@@ -116,6 +136,9 @@ export function Sidebar({
                   <button
                     key={item.id}
                     onClick={() => setSection(item.id)}
+                    aria-label={item.label}
+                    aria-current={active ? "page" : undefined}
+                    title={item.shortcut ? `${item.label} (Alt+${item.shortcut})` : item.label}
                     className={cn(
                       "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors relative min-h-[44px]",
                       active ? "bg-[#C5A059]/10 text-[#C5A059]" : "text-neutral-400 hover:bg-white/[0.03] hover:text-[#f5f5f0]"
@@ -123,6 +146,11 @@ export function Sidebar({
                   >
                     <Icon className="w-4.5 h-4.5" />
                     <span>{item.label}</span>
+                    {item.shortcut && (
+                      <kbd className="ml-auto text-[9px] text-neutral-600 font-mono hidden lg:inline">
+                        ⌥{item.shortcut}
+                      </kbd>
+                    )}
                     {active && (
                       <motion.div layoutId="sidebar-active" className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-[#C5A059] rounded-r-full" transition={{ type: "spring", stiffness: 400, damping: 30 }} />
                     )}
