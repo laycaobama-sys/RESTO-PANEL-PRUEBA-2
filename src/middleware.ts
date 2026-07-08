@@ -9,63 +9,70 @@ const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET
  *
  * Defense-in-depth architecture:
  *
- * 1. /api/admin/* — requires SUPER_ADMIN (verified here at edge)
- * 2. /api/* (non-public) — requires valid JWT (verified here at edge)
- * 3. /api/public/* — no auth required (public endpoints)
- * 4. /api/auth/* — NextAuth routes, no middleware interference
- * 5. /api/health — public health check
+ * 1. /api/auth/* — NextAuth routes, no interference
+ * 2. /api/public/* — public endpoints
+ * 3. /api/health — health check
+ * 4. All other /api/* — requires valid JWT
+ * 5. /api/admin/* — requires SUPER_ADMIN
  *
- * This means even if a route handler forgets to check auth,
- * the middleware blocks it before it reaches the handler.
+ * Also protects page routes:
+ * - Unauthenticated → /login
+ * - Authenticated at /login → / (dashboard)
  */
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Allow NextAuth routes (login, register, callback, etc.)
-  if (pathname.startsWith('/api/auth/')) {
-    return NextResponse.next()
-  }
-
-  // Allow public endpoints
-  if (pathname.startsWith('/api/public/') || pathname === '/api/health') {
-    return NextResponse.next()
-  }
-
-  // Allow static assets and Next.js internals
+  // ─── Allow public routes ────────────────────────────────
+  if (pathname.startsWith('/api/auth/')) return NextResponse.next()
+  if (pathname.startsWith('/api/public/') || pathname === '/api/health') return NextResponse.next()
   if (pathname.startsWith('/_next/') || pathname.startsWith('/favicon') ||
       pathname === '/robots.txt' || pathname === '/sitemap.xml' ||
-      pathname === '/llms.txt' || pathname === '/llms-full.txt') {
-    return NextResponse.next()
-  }
+      pathname === '/llms.txt' || pathname === '/llms-full.txt') return NextResponse.next()
 
-  // For all other /api/ routes, require a valid JWT
+  // ─── API route protection ───────────────────────────────
   if (pathname.startsWith('/api/')) {
     const token = await getToken({ req, secret: NEXTAUTH_SECRET || '' })
 
     if (!token) {
-      return NextResponse.json(
-        { error: 'No autenticado' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
 
     // /api/admin/* requires SUPER_ADMIN
-    if (pathname.startsWith('/api/admin/')) {
-      if (!token.isSuperAdmin) {
-        return NextResponse.json(
-          { error: 'Forbidden: se requiere SUPER_ADMIN' },
-          { status: 403 }
-        )
-      }
+    if (pathname.startsWith('/api/admin/') && !token.isSuperAdmin) {
+      return NextResponse.json(
+        { error: 'Forbidden: se requiere SUPER_ADMIN' },
+        { status: 403 }
+      )
     }
+
+    return NextResponse.next()
   }
+
+  // ─── Page route protection ──────────────────────────────
+  // /login: redirect to dashboard if already authenticated
+  if (pathname === '/login') {
+    const token = await getToken({ req, secret: NEXTAUTH_SECRET || '' })
+    if (token) {
+      return NextResponse.redirect(new URL('/', req.url))
+    }
+    return NextResponse.next()
+  }
+
+  // /landing: always public
+  if (pathname === '/landing') return NextResponse.next()
+
+  // Root: server component handles redirect logic (page.tsx)
+  // All other page routes are public (landing, login, etc.)
+  // The dashboard is rendered conditionally at / based on session
 
   return NextResponse.next()
 }
 
 export const config = {
-  // Protect all API routes except auth, public, and health
   matcher: [
+    // Protect all API routes except auth, public, health
     '/api/((?!auth|public|health).*)',
+    // Protect /login (redirect if authenticated)
+    '/login',
   ],
 }

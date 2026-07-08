@@ -103,6 +103,8 @@ export function TablesSection() {
   const [selectedForGroup, setSelectedForGroup] = useState<Set<string>>(new Set());
   const [pendingPositions, setPendingPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [draggedTableId, setDraggedTableId] = useState<string | null>(null);
+  const [dragOverZone, setDragOverZone] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -169,6 +171,18 @@ export function TablesSection() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const changeZoneMut = useMutation({
+    mutationFn: ({ id, zone }: { id: string; zone: string }) =>
+      api(`/api/tables/${id}`, { method: "PATCH", body: JSON.stringify({ zone }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tables"] });
+      toast.success("Mesa movida de zona ✓");
+      setDraggedTableId(null);
+      setDragOverZone(null);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const delMut = useMutation({
     mutationFn: (id: string) => api(`/api/tables/${id}`, { method: "DELETE" }),
     onSuccess: () => { toast.success("Mesa eliminada"); qc.invalidateQueries({ queryKey: ["tables"] }); setConfirmDelete(null); },
@@ -203,6 +217,50 @@ export function TablesSection() {
 
   const toggleGroupSelection = (tableId: string) => {
     setSelectedForGroup(prev => { const next = new Set(prev); if (next.has(tableId)) next.delete(tableId); else next.add(tableId); return next; });
+  };
+
+  const handleTableDragStart = (e: React.DragEvent, tableId: string) => {
+    setDraggedTableId(tableId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", tableId);
+  };
+
+  const handleTableDragEnd = () => {
+    setDraggedTableId(null);
+    setDragOverZone(null);
+  };
+
+  const handleZoneDragOver = (e: React.DragEvent, zoneId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverZone(zoneId);
+  };
+
+  const handleZoneDragLeave = (e: React.DragEvent) => {
+    // Only clear if leaving the zone panel entirely
+    const relatedTarget = e.relatedTarget as HTMLElement;
+    if (relatedTarget && e.currentTarget.contains(relatedTarget)) return;
+    setDragOverZone(null);
+  };
+
+  const handleZoneDrop = (e: React.DragEvent, zoneId: string) => {
+    e.preventDefault();
+    const tableId = e.dataTransfer.getData("text/plain") || draggedTableId;
+    if (!tableId) return;
+
+    // Find the table being dragged
+    const table = tables.find(t => t.id === tableId);
+    if (!table) return;
+
+    // If same zone, do nothing
+    if (table.zone === zoneId) {
+      setDraggedTableId(null);
+      setDragOverZone(null);
+      return;
+    }
+
+    // Move table to new zone
+    changeZoneMut.mutate({ id: tableId, zone: zoneId });
   };
 
   const getTablePos = (table: Table) => {
@@ -273,7 +331,7 @@ export function TablesSection() {
           return <button key={z.id} onClick={() => setSelectedZone(z.id)} className={cn("px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap border flex items-center gap-1.5", selectedZone === z.id ? "bg-yellow-400 text-black border-yellow-400" : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/10")}><span>{z.icon}</span> {z.label} ({count})</button>;
         })}
         <div className="flex-1" />
-        {editMode && <span className="text-xs text-yellow-400 flex items-center gap-1"><Move className="w-3 h-3" /> Arrastra las mesas</span>}
+        {editMode && <span className="text-xs text-yellow-400 flex items-center gap-1"><Move className="w-3 h-3" /> Arrastra las mesas entre zonas</span>}
       </div>
 
       {/* MAIN */}
@@ -295,9 +353,9 @@ export function TablesSection() {
               </div>
 
               {/* Zone-based floor plan — each zone is a separate bordered panel */}
-              <div className="space-y-3 max-h-[600px] overflow-y-auto rounded-xl" style={{ scrollbarWidth: "thin" }}>
-                {ZONES.map(zone => {
-                  const zoneTables = filteredTables.filter(t => t.zone === zone.id);
+              <div className="space-y-3 max-h-[520px] overflow-y-auto rounded-xl pr-1" style={{ scrollbarWidth: "thin" }}>
+                {(selectedZone === "ALL" ? ZONES : ZONES.filter(z => z.id === selectedZone)).map(zone => {
+                  const zoneTables = tables.filter(t => t.zone === zone.id);
                   if (zoneTables.length === 0) return null;
 
                   // Group tables by group_id
@@ -315,40 +373,46 @@ export function TablesSection() {
                   return (
                     <div
                       key={zone.id}
-                      className="rounded-xl border-2 p-3 relative overflow-hidden"
+                      onDragOver={(e) => handleZoneDragOver(e, zone.id)}
+                      onDragLeave={handleZoneDragLeave}
+                      onDrop={(e) => handleZoneDrop(e, zone.id)}
+                      className={cn(
+                        "rounded-xl border-2 p-3 relative overflow-hidden transition-all",
+                        dragOverZone === zone.id && draggedTableId && "scale-[1.01] border-dashed"
+                      )}
                       style={{
-                        borderColor: `${zone.color}40`,
-                        background: `linear-gradient(135deg, ${zone.color}08, transparent)`,
-                        minHeight: '120px',
+                        borderColor: dragOverZone === zone.id && draggedTableId ? zone.color : `${zone.color}40`,
+                        background: dragOverZone === zone.id && draggedTableId ? `${zone.color}15` : `linear-gradient(135deg, ${zone.color}0a, transparent)`,
+                        minHeight: '100px',
                       }}
                     >
                       {/* Zone header */}
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between mb-3">
                         <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5" style={{ color: zone.color }}>
-                          <span>{zone.icon}</span>
+                          <span className="text-base">{zone.icon}</span>
                           {zone.label}
-                          <span className="text-neutral-500 font-normal">· {zoneTables.length} mesas</span>
+                          <span className="text-neutral-500 font-normal normal-case">· {zoneTables.length} mesas</span>
                         </span>
                         <span className="text-[10px] text-neutral-500">
                           {zoneTables.filter(t => t.status === 'AVAILABLE').length} libres · {zoneTables.filter(t => t.status === 'OCCUPIED').length} ocupadas
                         </span>
                       </div>
 
-                      {/* Zone content — grouped tables + ungrouped tables */}
-                      <div className="flex flex-wrap gap-2 items-start">
-                        {/* Render grouped tables */}
+                      {/* Tables in this zone — grouped + ungrouped */}
+                      <div className="flex flex-wrap gap-2.5 items-start">
+                        {/* Grouped tables */}
                         {Array.from(groups.entries()).map(([groupId, groupTables]) => (
                           <div
                             key={groupId}
-                            className="rounded-lg border-2 border-dashed p-2 relative"
-                            style={{ borderColor: `${zone.color}60`, background: `${zone.color}08` }}
+                            className="rounded-lg border-2 border-dashed p-2.5 relative"
+                            style={{ borderColor: `${zone.color}50`, background: `${zone.color}08` }}
                           >
-                            <span className="absolute -top-2 left-2 text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: zone.color, color: '#0a0a0a' }}>
-                              Grupo {String.fromCharCode(64 + (parseInt(groupId.slice(-1), 16) % 26) + 1)}
+                            <span className="absolute -top-2.5 left-2 text-[9px] px-2 py-0.5 rounded-full font-bold" style={{ background: zone.color, color: '#0a0a0a' }}>
+                              Grupo · {groupTables.reduce((s, t) => s + t.capacity, 0)}p
                             </span>
                             <div className="flex gap-1.5 pt-1">
                               {groupTables.map(t => (
-                                <TableCard
+                                <ZoneTable
                                   key={t.id}
                                   table={t}
                                   reservation={tableReservationMap.get(t.id) || null}
@@ -359,13 +423,16 @@ export function TablesSection() {
                                   reduceMotion={!!reduceMotion}
                                   onHover={(id) => setHoveredTableId(id)}
                                   onSelect={(t) => editMode ? toggleGroupSelection(t.id) : setSelectedTable(t)}
+                                  onDragStart={handleTableDragStart}
+                                  onDragEnd={handleTableDragEnd}
+                                  isDragging={draggedTableId === t.id}
                                 />
                               ))}
                             </div>
                             {editMode && (
                               <button
                                 onClick={() => ungroupMut.mutate(groupId)}
-                                className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] hover:bg-red-600"
+                                className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 z-10"
                                 title="Desagrupar"
                               >
                                 <Unlink className="w-3 h-3" />
@@ -374,9 +441,9 @@ export function TablesSection() {
                           </div>
                         ))}
 
-                        {/* Render ungrouped tables */}
+                        {/* Ungrouped tables */}
                         {ungrouped.map(t => (
-                          <TableCard
+                          <ZoneTable
                             key={t.id}
                             table={t}
                             reservation={tableReservationMap.get(t.id) || null}
@@ -387,6 +454,9 @@ export function TablesSection() {
                             reduceMotion={!!reduceMotion}
                             onHover={(id) => setHoveredTableId(id)}
                             onSelect={(t) => editMode ? toggleGroupSelection(t.id) : setSelectedTable(t)}
+                            onDragStart={handleTableDragStart}
+                            onDragEnd={handleTableDragEnd}
+                            isDragging={draggedTableId === t.id}
                           />
                         ))}
                       </div>
@@ -448,7 +518,7 @@ export function TablesSection() {
       )}
 
       {/* TABLE DETAIL DIALOG */}
-      <TableDetailDialog table={selectedTable} reservation={selectedTable ? tableReservationMap.get(selectedTable.id) || null : null} onClose={() => setSelectedTable(null)} onEdit={(t) => { setSelectedTable(null); setEditing(t); }} onStatusChange={(id, status) => updateStatusMut.mutate({ id, status })} onUngroup={(groupId) => { ungroupMut.mutate(groupId); setSelectedTable(null); }} allTables={tables} onTransfer={(resvId, newTableId) => transferMut.mutate({ reservationId: resvId, newTableId })} />
+      <TableDetailDialog table={selectedTable} reservation={selectedTable ? tableReservationMap.get(selectedTable.id) || null : null} onClose={() => setSelectedTable(null)} onEdit={(t) => { setSelectedTable(null); setEditing(t); }} onStatusChange={(id, status) => updateStatusMut.mutate({ id, status })} onUngroup={(groupId) => { ungroupMut.mutate(groupId); setSelectedTable(null); }} allTables={tables} onTransfer={(resvId, newTableId) => transferMut.mutate({ reservationId: resvId, newTableId })} onZoneChange={(id, zone) => changeZoneMut.mutate({ id, zone })} />
 
       {/* CREATE/EDIT DIALOG */}
       <TableDialog key={editing?.id || "new"} open={creating || !!editing} table={editing} onClose={() => { setCreating(false); setEditing(null); }} onSaved={() => { qc.invalidateQueries({ queryKey: ["tables"] }); qc.invalidateQueries({ queryKey: ["analytics"] }); }} />
@@ -601,11 +671,11 @@ function InteractiveTable({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// TABLE CARD — simplified table display for zone-based layout
+// ZONE TABLE — Simplified table card for zone-based layout
 // ═══════════════════════════════════════════════════════════════
-function TableCard({
+function ZoneTable({
   table, reservation, editMode, isSelected, isHovered, isGroupSelected, reduceMotion,
-  onHover, onSelect,
+  onHover, onSelect, onDragStart, onDragEnd, isDragging,
 }: {
   table: Table;
   reservation: Reservation | null;
@@ -616,14 +686,23 @@ function TableCard({
   reduceMotion: boolean;
   onHover: (id: string | null) => void;
   onSelect: (t: Table) => void;
+  onDragStart?: (e: React.DragEvent, tableId: string) => void;
+  onDragEnd?: () => void;
+  isDragging?: boolean;
 }) {
   const [showPopover, setShowPopover] = useState(false);
   const style = NEON_STYLES[table.status] || NEON_STYLES.AVAILABLE;
   const shapeCls = SHAPE_STYLES[table.shape] || "rounded-xl";
-  const sizeCls = table.shape === "ROUND" ? "w-14 h-14" : "w-16 h-14";
+  const sizeCls = table.shape === "RECTANGLE" ? "w-16 h-12" : table.shape === "ROUND" ? "w-14 h-14" : "w-14 h-12";
 
   return (
     <motion.div
+      initial={reduceMotion ? {} : { opacity: 0, scale: 0.8 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.2 }}
+      draggable={editMode}
+      onDragStart={(e: any) => { if (editMode && onDragStart) onDragStart(e, table.id); }}
+      onDragEnd={() => { if (editMode && onDragEnd) onDragEnd(); }}
       onMouseEnter={() => { onHover(table.id); setShowPopover(true); }}
       onMouseLeave={() => { onHover(null); setShowPopover(false); }}
       onClick={() => onSelect(table)}
@@ -636,12 +715,13 @@ function TableCard({
         style.glow,
         isGroupSelected && "ring-2 ring-green-400 ring-offset-2 ring-offset-[#0a0a0a]",
         table.group_id && "border-dashed",
+        isDragging && "opacity-40",
+        editMode && "cursor-grab active:cursor-grabbing",
       )}
     >
-      {/* Status indicator */}
       {(table.status === "OCCUPIED" || table.status === "RESERVED" || table.status === "PREPARING") && !reduceMotion && (
         <motion.span
-          animate={{ opacity: [0.5, 1, 0.5] }}
+          animate={{ opacity: [0.4, 1, 0.4] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
           className={cn("absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full",
             table.status === "OCCUPIED" ? "bg-red-500" : table.status === "RESERVED" ? "bg-yellow-400" : "bg-blue-500"
@@ -688,7 +768,7 @@ function TableCard({
                   </div>
                 </div>
               ) : (
-                <p className="text-[10px] text-gray-400">{table.capacity} comensales · {table.zone}</p>
+                <p className="text-[10px] text-gray-400">{table.capacity} comensales</p>
               )}
             </div>
           </motion.div>
@@ -701,19 +781,17 @@ function TableCard({
 // ═══════════════════════════════════════════════════════════════
 // TABLE DETAIL DIALOG
 // ═══════════════════════════════════════════════════════════════
-function TableDetailDialog({ table, reservation, onClose, onEdit, onStatusChange, onUngroup, allTables, onTransfer }: {
+function TableDetailDialog({ table, reservation, onClose, onEdit, onStatusChange, onUngroup, allTables, onTransfer, onZoneChange }: {
   table: Table | null; reservation: Reservation | null; onClose: () => void;
   onEdit: (t: Table) => void; onStatusChange: (id: string, status: string) => void; onUngroup: (groupId: string) => void;
   allTables: Table[]; onTransfer: (reservationId: string, newTableId: string) => void;
+  onZoneChange: (id: string, zone: string) => void;
 }) {
   const [showTransfer, setShowTransfer] = useState(false);
   const [targetTableId, setTargetTableId] = useState("");
   if (!table) return null;
   const style = NEON_STYLES[table.status] || NEON_STYLES.AVAILABLE;
-
-  // Available tables for transfer (not the current one, not blocked)
   const availableForTransfer = allTables.filter(t => t.id !== table.id && !t.blocked && t.status !== "OCCUPIED");
-
   return (
     <Dialog open={!!table} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-md bg-[#1A1D24]/95 backdrop-blur-xl border-white/10 text-white">
@@ -723,66 +801,56 @@ function TableDetailDialog({ table, reservation, onClose, onEdit, onStatusChange
             <div><p className="text-xs text-gray-400">Capacidad</p><p className="font-medium text-white flex items-center gap-1"><Users className="w-3.5 h-3.5" />{table.capacity}</p></div>
             <div><p className="text-xs text-gray-400">Zona</p><p className="font-medium text-white">{ZONE_LABEL[table.zone] || table.zone}</p></div>
             <div><p className="text-xs text-gray-400">Forma</p><p className="font-medium text-white">{table.shape === "ROUND" ? "Redonda" : table.shape === "RECTANGLE" ? "Rectangular" : "Cuadrada"}</p></div>
+            </div>
+          {/* Zone change */}
+          <div className="p-3 rounded-lg bg-black/30 border border-white/[0.06]">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase mb-2 flex items-center gap-1"><MapPin className="w-3 h-3 text-[#C5A059]" />Cambiar zona</p>
+            <div className="grid grid-cols-2 gap-2">
+              {ZONES.map(z => (
+                <button
+                  key={z.id}
+                  onClick={() => onZoneChange(table.id, z.id)}
+                  disabled={z.id === table.zone}
+                  className={cn(
+                    "px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5",
+                    z.id === table.zone
+                      ? "bg-white/[0.03] text-gray-500 border-white/[0.04] cursor-not-allowed"
+                      : "bg-black/30 text-gray-300 border-white/[0.06] hover:bg-white/[0.04]"
+                  )}
+                >
+                  <span>{z.icon}</span> {z.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
             <div><p className="text-xs text-gray-400">Estado</p><TableStatusBadge status={table.status} /></div>
             {table.group_id && <div className="col-span-2"><p className="text-xs text-gray-400">Grupo</p><div className="flex items-center gap-2"><span className="text-sm text-yellow-400 flex items-center gap-1"><Link2 className="w-3.5 h-3.5" /> Agrupada</span><button onClick={() => onUngroup(table.group_id!)} className="text-xs text-red-400 hover:underline flex items-center gap-1"><Unlink className="w-3 h-3" /> Desagrupar</button></div></div>}
           </div>
-
-          {/* Status change */}
           <div><p className="text-[10px] font-semibold text-gray-400 uppercase mb-2">Cambiar estado</p><div className="grid grid-cols-2 gap-2">{Object.entries(NEON_STYLES).map(([key, val]) => (<button key={key} onClick={() => onStatusChange(table.id, key)} disabled={key === table.status} className={cn("px-3 py-2 rounded-lg text-xs font-medium border transition-colors", key === table.status ? "bg-white/[0.03] text-gray-500 border-white/[0.04] cursor-not-allowed" : "bg-black/30 text-gray-300 border-white/[0.06] hover:bg-white/[0.04]")}><span className={cn("inline-block w-2 h-2 rounded-full mr-1.5 border", val.border)} />{val.label}</button>))}</div></div>
-
-          {/* Reservation info */}
-          {reservation ? (
-            <div className="p-3 rounded-lg bg-black/30 border border-white/[0.06]">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase mb-1.5 flex items-center gap-1"><Calendar className="w-3 h-3 text-yellow-400" />Reserva asociada</p>
-              <div className="flex items-center justify-between text-sm mb-2">
-                <div>
-                  <p className="font-medium text-white">{reservation.customerName}</p>
-                  <p className="text-xs text-gray-400">{formatTime(reservation.date)} · {reservation.partySize} pax</p>
-                </div>
-                <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded uppercase", reservation.status === "CONFIRMED" ? "bg-green-500/15 text-green-400" : reservation.status === "SEATED" ? "bg-blue-500/15 text-blue-400" : "bg-yellow-400/15 text-yellow-400")}>{reservation.status}</span>
-              </div>
-              {/* Transfer button */}
+          {reservation ? (<div className="p-3 rounded-lg bg-black/30 border border-white/[0.06]"><p className="text-[10px] font-semibold text-gray-400 uppercase mb-1.5 flex items-center gap-1"><Calendar className="w-3 h-3 text-yellow-400" />Reserva asociada</p><div className="flex items-center justify-between text-sm"><div><p className="font-medium text-white">{reservation.customerName}</p><p className="text-xs text-gray-400">{formatTime(reservation.date)} · {reservation.partySize} pax</p></div><span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded uppercase", reservation.status === "CONFIRMED" ? "bg-green-500/15 text-green-400" : reservation.status === "SEATED" ? "bg-blue-500/15 text-blue-400" : "bg-yellow-400/15 text-yellow-400")}>{reservation.status}</span></div></div>) : <p className="text-xs text-gray-600 text-center py-3">Sin reservas próximas</p>}
+          {reservation && (
+            <div className="pt-2 border-t border-white/[0.06]">
               {!showTransfer ? (
-                <button
-                  onClick={() => setShowTransfer(true)}
-                  className="w-full mt-2 px-3 py-2 rounded-lg bg-[#C5A059]/10 border border-[#C5A059]/30 text-[#C5A059] text-xs font-semibold hover:bg-[#C5A059]/20 transition-colors flex items-center justify-center gap-1.5"
-                >
+                <button onClick={() => setShowTransfer(true)} className="w-full px-3 py-2 rounded-lg bg-[#C5A059]/10 border border-[#C5A059]/30 text-[#C5A059] text-xs font-semibold hover:bg-[#C5A059]/20 transition-colors flex items-center justify-center gap-1.5">
                   <Move className="w-3.5 h-3.5" /> Traspasar a otra mesa
                 </button>
               ) : (
-                <div className="mt-2 space-y-2">
-                  <select
-                    value={targetTableId}
-                    onChange={(e) => setTargetTableId(e.target.value)}
-                    className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#C5A059]"
-                  >
+                <div className="space-y-2">
+                  <select value={targetTableId} onChange={(e) => setTargetTableId(e.target.value)} className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#C5A059]">
                     <option value="">Seleccionar mesa de destino...</option>
                     {availableForTransfer.map(t => (
-                      <option key={t.id} value={t.id}>
-                        Mesa {t.number} · {ZONE_LABEL[t.zone] || t.zone} · {t.capacity}pax · {t.status === "AVAILABLE" ? "Libre" : t.status === "RESERVED" ? "Reservada" : t.status}
-                      </option>
+                      <option key={t.id} value={t.id}>Mesa {t.number} · {ZONE_LABEL[t.zone] || t.zone} · {t.capacity}pax</option>
                     ))}
                   </select>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => { if (targetTableId) { onTransfer(reservation.id, targetTableId); setShowTransfer(false); setTargetTableId(""); } }}
-                      disabled={!targetTableId}
-                      className="flex-1 px-3 py-2 rounded-lg bg-[#C5A059] text-[#0a0a0a] text-xs font-semibold hover:bg-[#b08d4e] disabled:opacity-50"
-                    >
-                      Confirmar traspaso
-                    </button>
-                    <button
-                      onClick={() => { setShowTransfer(false); setTargetTableId(""); }}
-                      className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs"
-                    >
-                      Cancelar
-                    </button>
+                    <button onClick={() => { if (targetTableId) { onTransfer(reservation.id, targetTableId); setShowTransfer(false); setTargetTableId(""); } }} disabled={!targetTableId} className="flex-1 px-3 py-2 rounded-lg bg-[#C5A059] text-[#0a0a0a] text-xs font-semibold hover:bg-[#b08d4e] disabled:opacity-50">Confirmar traspaso</button>
+                    <button onClick={() => { setShowTransfer(false); setTargetTableId(""); }} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs">Cancelar</button>
                   </div>
                 </div>
               )}
             </div>
-          ) : <p className="text-xs text-gray-600 text-center py-3">Sin reservas próximas</p>}
-
+          )}
           <div className="flex gap-2 pt-2 border-t border-white/[0.06]"><Button variant="outline" className="flex-1 h-9 text-xs bg-black/30 border-white/[0.06] text-gray-300" onClick={() => onEdit(table)}><Pencil className="w-3.5 h-3.5 mr-1" /> Editar</Button><Button variant="outline" onClick={onClose} className="h-9 text-xs bg-black/30 border-white/[0.06] text-gray-300">Cerrar</Button></div>
         </div>
       </DialogContent>

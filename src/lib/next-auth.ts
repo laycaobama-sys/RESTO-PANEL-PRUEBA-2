@@ -2,6 +2,16 @@ import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import { db } from '@/lib/db'
 import { verifyPassword } from '@/lib/auth'
+import {
+  isAccountLocked,
+  recordFailedLogin,
+  recordSuccessfulLogin,
+  getLockoutRemaining,
+  generateJti,
+  createSession,
+  updateLastLogin,
+  logActivity,
+} from '@/lib/session-management'
 
 const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET
 
@@ -14,10 +24,8 @@ if (!NEXTAUTH_SECRET) {
 export const authOptions: NextAuthOptions = {
   session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 }, // 30 days
   secret: NEXTAUTH_SECRET,
-  // trustHost is required by NextAuth v4 in production but the type isn't
-  // shipped in this version. Cast to any to keep tsc happy without runtime change.
   ...(({ trustHost: true } as any) as Partial<NextAuthOptions>),
-  pages: { signIn: '/' },
+  pages: { signIn: '/login' },
   providers: [
     CredentialsProvider({
       name: 'credentials',
@@ -25,30 +33,73 @@ export const authOptions: NextAuthOptions = {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null
-        const user = await db.user.findByEmail(credentials.email.toLowerCase().trim())
-        if (!user) return null
+
+        const email = credentials.email.toLowerCase().trim()
+
+        // ─── Brute force protection ──────────────────────────
+        if (isAccountLocked(email)) {
+          const remaining = getLockoutRemaining(email)
+          throw new Error(`Cuenta bloqueada. Intenta de nuevo en ${Math.ceil(remaining / 60)} minutos.`)
+        }
+
+        const user = await db.user.findByEmail(email)
+        if (!user) {
+          recordFailedLogin(email)
+          return null
+        }
+
         // Blocked users cannot log in.
-        if (user.blocked) return null
+        if (user.blocked) {
+          recordFailedLogin(email)
+          return null
+        }
+
         const ok = await verifyPassword(credentials.password, user.password_hash)
-        if (!ok) return null
+        if (!ok) {
+          const result = recordFailedLogin(email)
+          if (result.locked) {
+            throw new Error('Cuenta bloqueada por demasiados intentos. Intenta de nuevo en 15 minutos.')
+          }
+          return null
+        }
+
+        // ─── Successful login ────────────────────────────────
+        recordSuccessfulLogin(email)
+
+        // Get IP and user agent for session tracking
+        // NextAuth v4 passes a different request object — use safe access
+        const headers = (req as any)?.headers || {};
+        const ip = headers['x-forwarded-for']?.split(',')[0]?.trim()
+          || headers['x-real-ip'] || null;
+        const ua = headers['user-agent'] || null;
+
+        // Update last login
+        await updateLastLogin(user.id, ip, ua)
+
+        // Log activity
+        await logActivity(user.id, user.organization_id, 'login', undefined, undefined, { ip, ua }, ip, ua)
 
         // SUPER_ADMIN login — no organization needed, will see global panel.
         if (user.is_super_admin) {
+          const jti = generateJti()
+          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+          await createSession(user.id, null, jti, ip, ua, expiresAt)
+
           return {
             id: user.id,
             email: user.email,
             name: user.name,
             role: 'SUPER_ADMIN' as const,
             isSuperAdmin: true,
-            // No organization context for super admins.
             restaurantId: '',
             restaurantName: 'RestoPanel HQ',
             restaurantSlug: '',
             organizationId: '',
             organizationName: 'RestoPanel HQ',
             organizationSlug: '',
+            jti,
           } as any
         }
 
@@ -59,6 +110,10 @@ export const authOptions: NextAuthOptions = {
 
         // Block suspended tenants from logging in.
         if (org.status === 'SUSPENDED') return null
+
+        const jti = generateJti()
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        await createSession(user.id, user.organization_id, jti, ip, ua, expiresAt)
 
         return {
           id: user.id,
@@ -72,6 +127,7 @@ export const authOptions: NextAuthOptions = {
           organizationId: org.id,
           organizationName: org.name,
           organizationSlug: org.slug,
+          jti,
         } as any
       },
     }),
@@ -92,11 +148,10 @@ export const authOptions: NextAuthOptions = {
         token.organizationSlug = u.organizationSlug
         token.impersonatingOrgId = null
         token.impersonatingOrgName = null
+        token.jti = u.jti || ''
       }
 
       // Read impersonation cookies (set by /api/admin/impersonate).
-      // Only super admins are allowed to impersonate; for everyone else
-      // the cookies are ignored even if somehow set.
       if (token.isSuperAdmin) {
         const { cookies } = await import('next/headers')
         const cookieStore = await cookies()
@@ -109,8 +164,7 @@ export const authOptions: NextAuthOptions = {
         token.impersonatingOrgName = null
       }
 
-      // Allow session update via `update` trigger (used to refresh data
-      // after impersonation changes).
+      // Allow session update via `update` trigger.
       if (trigger === 'update' && session) {
         const s = session as any
         if (s.impersonatingOrgId !== undefined) {
@@ -127,16 +181,18 @@ export const authOptions: NextAuthOptions = {
         u.id = token.id
         u.role = token.role
         u.isSuperAdmin = token.isSuperAdmin
+        u.jti = token.jti
+
         // If the super admin is impersonating a tenant, override the
         // organization context so the dashboard shows that tenant's data.
         if (token.isSuperAdmin && token.impersonatingOrgId) {
           u.organizationId = token.impersonatingOrgId
           u.organizationName = token.impersonatingOrgName
-          u.organizationSlug = token.impersonatingOrgId // not used for impersonated view
+          u.organizationSlug = token.impersonatingOrgId
           u.restaurantId = token.impersonatingOrgId
           u.restaurantName = token.impersonatingOrgName
           u.restaurantSlug = ''
-          u.role = 'ADMIN' // super admin acts as tenant admin while impersonating
+          u.role = 'ADMIN'
         } else {
           u.restaurantId = token.restaurantId
           u.restaurantName = token.restaurantName
@@ -168,5 +224,6 @@ export type AppSession = {
     organizationSlug: string
     impersonatingOrgId: string | null
     impersonatingOrgName: string | null
+    jti: string
   }
 }

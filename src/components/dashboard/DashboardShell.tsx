@@ -21,7 +21,6 @@ const MenusSection = dynamic(() => import("./sections/MenusSection").then(m => m
 const AnalyticsSection = dynamic(() => import("./sections/AnalyticsSection").then(m => m.AnalyticsSection), { loading: () => <LoadingScreen /> });
 const ReservationsSection = dynamic(() => import("./sections/ReservationsSection").then(m => m.ReservationsSection), { loading: () => <LoadingScreen /> });
 const CustomersSection = dynamic(() => import("./sections/CustomersSection").then(m => m.CustomersSection), { loading: () => <LoadingScreen /> });
-const WhatsAppSection = dynamic(() => import("./sections/WhatsAppSection").then(m => m.WhatsAppSection), { loading: () => <LoadingScreen /> });
 const SettingsSection = dynamic(() => import("./sections/SettingsSection").then(m => m.SettingsSection), { loading: () => <LoadingScreen /> });
 const PublicMenuSection = dynamic(() => import("./sections/PublicMenuSection").then(m => m.PublicMenuSection), { loading: () => <LoadingScreen /> });
 
@@ -71,7 +70,6 @@ export function DashboardShell({ user }: DashboardShellProps) {
             {section === "analytics" && <AnalyticsSection />}
             {section === "reservations" && <ReservationsSection />}
             {section === "customers" && <CustomersSection />}
-            {section === "whatsapp" && <WhatsAppSection />}
             {section === "settings" && <SettingsSection />}
             {section === "public" && <PublicMenuSection slug={user.restaurantSlug} />}
           </main>

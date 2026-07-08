@@ -19,7 +19,6 @@ import {
   HelpCircle,
   Globe,
   Users,
-  MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -40,7 +39,6 @@ const NAV: NavItem[] = [
   { id: "reservations", label: "Reservas", icon: CalendarCheck, group: "Gestión", shortcut: 6 },
   { id: "customers", label: "Clientes (CRM)", icon: Users, group: "Gestión", shortcut: 7 },
   { id: "analytics", label: "Analíticas", icon: BarChart3, group: "Gestión", shortcut: 8 },
-  { id: "whatsapp", label: "WhatsApp", icon: MessageCircle, group: "Gestión" },
   { id: "settings", label: "Ajustes", icon: Settings, group: "Gestión", shortcut: 9 },
 ];
 

@@ -1,10 +1,3 @@
-// ============================================================
-// RestoPanel · POST /api/tables/transfer
-// ============================================================
-// Moves a reservation from one table to another.
-// Maintains all reservation data (customer, party size, notes, etc).
-// ============================================================
-
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/session";
@@ -64,11 +57,10 @@ export async function POST(req: Request) {
     .eq("organization_id", user.organizationId);
 
   if (updateError) {
-    console.error("[transfer] Update error:", updateError);
     return NextResponse.json({ error: "Error al traspasar la reserva" }, { status: 500 });
   }
 
-  // Update old table status to AVAILABLE (if it was OCCUPIED/RESERVED)
+  // Update old table status to AVAILABLE
   if (reservation.table_id) {
     await supabaseAdmin
       .from("tables")
@@ -84,7 +76,7 @@ export async function POST(req: Request) {
     .eq("id", newTableId)
     .eq("organization_id", user.organizationId);
 
-  // Log the transfer
+  // Audit log
   try {
     const { db } = await import("@/lib/db");
     await db.auditLogs.insert({
