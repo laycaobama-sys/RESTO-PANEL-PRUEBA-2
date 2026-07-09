@@ -16,9 +16,9 @@ function getStripe(): Stripe | null {
 }
 
 export const PLANS = {
-  starter: { name: "starter", label: "Inicio", monthly: 59, yearly: 590, maxRestaurants: 1, maxUsers: 3 },
-  professional: { name: "professional", label: "Premium", monthly: 119, yearly: 1190, maxRestaurants: 3, maxUsers: 10 },
-  enterprise: { name: "enterprise", label: "Empresarial", monthly: 249, yearly: 2490, maxRestaurants: 5, maxUsers: null },
+  starter: { name: "starter", label: "Inicio", monthly: 59, yearly: 566, maxRestaurants: 1, maxUsers: 3 },
+  professional: { name: "professional", label: "Premium", monthly: 119, yearly: 1142, maxRestaurants: 3, maxUsers: 10 },
+  enterprise: { name: "enterprise", label: "Empresarial", monthly: 249, yearly: 2390, maxRestaurants: 5, maxUsers: null },
 } as const;
 
 export type PlanName = keyof typeof PLANS;

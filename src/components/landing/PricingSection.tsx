@@ -52,7 +52,7 @@ const FAQ = [
   { q: "¿Qué pasa si cancelo?", a: "Nada se elimina. Tu cuenta pasa a modo lectura hasta que reactives. Todos tus datos, reservas y clientes permanecen intactos." },
   { q: "¿Hay permanencia?", a: "No. Puedes cancelar cuando quieras sin penalización. El acceso se mantiene hasta el final del periodo facturado." },
   { q: "¿Incluye soporte?", a: "Todos los planes incluyen soporte. Inicio: email. Premium: prioritario. Empresarial: Account Manager dedicado y SLA." },
-  { q: "¿Puedo probar antes de pagar?", a: "Sí. Tienes 30 días de prueba gratuita con todas las funciones Premium. Sin tarjeta de crédito." },
+  { q: "¿Puedo probar antes de pagar?", a: "Sí. Al registrarte empiezas con el plan Inicio. Puedes mejorar a Premium o Empresarial en cualquier momento desde el panel de facturación." },
 ];
 
 export function PricingSection() {
@@ -70,7 +70,7 @@ export function PricingSection() {
           <h2 className="mt-2 text-3xl sm:text-4xl lg:text-5xl font-bold text-[#f5f5f0] tracking-tight">
             Elige tu plan. <span className="bg-gradient-to-r from-[#C5A059] to-[#e3c987] bg-clip-text text-transparent">Cambia cuando quieras.</span>
           </h2>
-          <p className="mt-4 text-base text-neutral-400">Sin permanencia. Sin comisiones por reserva. Cancela cuando quieras.</p>
+          <p className="mt-4 text-base text-neutral-400">Sin permanencia. Sin comisiones por reserva. Cambia o cancela cuando quieras.</p>
 
           {/* Toggle */}
           <div className="mt-8 flex items-center justify-center gap-4">

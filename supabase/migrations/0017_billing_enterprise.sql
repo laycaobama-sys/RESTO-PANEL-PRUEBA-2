@@ -1,6 +1,24 @@
 -- ============================================================
--- RestoPanel · Migration 0017 (corregida) — Billing Enterprise
+-- RestoPanel · Migration 0017 (FINAL) — Billing Enterprise
 -- ============================================================
+-- Autocontenida: añade columnas que falten a subscription_plans
+-- ============================================================
+
+-- 0. AÑADIR COLUMNAS QUE PUEDAN FALTAR EN subscription_plans
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS label TEXT NOT NULL DEFAULT '';
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS price_monthly NUMERIC(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS price_yearly NUMERIC(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS max_tables INT;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS max_users INT;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS max_reservations INT;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS features JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS stripe_price_id_monthly TEXT;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS stripe_price_id_yearly TEXT;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 -- 1. INVOICES
 CREATE TABLE IF NOT EXISTS invoices (
@@ -97,49 +115,74 @@ CREATE POLICY ul_tenant_select ON usage_logs FOR SELECT USING (organization_id =
 DROP POLICY IF EXISTS ul_super_admin_all ON usage_logs;
 CREATE POLICY ul_super_admin_all ON usage_logs FOR ALL USING (is_current_user_super_admin()) WITH CHECK (true);
 
--- 5. Update subscription_plans with correct pricing
+-- 5. ACTUALIZAR PLANES CON PRECIOS CORRECTOS
+-- Inicio: 59€/mes, 590€/año (59*10=590, ahorro real ~17%)
+-- Premium: 119€/mes, 950€/año (119*8=952, redondeado a 950 para 20% aprox)
+-- Empresarial: 249€/mes, 1990€/año (249*8=1992, redondeado a 1990)
+
+-- Para que el descuento sea exactamente 20%:
+-- Anual = Mensual * 12 * 0.8 = Mensual * 9.6
+-- Inicio: 59 * 9.6 = 566.4 → redondeado a 566€
+-- Premium: 119 * 9.6 = 1142.4 → redondeado a 1142€
+-- Empresarial: 249 * 9.6 = 2390.4 → redondeado a 2390€
+
 UPDATE subscription_plans SET 
   price_monthly = 59.00, 
-  price_yearly = 590.00,
+  price_yearly = 566.00,
   max_tables = 15,
   max_users = 3,
   max_reservations = 500,
   features = '{"modules":["reservations","tables","crm","menu","analytics_basic","google_reviews_read","email_auto"],"support":"standard","max_restaurants":1}'::jsonb,
   label = 'Inicio',
-  description = 'Para restaurantes que empiezan'
+  description = 'Para restaurantes que empiezan',
+  is_active = true,
+  sort_order = 1
 WHERE name = 'starter';
 
 UPDATE subscription_plans SET 
   price_monthly = 119.00, 
-  price_yearly = 1190.00,
+  price_yearly = 1142.00,
   max_tables = 50,
   max_users = 10,
   max_reservations = NULL,
   features = '{"modules":["all_basic","tables_premium","table_groups","table_transfer","multi_zone","crm_advanced","campaigns","reputation","ai_responses","whatsapp","shifts","chat","automations"],"support":"priority","max_restaurants":3}'::jsonb,
   label = 'Premium',
-  description = 'Para restaurantes en crecimiento'
+  description = 'Para restaurantes en crecimiento',
+  is_active = true,
+  sort_order = 2
 WHERE name = 'professional';
 
 UPDATE subscription_plans SET 
   price_monthly = 249.00, 
-  price_yearly = 2490.00,
+  price_yearly = 2390.00,
   max_tables = NULL,
   max_users = NULL,
   max_reservations = NULL,
   features = '{"modules":["all"],"support":"dedicated","max_restaurants":5,"api":true,"webhooks":true,"multi_company":true,"bi":true,"integrations":true,"account_manager":true,"sla":true,"onboarding":true}'::jsonb,
   label = 'Empresarial',
-  description = 'Para grupos y cadenas'
+  description = 'Para grupos y cadenas',
+  is_active = true,
+  sort_order = 3
 WHERE name = 'enterprise';
 
--- 6. Add stripe columns to organization_subscriptions
+-- Si los planes no existen (porque la tabla se creó vacía), insertarlos
+INSERT INTO subscription_plans (name, label, description, price_monthly, price_yearly, max_tables, max_users, max_reservations, features, is_active, sort_order)
+SELECT 'starter', 'Inicio', 'Para restaurantes que empiezan', 59.00, 566.00, 15, 3, 500,
+  '{"modules":["reservations","tables","crm","menu","analytics_basic","google_reviews_read","email_auto"],"support":"standard","max_restaurants":1}'::jsonb, true, 1
+WHERE NOT EXISTS (SELECT 1 FROM subscription_plans WHERE name = 'starter');
+
+INSERT INTO subscription_plans (name, label, description, price_monthly, price_yearly, max_tables, max_users, max_reservations, features, is_active, sort_order)
+SELECT 'professional', 'Premium', 'Para restaurantes en crecimiento', 119.00, 1142.00, 50, 10, NULL,
+  '{"modules":["all_basic","tables_premium","table_groups","table_transfer","multi_zone","crm_advanced","campaigns","reputation","ai_responses","whatsapp","shifts","chat","automations"],"support":"priority","max_restaurants":3}'::jsonb, true, 2
+WHERE NOT EXISTS (SELECT 1 FROM subscription_plans WHERE name = 'professional');
+
+INSERT INTO subscription_plans (name, label, description, price_monthly, price_yearly, max_tables, max_users, max_reservations, features, is_active, sort_order)
+SELECT 'enterprise', 'Empresarial', 'Para grupos y cadenas', 249.00, 2390.00, NULL, NULL, NULL,
+  '{"modules":["all"],"support":"dedicated","max_restaurants":5,"api":true,"webhooks":true,"multi_company":true,"bi":true,"integrations":true,"account_manager":true,"sla":true,"onboarding":true}'::jsonb, true, 3
+WHERE NOT EXISTS (SELECT 1 FROM subscription_plans WHERE name = 'enterprise');
+
+-- 6. AÑADIR COLUMNAS A organization_subscriptions
 ALTER TABLE organization_subscriptions ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE organization_subscriptions ADD COLUMN IF NOT EXISTS canceled_at TIMESTAMPTZ;
-
--- 7. Add extra_restaurants column to organization_subscriptions
 ALTER TABLE organization_subscriptions ADD COLUMN IF NOT EXISTS extra_restaurants INT NOT NULL DEFAULT 0;
 ALTER TABLE organization_subscriptions ADD COLUMN IF NOT EXISTS extra_restaurant_price NUMERIC(10,2) NOT NULL DEFAULT 49.00;
-
-COMMENT ON TABLE invoices IS 'Stripe invoices synced via webhooks. Downloadable PDFs available.';
-COMMENT ON TABLE payment_methods IS 'Customer payment methods synced from Stripe.';
-COMMENT ON TABLE subscription_history IS 'Audit trail of all subscription changes (upgrades, downgrades, cancellations).';
-COMMENT ON TABLE usage_logs IS 'Per-metric usage tracking for quota enforcement.';

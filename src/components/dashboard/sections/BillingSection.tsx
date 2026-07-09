@@ -10,9 +10,9 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 
 const PLANS = [
-  { name: "starter", label: "Inicio", monthly: 59, yearly: 590, maxRestaurants: 1, maxUsers: 3, features: ["1 restaurante", "3 usuarios", "Reservas", "Plano básico", "CRM básico", "Analíticas básicas", "Google Reviews (lectura)", "Emails automáticos"] },
-  { name: "professional", label: "Premium", monthly: 119, yearly: 1190, maxRestaurants: 3, maxUsers: 10, popular: true, features: ["Todo Inicio más:", "Plano premium", "Agrupación de mesas", "Transferencia avanzada", "Múltiples zonas", "CRM avanzado + campañas", "WhatsApp", "Gestión de turnos", "Chat interno", "Automatizaciones", "3 restaurantes", "10 usuarios"] },
-  { name: "enterprise", label: "Empresarial", monthly: 249, yearly: 2490, maxRestaurants: 5, maxUsers: null, features: ["Todo Premium más:", "5 restaurantes incluidos", "Usuarios ilimitados", "API + Webhooks", "Multiempresa", "BI + Integraciones", "Account Manager", "SLA + Soporte prioritario", "Onboarding personalizado"] },
+  { name: "starter", label: "Inicio", monthly: 59, yearly: 566, maxRestaurants: 1, maxUsers: 3, features: ["1 restaurante", "3 usuarios", "Reservas", "Plano básico", "CRM básico", "Analíticas básicas", "Google Reviews (lectura)", "Emails automáticos"] },
+  { name: "professional", label: "Premium", monthly: 119, yearly: 1142, maxRestaurants: 3, maxUsers: 10, popular: true, features: ["Todo Inicio más:", "Plano premium", "Agrupación de mesas", "Transferencia avanzada", "Múltiples zonas", "CRM avanzado + campañas", "WhatsApp", "Gestión de turnos", "Chat interno", "Automatizaciones", "3 restaurantes", "10 usuarios"] },
+  { name: "enterprise", label: "Empresarial", monthly: 249, yearly: 2390, maxRestaurants: 5, maxUsers: null, features: ["Todo Premium más:", "5 restaurantes incluidos", "Usuarios ilimitados", "API + Webhooks", "Multiempresa", "BI + Integraciones", "Account Manager", "SLA + Soporte prioritario", "Onboarding personalizado"] },
 ];
 
 export function BillingSection() {

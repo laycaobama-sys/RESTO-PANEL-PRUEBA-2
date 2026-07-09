@@ -225,7 +225,7 @@ function Header() {
             className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-sm font-semibold"
             onClick={() => router.push("/login")}
           >
-            Crear cuenta gratis
+            Crear cuenta
           </Button>
           {/* Mobile nav toggle */}
           <button
@@ -322,7 +322,7 @@ function Hero() {
               className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-base h-12 px-8 font-semibold"
               onClick={() => router.push("/login")}
             >
-              Crear cuenta gratis
+              Crear cuenta
               <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
             <Button
@@ -2318,7 +2318,7 @@ function FinalCTA() {
           <p className="mt-4 text-lg text-neutral-400 max-w-2xl mx-auto">Crea tu cuenta en minutos, configura tu sala y empieza a recibir reservas centralizadas desde el primer día. Si no te convence, cancelas cuando quieras.</p>
           <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
             <Button size="lg" className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-base h-12 px-8 font-semibold" onClick={() => router.push("/login")}>
-              Crear cuenta gratis
+              Crear cuenta
               <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
             <Button size="lg" variant="outline" className="border-white/20 text-[#f5f5f0] hover:bg-white/5 text-base h-12 px-8" onClick={() => router.push("/login")}>
