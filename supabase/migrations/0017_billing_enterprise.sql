@@ -1,5 +1,5 @@
 -- ============================================================
--- RestoPanel · Migration 0017 — Billing Enterprise
+-- RestoPanel · Migration 0017 (corregida) — Billing Enterprise
 -- ============================================================
 
 -- 1. INVOICES
@@ -27,7 +27,9 @@ CREATE INDEX IF NOT EXISTS invoices_status_idx ON invoices(status);
 CREATE INDEX IF NOT EXISTS invoices_created_idx ON invoices(created_at DESC);
 
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS invoices_tenant_select ON invoices;
 CREATE POLICY invoices_tenant_select ON invoices FOR SELECT USING (organization_id = current_user_org_id());
+DROP POLICY IF EXISTS invoices_super_admin_all ON invoices;
 CREATE POLICY invoices_super_admin_all ON invoices FOR ALL USING (is_current_user_super_admin()) WITH CHECK (true);
 
 -- 2. PAYMENT METHODS
@@ -47,7 +49,9 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 CREATE INDEX IF NOT EXISTS payment_methods_org_idx ON payment_methods(organization_id);
 
 ALTER TABLE payment_methods ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS pm_tenant_select ON payment_methods;
 CREATE POLICY pm_tenant_select ON payment_methods FOR SELECT USING (organization_id = current_user_org_id());
+DROP POLICY IF EXISTS pm_super_admin_all ON payment_methods;
 CREATE POLICY pm_super_admin_all ON payment_methods FOR ALL USING (is_current_user_super_admin()) WITH CHECK (true);
 
 -- 3. SUBSCRIPTION HISTORY
@@ -69,7 +73,9 @@ CREATE INDEX IF NOT EXISTS sub_history_org_idx ON subscription_history(organizat
 CREATE INDEX IF NOT EXISTS sub_history_created_idx ON subscription_history(created_at DESC);
 
 ALTER TABLE subscription_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS sh_tenant_select ON subscription_history;
 CREATE POLICY sh_tenant_select ON subscription_history FOR SELECT USING (organization_id = current_user_org_id());
+DROP POLICY IF EXISTS sh_super_admin_all ON subscription_history;
 CREATE POLICY sh_super_admin_all ON subscription_history FOR ALL USING (is_current_user_super_admin()) WITH CHECK (true);
 
 -- 4. USAGE LOGS
@@ -86,7 +92,9 @@ CREATE TABLE IF NOT EXISTS usage_logs (
 CREATE INDEX IF NOT EXISTS usage_logs_org_period_idx ON usage_logs(organization_id, metric, period);
 
 ALTER TABLE usage_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ul_tenant_select ON usage_logs;
 CREATE POLICY ul_tenant_select ON usage_logs FOR SELECT USING (organization_id = current_user_org_id());
+DROP POLICY IF EXISTS ul_super_admin_all ON usage_logs;
 CREATE POLICY ul_super_admin_all ON usage_logs FOR ALL USING (is_current_user_super_admin()) WITH CHECK (true);
 
 -- 5. Update subscription_plans with correct pricing
