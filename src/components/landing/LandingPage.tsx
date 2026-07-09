@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useCallback } from "react";
+import { PricingSection } from "./PricingSection";
 import { cn } from "@/lib/utils";
 
 // ============================================================
@@ -78,6 +79,7 @@ export function LandingPage() {
       <Hospitality />
       <UseCases />
       <FAQ />
+      <PricingSection />
       <FinalCTA />
       <Footer />
     </div>

@@ -15,6 +15,7 @@ import {
   Menu as MenuIcon,
   X,
   Star,
+  CreditCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -28,8 +29,9 @@ const TenantsSection = dynamic(() => import("./sections/TenantsSection").then(m 
 const UsersSection = dynamic(() => import("./sections/UsersSection").then(m => m.UsersSection), { loading: () => <LoadingScreen /> });
 const AuditLogsSection = dynamic(() => import("./sections/AuditLogsSection").then(m => m.AuditLogsSection), { loading: () => <LoadingScreen /> });
 const ReviewsSection = dynamic(() => import("./sections/ReviewsSection").then(m => m.ReviewsSection), { loading: () => <LoadingScreen /> });
+const BillingAdminSection = dynamic(() => import("./sections/BillingAdminSection").then(m => m.BillingAdminSection), { loading: () => <LoadingScreen /> });
 
-type Section = "dashboard" | "tenants" | "users" | "reviews" | "logs";
+type Section = "dashboard" | "tenants" | "users" | "reviews" | "billing" | "logs";
 
 interface SuperAdminShellProps {
   user: {
@@ -45,6 +47,7 @@ const NAV: { id: Section; label: string; icon: any }[] = [
   { id: "tenants", label: "Empresas", icon: Building2 },
   { id: "users", label: "Usuarios", icon: Users },
   { id: "reviews", label: "Reseñas", icon: Star },
+  { id: "billing", label: "Facturación", icon: CreditCard },
   { id: "logs", label: "Auditoría", icon: ScrollText },
 ];
 
@@ -158,6 +161,7 @@ export function SuperAdminShell({ user }: SuperAdminShellProps) {
           {section === "tenants" && <TenantsSection />}
           {section === "users" && <UsersSection />}
           {section === "reviews" && <ReviewsSection />}
+          {section === "billing" && <BillingAdminSection />}
           {section === "logs" && <AuditLogsSection />}
         </main>
       </div>

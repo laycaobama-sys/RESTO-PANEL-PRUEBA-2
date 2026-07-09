@@ -11,6 +11,8 @@ export type Section =
   | "analytics"
   | "reservations"
   | "customers"
+  | "whatsapp"
+  | "billing"
   | "settings"
   | "public";
 
