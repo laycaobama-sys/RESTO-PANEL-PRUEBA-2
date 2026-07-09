@@ -1,26 +1,34 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { hashPassword } from '@/lib/auth'
+import { logger } from '@/lib/logger'
 
 /**
  * Creates the SUPER_ADMIN (owner) account if it doesn't exist yet.
  *
- * This account has is_super_admin=true and NO organization_id (it operates
- * globally). Use it to:
- *   - Access /admin (the global panel)
- *   - List all tenants, users, audit logs
- *   - Impersonate any tenant for support
+ * Credentials MUST be supplied via environment variables:
+ *   SUPER_ADMIN_EMAIL     (default: owner@restopanel.es)
+ *   SUPER_ADMIN_PASSWORD  (REQUIRED — no hardcoded default)
  *
- * Default credentials:
- *   Email:    owner@restopanel.es
- *   Password: owner2026
- *
- * CHANGE THE PASSWORD IMMEDIATELY after first login in production.
+ * This endpoint is restricted to SUPER_ADMIN by middleware, so it can
+ * only be called by an existing super-admin or by an operator with
+ * direct server access. In production, prefer running this as a CLI
+ * script (`npm run db:seed-super-admin`) instead of via HTTP.
  */
 export async function POST() {
   try {
-    const email = 'owner@restopanel.es'
-    const password = 'owner2026'
+    const email = process.env.SUPER_ADMIN_EMAIL || 'owner@restopanel.es'
+    const password = process.env.SUPER_ADMIN_PASSWORD
+
+    if (!password || password.length < 12) {
+      return NextResponse.json(
+        {
+          error:
+            'SUPER_ADMIN_PASSWORD no configurada o demasiado corta (mínimo 12 caracteres). Defínela en .env y vuelve a intentarlo.',
+        },
+        { status: 500 }
+      )
+    }
 
     // Check if it already exists
     const { data: existing } = await supabaseAdmin
@@ -40,7 +48,7 @@ export async function POST() {
       return NextResponse.json({
         ok: true,
         message: 'SUPER_ADMIN ya existe (flag actualizado)',
-        credentials: { email, password: '***' },
+        email,
       })
     }
 
@@ -61,14 +69,15 @@ export async function POST() {
 
     if (error) throw error
 
+    logger.info('SUPER_ADMIN created', 'auth', { email })
     return NextResponse.json({
       ok: true,
       message: 'SUPER_ADMIN creado correctamente',
       user: data,
-      credentials: { email, password },
+      email,
     })
   } catch (e) {
-    console.error('Seed super admin error', e)
+    logger.error('Seed super admin error', 'auth', { error: (e as Error).message })
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }
 }

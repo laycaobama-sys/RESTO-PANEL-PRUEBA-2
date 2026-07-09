@@ -22,6 +22,7 @@
 // ============================================================
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { promises as dnsPromises } from "dns";
 
 // ─── Types ────────────────────────────────────────────────────
 export interface ImportJob {
@@ -137,38 +138,99 @@ async function setCachedHtml(url: string, html: string, statusCode: number): Pro
 
 // ─── SSRF protection ──────────────────────────────────────────
 // Block requests to private/internal IP ranges to prevent
-// server-side request forgery attacks.
-function isPrivateUrl(urlStr: string): boolean {
+// ─── SSRF protection (DNS-aware, multi-encoding resistant) ────
+// The previous implementation only checked the hostname string,
+// which made it vulnerable to:
+//   - DNS rebinding (resolve to 169.254.169.254 at request time)
+//   - Encoded IPs (2130706433 = 127.0.0.1, 0x7f000001, 127.1)
+//   - IPv6-mapped IPv4 (::ffff:127.0.0.1)
+//   - Cloud metadata endpoints (Alibaba 100.100.100.200, etc.)
+//   - HTTP redirects to private IPs (follow-then-fetch)
+// The new implementation resolves DNS and inspects each redirect.
+
+async function isPrivateUrl(urlStr: string): Promise<boolean> {
+  let u: URL;
   try {
-    const u = new URL(urlStr);
-    const host = u.hostname;
-
-    // Block common private/internal hostnames
-    if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0") return true;
-    if (host === "::1" || host === "[::1]") return true;
-
-    // Block private IP ranges (10.x, 172.16-31.x, 192.168.x)
-    if (/^10\.\d+\.\d+\.\d+$/.test(host)) return true;
-    if (/^192\.168\.\d+\.\d+$/.test(host)) return true;
-    if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host)) return true;
-
-    // Block metadata endpoints (cloud providers)
-    if (host === "169.254.169.254") return true;
-    if (host === "metadata.google.internal") return true;
-
-    // Block link-local
-    if (/^169\.254\.\d+\.\d+$/.test(host)) return true;
-
-    return false;
+    u = new URL(urlStr);
   } catch {
     return true; // invalid URL = block
   }
+
+  // Block non-http(s) protocols (file://, ftp://, gopher://, etc.)
+  if (u.protocol !== "http:" && u.protocol !== "https:") return true;
+
+  const host = u.hostname.toLowerCase();
+
+  // Block obvious names
+  if (host === "localhost" || host === "metadata.google.internal") return true;
+  if (host === "0" || host === "0.0.0.0") return true;
+
+  // Block encoded decimal/hex IPs (e.g., 2130706433 = 127.0.0.1)
+  if (/^\d+$/.test(host)) {
+    const n = Number(host);
+    if (n === 0 || n >= 0x7f000000) return true;
+  }
+  if (/^0x[0-9a-f]+$/i.test(host)) return true;
+
+  // Resolve DNS to actual IP addresses
+  let addresses: string[];
+  try {
+    const resolved = await dnsPromises.lookup(host, { all: true });
+    addresses = resolved.map((r) => r.address);
+  } catch {
+    return true; // DNS resolution failed — block
+  }
+
+  for (const ip of addresses) {
+    if (isPrivateIp(ip)) return true;
+  }
+  return false;
+}
+
+function isPrivateIp(ip: string): boolean {
+  // IPv6-mapped IPv4: ::ffff:127.0.0.1
+  const v4Mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (v4Mapped) return isPrivateIp(v4Mapped[1]);
+
+  // IPv4
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+    const parts = ip.split(".").map(Number);
+    const [a, b] = parts;
+
+    if (a === 0) return true; // 0.0.0.0/8
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 127) return true; // 127.0.0.0/8 (loopback)
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 (link-local + cloud metadata)
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 192 && b === 0 && parts[2] === 0) return true; // 192.0.0.0/24
+    if (a === 192 && b === 0 && parts[2] === 2) return true; // 192.0.2.0/24 (documentation)
+    if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15 (benchmarking)
+    if (a === 198 && b === 51 && parts[2] === 100) return true; // 198.51.100.0/24
+    if (a === 203 && b === 0 && parts[2] === 113) return true; // 203.0.113.0/24
+    if (a >= 224) return true; // multicast / reserved
+    return false;
+  }
+
+  // IPv6
+  const lower = ip.toLowerCase();
+  if (lower === "::1" || lower === "::") return true; // loopback / unspecified
+  if (lower.startsWith("fe80")) return true; // link-local
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // ULA
+  if (lower.startsWith("::ffff:")) return isPrivateIp(lower.slice(7));
+  if (lower.startsWith("100::")) return true; // discard prefix
+  if (lower.startsWith("2001:db8")) return true; // documentation
+  return false;
 }
 
 // ─── Fetch with cache + timeout + SSRF protection ─────────────
+// Manual redirect handling: we re-validate each Location header
+// against isPrivateUrl before following it. Otherwise an attacker
+// could host a server at evil.com/redirect?to=http://169.254.169.254/
+// and bypass the initial SSRF check.
 async function fetchHtml(url: string, timeoutMs = 12000): Promise<{ html: string; finalUrl: string; status: number; cacheHit: boolean }> {
-  // SSRF check
-  if (isPrivateUrl(url)) {
+  // SSRF check (DNS-aware)
+  if (await isPrivateUrl(url)) {
     throw new Error("URL apunta a una dirección privada o interna (no permitida)");
   }
 
@@ -178,29 +240,51 @@ async function fetchHtml(url: string, timeoutMs = 12000): Promise<{ html: string
     return { html: cached.html, finalUrl: url, status: cached.statusCode, cacheHit: true };
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const resp = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "RestoPanel-Importer/1.0 (+https://restopanel.com)",
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "es,en;q=0.9",
-      },
-      redirect: "follow",
-    });
-    const contentType = resp.headers.get("content-type") || "";
-    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
-      throw new Error(`not_html: ${contentType}`);
+  let currentUrl = url;
+  let resp: Response | null = null;
+  const MAX_REDIRECTS = 5;
+
+  for (let i = 0; i < MAX_REDIRECTS; i++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      resp = await fetch(currentUrl, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "RestoPanel-Importer/1.0 (+https://restopanel.com)",
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Language": "es,en;q=0.9",
+        },
+        redirect: "manual", // we handle redirects ourselves
+      });
+    } finally {
+      clearTimeout(timeout);
     }
-    let html = await resp.text();
-    if (html.length > 2_000_000) html = html.slice(0, 2_000_000);
-    await setCachedHtml(url, html, resp.status);
-    return { html, finalUrl: resp.url || url, status: resp.status, cacheHit: false };
-  } finally {
-    clearTimeout(timeout);
+
+    // 3xx = redirect — validate the Location header before following
+    if (resp.status >= 300 && resp.status < 400) {
+      const location = resp.headers.get("location");
+      if (!location) throw new Error("Redirect sin Location header");
+      const nextUrl = new URL(location, currentUrl).toString();
+      if (await isPrivateUrl(nextUrl)) {
+        throw new Error("Redirección a dirección privada bloqueada");
+      }
+      currentUrl = nextUrl;
+      continue;
+    }
+    break; // not a redirect — done
   }
+
+  if (!resp) throw new Error("No se pudo obtener respuesta");
+
+  const contentType = resp.headers.get("content-type") || "";
+  if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
+    throw new Error(`not_html: ${contentType}`);
+  }
+  let html = await resp.text();
+  if (html.length > 2_000_000) html = html.slice(0, 2_000_000);
+  await setCachedHtml(url, html, resp.status);
+  return { html, finalUrl: currentUrl, status: resp.status, cacheHit: false };
 }
 
 // ─── Sitemap parser ───────────────────────────────────────────
@@ -213,6 +297,8 @@ async function parseSitemap(baseUrl: string): Promise<string[]> {
   ];
 
   for (const smUrl of sitemapUrls) {
+    // SSRF check on each sitemap URL before fetching.
+    if (await isPrivateUrl(smUrl)) continue;
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
@@ -230,7 +316,8 @@ async function parseSitemap(baseUrl: string): Promise<string[]> {
         if (u.startsWith("http")) {
           // Could be a sitemap index (nested sitemaps) or a URL set
           if (u.endsWith(".xml")) {
-            // Recurse into nested sitemap (1 level deep)
+            // Recurse into nested sitemap (1 level deep) — SSRF check
+            if (await isPrivateUrl(u)) continue;
             try {
               const r2 = await fetch(u, { signal: AbortSignal.timeout(8000) });
               const xml2 = await r2.text();
@@ -260,6 +347,8 @@ async function parseRobots(baseUrl: string): Promise<{ allowed: Set<string>; sit
   const sitemapUrls: string[] = [];
   try {
     const robotsUrl = new URL("/robots.txt", baseUrl).toString();
+    // SSRF check on robots.txt URL
+    if (await isPrivateUrl(robotsUrl)) return { allowed, sitemapUrls };
     const resp = await fetch(robotsUrl, {
       signal: AbortSignal.timeout(5000),
       headers: { "User-Agent": "RestoPanel-Importer/1.0" },

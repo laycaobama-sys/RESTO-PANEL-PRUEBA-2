@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/session'
+import { checkLimit } from '@/lib/stripe'
 
 export async function GET() {
   const user = await getCurrentUser()
@@ -63,6 +64,21 @@ export async function POST(req: Request) {
   const { number, name, capacity, zone, shape, posX, posY } = body
   if (!number || !number.trim())
     return NextResponse.json({ error: 'Número obligatorio' }, { status: 400 })
+
+  // ─── Plan limit enforcement ────────────────────────────────
+  // Starter (15 tables max), Professional (50), Enterprise (unlimited).
+  // Without this check, a Starter user could create unlimited tables.
+  const limit = await checkLimit(user.organizationId, 'tables')
+  if (!limit.allowed) {
+    return NextResponse.json(
+      {
+        error: `Has alcanzado el límite de mesas de tu plan (${limit.limit}). Mejora tu plan para crear más mesas.`,
+        limit: limit.limit,
+        current: limit.current,
+      },
+      { status: 402 }
+    )
+  }
 
   const existing = await db.table.findFirst(user.organizationId, { number: number.trim() })
   if (existing) return NextResponse.json({ error: 'Ya existe una mesa con ese número' }, { status: 409 })

@@ -1,0 +1,846 @@
+     1→// ============================================================
+     2→// RestoPanel · Web Import Service (professional grade)
+     3→// ============================================================
+     4→// Features:
+     5→//   - Sitemap.xml parsing (discover all pages of a site)
+     6→//   - robots.txt parsing (respect crawl directives)
+     7→//   - Canonical URL detection
+     8→//   - OpenGraph parser
+     9→//   - JSON-LD parser (schema.org Restaurant, MenuItem, Menu)
+    10→//   - Microdata parser (itemprop=itemOffered, name, price)
+    11→//   - Image detection (og:image, schema.org image, <img> near dishes)
+    12→//   - HTML cache (24h, avoids re-fetching)
+    13→//   - Import job tracking (progress, status, results)
+    14→//   - Content hashing (detect changes between imports)
+    15→//   - Incremental import (only new/changed items)
+    16→//   - Rate limiting + retry
+    17→//   - Audit logging
+    18→//
+    19→// Public API:
+    20→//   import { runImportJob } from "@/lib/web-import";
+    21→//   const job = await runImportJob({ url, organizationId, userId });
+    22→// ============================================================
+    23→
+    24→import { supabaseAdmin } from "@/lib/supabase/admin";
+    25→
+    26→// ─── Types ────────────────────────────────────────────────────
+    27→export interface ImportJob {
+    28→  id: string;
+    29→  organization_id: string;
+    30→  url: string;
+    31→  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+    32→  progress: number;
+    33→  progress_label: string | null;
+    34→  pages_crawled: number;
+    35→  items_detected: number;
+    36→  items_imported: number;
+    37→  result: any | null;
+    38→  error: string | null;
+    39→  started_at: string | null;
+    40→  completed_at: string | null;
+    41→  created_at: string;
+    42→}
+    43→
+    44→export interface DetectedMenuItem {
+    45→  name: string;
+    46→  description?: string;
+    47→  price?: string;
+    48→  category?: string;
+    49→  image?: string;
+    50→  sourceUrl?: string;
+    51→  hash?: string;
+    52→}
+    53→
+    54→export interface DetectedRestaurant {
+    55→  name: string | null;
+    56→  description: string | null;
+    57→  image: string | null;
+    58→  phone: string | null;
+    59→  email: string | null;
+    60→  address: string | null;
+    61→  openingHours: string | null;
+    62→  servesCuisine: string | null;
+    63→  priceRange: string | null;
+    64→  website: string;
+    65→}
+    66→
+    67→export interface ImportPreview {
+    68→  url: string;
+    69→  fetchedAt: string;
+    70→  restaurant: DetectedRestaurant;
+    71→  social: Record<string, string>;
+    72→  menuItems: DetectedMenuItem[];
+    73→  diff?: {
+    74→    newItems: DetectedMenuItem[];
+    75→    changedItems: Array<{ name: string; oldPrice?: string; newPrice?: string }>;
+    76→    unchangedItems: string[];
+    77→    removedItems: string[];
+    78→  };
+    79→  crawledPages: Array<{ url: string; status: number; itemsFound: number }>;
+    80→  sitemapUrls: string[];
+    81→  meta: {
+    82→    totalMenuItems: number;
+    83→    htmlSize: number;
+    84→    detectedVia: string;
+    85→    cacheHit: boolean;
+    86→  };
+    87→}
+    88→
+    89→// ─── Utility: normalize a dish name for dedup ────────────────
+    90→function normalizeName(s: string): string {
+    91→  return s
+    92→    .toLowerCase()
+    93→    .normalize("NFD")
+    94→    .replace(/[\u0300-\u036f]/g, "")
+    95→    .replace(/[^a-z0-9]+/g, " ")
+    96→    .trim();
+    97→}
+    98→
+    99→// ─── Utility: content hash for change detection ──────────────
+   100→function hashContent(s: string): string {
+   101→  // Simple FNV-1a hash (no crypto dependency needed)
+   102→  let hash = 2166136261;
+   103→  for (let i = 0; i < s.length; i++) {
+   104→    hash ^= s.charCodeAt(i);
+   105→    hash = Math.imul(hash, 16777619);
+   106→  }
+   107→  return (hash >>> 0).toString(16);
+   108→}
+   109→
+   110→// ─── HTML cache ───────────────────────────────────────────────
+   111→async function getCachedHtml(url: string): Promise<{ html: string; statusCode: number } | null> {
+   112→  try {
+   113→    const { data, error } = await supabaseAdmin
+   114→      .from("import_html_cache")
+   115→      .select("html, status_code, expires_at")
+   116→      .eq("url", url)
+   117→      .maybeSingle();
+   118→    if (error || !data) return null;
+   119→    if (new Date(data.expires_at) < new Date()) return null;
+   120→    return { html: data.html, statusCode: data.status_code };
+   121→  } catch {
+   122→    return null;
+   123→  }
+   124→}
+   125→
+   126→async function setCachedHtml(url: string, html: string, statusCode: number): Promise<void> {
+   127→  try {
+   128→    await supabaseAdmin.from("import_html_cache").upsert({
+   129→      url,
+   130→      html,
+   131→      status_code: statusCode,
+   132→      fetched_at: new Date().toISOString(),
+   133→      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+   134→    });
+   135→  } catch {}
+   136→}
+   137→
+   138→// ─── SSRF protection ──────────────────────────────────────────
+   139→// Block requests to private/internal IP ranges to prevent
+   140→// server-side request forgery attacks.
+   141→function isPrivateUrl(urlStr: string): boolean {
+   142→  try {
+   143→    const u = new URL(urlStr);
+   144→    const host = u.hostname;
+   145→
+   146→    // Block common private/internal hostnames
+   147→    if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0") return true;
+   148→    if (host === "::1" || host === "[::1]") return true;
+   149→
+   150→    // Block private IP ranges (10.x, 172.16-31.x, 192.168.x)
+   151→    if (/^10\.\d+\.\d+\.\d+$/.test(host)) return true;
+   152→    if (/^192\.168\.\d+\.\d+$/.test(host)) return true;
+   153→    if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host)) return true;
+   154→
+   155→    // Block metadata endpoints (cloud providers)
+   156→    if (host === "169.254.169.254") return true;
+   157→    if (host === "metadata.google.internal") return true;
+   158→
+   159→    // Block link-local
+   160→    if (/^169\.254\.\d+\.\d+$/.test(host)) return true;
+   161→
+   162→    return false;
+   163→  } catch {
+   164→    return true; // invalid URL = block
+   165→  }
+   166→}
+   167→
+   168→// ─── Fetch with cache + timeout + SSRF protection ─────────────
+   169→async function fetchHtml(url: string, timeoutMs = 12000): Promise<{ html: string; finalUrl: string; status: number; cacheHit: boolean }> {
+   170→  // SSRF check
+   171→  if (isPrivateUrl(url)) {
+   172→    throw new Error("URL apunta a una dirección privada o interna (no permitida)");
+   173→  }
+   174→
+   175→  // Check cache first
+   176→  const cached = await getCachedHtml(url);
+   177→  if (cached) {
+   178→    return { html: cached.html, finalUrl: url, status: cached.statusCode, cacheHit: true };
+   179→  }
+   180→
+   181→  const controller = new AbortController();
+   182→  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+   183→  try {
+   184→    const resp = await fetch(url, {
+   185→      signal: controller.signal,
+   186→      headers: {
+   187→        "User-Agent": "RestoPanel-Importer/1.0 (+https://restopanel.com)",
+   188→        Accept: "text/html,application/xhtml+xml",
+   189→        "Accept-Language": "es,en;q=0.9",
+   190→      },
+   191→      redirect: "follow",
+   192→    });
+   193→    const contentType = resp.headers.get("content-type") || "";
+   194→    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
+   195→      throw new Error(`not_html: ${contentType}`);
+   196→    }
+   197→    let html = await resp.text();
+   198→    if (html.length > 2_000_000) html = html.slice(0, 2_000_000);
+   199→    await setCachedHtml(url, html, resp.status);
+   200→    return { html, finalUrl: resp.url || url, status: resp.status, cacheHit: false };
+   201→  } finally {
+   202→    clearTimeout(timeout);
+   203→  }
+   204→}
+   205→
+   206→// ─── Sitemap parser ───────────────────────────────────────────
+   207→async function parseSitemap(baseUrl: string): Promise<string[]> {
+   208→  const urls: string[] = [];
+   209→  const sitemapUrls = [
+   210→    new URL("/sitemap.xml", baseUrl).toString(),
+   211→    new URL("/sitemap_index.xml", baseUrl).toString(),
+   212→    new URL("/sitemap-index.xml", baseUrl).toString(),
+   213→  ];
+   214→
+   215→  for (const smUrl of sitemapUrls) {
+   216→    try {
+   217→      const controller = new AbortController();
+   218→      const timeout = setTimeout(() => controller.abort(), 8000);
+   219→      const resp = await fetch(smUrl, {
+   220→        signal: controller.signal,
+   221→        headers: { "User-Agent": "RestoPanel-Importer/1.0" },
+   222→      });
+   223→      clearTimeout(timeout);
+   224→      if (!resp.ok) continue;
+   225→      const xml = await resp.text();
+   226→      // Parse <loc> tags
+   227→      const matches = xml.matchAll(/<loc>([^<]+)<\/loc>/gi);
+   228→      for (const m of matches) {
+   229→        const u = m[1].trim();
+   230→        if (u.startsWith("http")) {
+   231→          // Could be a sitemap index (nested sitemaps) or a URL set
+   232→          if (u.endsWith(".xml")) {
+   233→            // Recurse into nested sitemap (1 level deep)
+   234→            try {
+   235→              const r2 = await fetch(u, { signal: AbortSignal.timeout(8000) });
+   236→              const xml2 = await r2.text();
+   237→              const matches2 = xml2.matchAll(/<loc>([^<]+)<\/loc>/gi);
+   238→              for (const m2 of matches2) {
+   239→                const u2 = m2[1].trim();
+   240→                if (u2.startsWith("http") && !u2.endsWith(".xml")) urls.push(u2);
+   241→              }
+   242→            } catch {}
+   243→          } else {
+   244→            urls.push(u);
+   245→          }
+   246→        }
+   247→      }
+   248→      if (urls.length > 0) break; // found a sitemap, stop trying others
+   249→    } catch {
+   250→      continue;
+   251→    }
+   252→  }
+   253→
+   254→  return urls;
+   255→}
+   256→
+   257→// ─── robots.txt parser ────────────────────────────────────────
+   258→async function parseRobots(baseUrl: string): Promise<{ allowed: Set<string>; sitemapUrls: string[] }> {
+   259→  const allowed = new Set<string>();
+   260→  const sitemapUrls: string[] = [];
+   261→  try {
+   262→    const robotsUrl = new URL("/robots.txt", baseUrl).toString();
+   263→    const resp = await fetch(robotsUrl, {
+   264→      signal: AbortSignal.timeout(5000),
+   265→      headers: { "User-Agent": "RestoPanel-Importer/1.0" },
+   266→    });
+   267→    if (!resp.ok) return { allowed, sitemapUrls };
+   268→    const text = await resp.text();
+   269→    let ourGroup = false;
+   270→    for (const line of text.split("\n")) {
+   271→      const trimmed = line.trim();
+   272→      if (!trimmed || trimmed.startsWith("#")) continue;
+   273→      const [directive, ...rest] = trimmed.split(":");
+   274→      const value = rest.join(":").trim();
+   275→      const d = directive.toLowerCase().trim();
+   276→      if (d === "user-agent") {
+   277→        ourGroup = value === "*" || value === "RestoPanel-Importer";
+   278→      } else if (ourGroup) {
+   279→        if (d === "allow") allowed.add(value);
+   280→        if (d === "sitemap") sitemapUrls.push(value);
+   281→      }
+   282→    }
+   283→  } catch {}
+   284→  return { allowed, sitemapUrls };
+   285→}
+   286→
+   287→// ─── JSON-LD extraction ───────────────────────────────────────
+   288→function extractAllJsonLd(html: string): any[] {
+   289→  const results: any[] = [];
+   290→  const re = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+   291→  let m: RegExpExecArray | null;
+   292→  while ((m = re.exec(html)) !== null) {
+   293→    try {
+   294→      const parsed = JSON.parse(m[1].trim());
+   295→      const candidates = Array.isArray(parsed) ? parsed : [parsed];
+   296→      for (const c of candidates) {
+   297→        results.push(c);
+   298→        if (Array.isArray(c["@graph"])) {
+   299→          for (const g of c["@graph"]) results.push(g);
+   300→        }
+   301→      }
+   302→    } catch {}
+   303→  }
+   304→  return results;
+   305→}
+   306→
+   307→// ─── Microdata parser ─────────────────────────────────────────
+   308→// Parses itemscope/itemprop HTML microdata for MenuItem
+   309→function extractMicrodata(html: string): DetectedMenuItem[] {
+   310→  const items: DetectedMenuItem[] = [];
+   311→  // Find all elements with itemscope that contain itemprop="name" (likely products)
+   312→  // This is a simplified regex-based parser — a full DOM parser would be more robust
+   313→  // but we avoid external dependencies.
+   314→  const itemscopeRegex = /<[^>]+itemscope[^>]*>([\s\S]*?)<\/(?:div|section|article|li)>/gi;
+   315→  let m: RegExpExecArray | null;
+   316→  while ((m = itemscopeRegex.exec(html)) !== null) {
+   317→    const block = m[1];
+   318→    const nameMatch = block.match(/itemprop=["']name["'][^>]*>([^<]+)</i);
+   319→    const priceMatch = block.match(/itemprop=["']price["'][^>]*(?:content|value)=["']([^"']+)["']/i);
+   320→    const descMatch = block.match(/itemprop=["']description["'][^>]*>([^<]+)</i);
+   321→    const imgMatch = block.match(/itemprop=["']image["'][^>]*src=["']([^"']+)["']/i);
+   322→
+   323→    if (nameMatch) {
+   324→      const name = nameMatch[1].trim();
+   325→      if (name.length >= 3 && name.length <= 120) {
+   326→        items.push({
+   327→          name,
+   328→          description: descMatch?.[1]?.trim(),
+   329→          price: priceMatch?.[1]?.trim(),
+   330→          image: imgMatch?.[1]?.trim(),
+   331→        });
+   332→      }
+   333→    }
+   334→  }
+   335→  return items;
+   336→}
+   337→
+   338→// ─── Meta tag extraction ──────────────────────────────────────
+   339→function extractMeta(html: string, property: string): string | null {
+   340→  const re = new RegExp(`<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["']`, "i");
+   341→  const m = html.match(re);
+   342→  return m ? m[1].trim() : null;
+   343→}
+   344→
+   345→function extractTitle(html: string): string | null {
+   346→  const m = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+   347→  return m ? m[1].trim() : null;
+   348→}
+   349→
+   350→function extractCanonical(html: string, baseUrl: string): string | null {
+   351→  const m = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i);
+   352→  if (!m) return null;
+   353→  try {
+   354→    return new URL(m[1], baseUrl).toString();
+   355→  } catch {
+   356→    return m[1];
+   357→  }
+   358→}
+   359→
+   360→// ─── Social links ─────────────────────────────────────────────
+   361→function extractSocialLinks(html: string, baseUrl: string): Record<string, string> {
+   362→  const result: Record<string, string> = {};
+   363→  const links = Array.from(html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>/gi)).map((m) => m[1]);
+   364→  for (const href of links) {
+   365→    const lower = href.toLowerCase();
+   366→    const resolved = href.startsWith("http") ? href : new URL(href, baseUrl).toString();
+   367→    if (!result.instagram && /instagram\.com\//.test(lower)) result.instagram = resolved;
+   368→    if (!result.facebook && /facebook\.com\//.test(lower)) result.facebook = resolved;
+   369→    if (!result.twitter && /(twitter|x)\.com\//.test(lower)) result.twitter = resolved;
+   370→    if (!result.whatsapp && /wa\.me\//.test(lower)) result.whatsapp = resolved;
+   371→    if (!result.tripadvisor && /tripadvisor\./.test(lower)) result.tripadvisor = resolved;
+   372→    if (!result.tiktok && /tiktok\.com\//.test(lower)) result.tiktok = resolved;
+   373→    if (!result.youtube && /youtube\.com\//.test(lower)) result.youtube = resolved;
+   374→  }
+   375→  return result;
+   376→}
+   377→
+   378→function extractPhone(html: string): string | null {
+   379→  const telMatch = html.match(/href=["']tel:([^"']+)["']/i);
+   380→  if (telMatch) return telMatch[1].trim();
+   381→  const phoneMatch = html.match(/\+34[\s.]?\d{3}[\s.]?\d{3}[\s.]?\d{3}/);
+   382→  return phoneMatch?.[0] || null;
+   383→}
+   384→
+   385→function extractEmail(html: string): string | null {
+   386→  const mailtoMatch = html.match(/href=["']mailto:([^"']+)["']/i);
+   387→  if (mailtoMatch) return mailtoMatch[1].trim();
+   388→  const emailMatch = html.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+   389→  return emailMatch?.[0] || null;
+   390→}
+   391→
+   392→function extractAddress(html: string): string | null {
+   393→  const cpMatch = html.match(/\b\d{5}\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+[A-ZÁÉÍÓÚÑ]/);
+   394→  if (cpMatch) {
+   395→    const idx = cpMatch.index || 0;
+   396→    const start = Math.max(0, idx - 200);
+   397→    const end = Math.min(html.length, idx + 200);
+   398→    return html.slice(start, end).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+   399→  }
+   400→  return null;
+   401→}
+   402→
+   403→function extractOpeningHours(html: string, jsonLdBlocks: any[]): string | null {
+   404→  for (const block of jsonLdBlocks) {
+   405→    if (block["@type"] === "Restaurant" || block["@type"] === "FoodEstablishment") {
+   406→      if (block.openingHours) return block.openingHours;
+   407→      if (Array.isArray(block.openingHoursSpecification)) {
+   408→        const specs = block.openingHoursSpecification.map((s: any) => {
+   409→          const days = Array.isArray(s.dayOfWeek) ? s.dayOfWeek.join(", ") : s.dayOfWeek;
+   410→          return `${days}: ${s.opens || "?"}-${s.closes || "?"}`;
+   411→        });
+   412→        if (specs.length > 0) return specs.join("; ");
+   413→      }
+   414→    }
+   415→  }
+   416→  const horarioMatch = html.match(/(?:horario|abierto|open)[^<]{0,10}[:\s]+([^<.]{5,120})/i);
+   417→  return horarioMatch?.[1]?.trim() || null;
+   418→}
+   419→
+   420→function extractMenuItems(html: string, jsonLdBlocks: any[], sourceUrl: string): DetectedMenuItem[] {
+   421→  const items: DetectedMenuItem[] = [];
+   422→
+   423→  // 1. JSON-LD MenuItem / Menu
+   424→  for (const block of jsonLdBlocks) {
+   425→    if (block["@type"] === "MenuItem") {
+   426→      items.push({
+   427→        name: block.name || "",
+   428→        description: block.description || undefined,
+   429→        price: typeof block.price === "string" ? block.price : String(block.offers?.price || ""),
+   430→        category: block.menuAddOn?.name || undefined,
+   431→        image: typeof block.image === "string" ? block.image : block.image?.[0] || undefined,
+   432→        sourceUrl,
+   433→      });
+   434→    }
+   435→    if (block["@type"] === "Menu" && Array.isArray(block.hasMenuItem)) {
+   436→      for (const item of block.hasMenuItem) {
+   437→        items.push({
+   438→          name: item.name || "",
+   439→          description: item.description || undefined,
+   440→          price: typeof item.offers?.price === "number" ? String(item.offers.price) : item.offers?.price || "",
+   441→          category: block.name || undefined,
+   442→          image: typeof item.image === "string" ? item.image : undefined,
+   443→          sourceUrl,
+   444→        });
+   445→      }
+   446→    }
+   447→  }
+   448→
+   449→  // 2. Microdata
+   450→  const microdataItems = extractMicrodata(html);
+   451→  for (const item of microdataItems) {
+   452→    item.sourceUrl = sourceUrl;
+   453→    items.push(item);
+   454→  }
+   455→
+   456→  // 3. Heuristic fallback: dish names near prices
+   457→  if (items.length === 0) {
+   458→    const priceRegex = /(\d{1,3}[,.]?\d{0,2})\s*(?:€|EUR|euros?)/gi;
+   459→    const dishRegex = /<(?:h[2-4]|strong|b|li)[^>]*>([^<]{3,80})<\/(?:h[2-4]|strong|b|li)>/gi;
+   460→    const dishNames: { name: string; index: number }[] = [];
+   461→    let m: RegExpExecArray | null;
+   462→    while ((m = dishRegex.exec(html)) !== null) {
+   463→      const name = m[1].trim();
+   464→      if (/^(inicio|home|menú|carta|contacto|reservas|galería|about|nosotros|ir al contenido|saltar)/i.test(name)) continue;
+   465→      if (name.length < 3 || name.length > 80) continue;
+   466→      dishNames.push({ name, index: m.index });
+   467→    }
+   468→    const prices: { value: string; index: number }[] = [];
+   469→    while ((m = priceRegex.exec(html)) !== null) {
+   470→      prices.push({ value: m[1].replace(",", "."), index: m.index });
+   471→    }
+   472→
+   473→    for (const dish of dishNames.slice(0, 40)) {
+   474→      const nearbyPrice = prices.find((p) => Math.abs(p.index - dish.index) < 500 && p.index > dish.index);
+   475→      if (nearbyPrice) {
+   476→        items.push({ name: dish.name, price: nearbyPrice.value, sourceUrl });
+   477→        if (items.length >= 30) break;
+   478→      }
+   479→    }
+   480→  }
+   481→
+   482→  // Add content hash to each item for change detection
+   483→  for (const item of items) {
+   484→    item.hash = hashContent(`${item.name}|${item.price || ""}|${item.description || ""}`);
+   485→  }
+   486→
+   487→  return items;
+   488→}
+   489→
+   490→// ─── Sub-page crawler ─────────────────────────────────────────
+   491→async function crawlSubpages(
+   492→  baseUrl: string,
+   493→  mainHtml: string,
+   494→  sitemapUrls: string[],
+   495→  onProgress?: (label: string) => void
+   496→): Promise<{ pages: Array<{ url: string; html: string; status: number; itemsFound: number }>; allLinks: string[] }> {
+   497→  const baseUrlObj = new URL(baseUrl);
+   498→  const origin = baseUrlObj.origin;
+   499→
+   500→  // Extract all internal links from main page
+   501→  const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
+   502→  const allLinks = new Set<string>();
+   503→  let m: RegExpExecArray | null;
+   504→  while ((m = linkRegex.exec(mainHtml)) !== null) {
+   505→    try {
+   506→      const href = m[1];
+   507→      if (href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) continue;
+   508→      const resolved = new URL(href, baseUrl).toString();
+   509→      if (new URL(resolved).origin !== origin) continue;
+   510→      allLinks.add(resolved.split("#")[0].split("?")[0]);
+   511→    } catch {}
+   512→  }
+   513→
+   514→  // Add sitemap URLs
+   515→  for (const sm of sitemapUrls) {
+   516→    if (sm.startsWith(origin)) allLinks.add(sm.split("#")[0].split("?")[0]);
+   517→  }
+   518→
+   519→  // Prioritize links that look like menu/contact/hours pages
+   520→  const priorityKeywords = ["carta", "menu", "menú", "platos", "comida", "contacto", "horario", "reserva", "donde", "ubicacion", "about", "nosotros"];
+   521→  const priorityLinks = Array.from(allLinks).filter((l) => {
+   522→    const lower = l.toLowerCase();
+   523→    return priorityKeywords.some((k) => lower.includes(k));
+   524→  });
+   525→
+   526→  // Also include sitemap URLs that look relevant (cap at 8 total)
+   527→  const linksToFetch = priorityLinks.slice(0, 8);
+   528→  const pages: Array<{ url: string; html: string; status: number; itemsFound: number }> = [];
+   529→
+   530→  onProgress?.(`Analizando ${linksToFetch.length} sub-páginas...`);
+   531→
+   532→  // Fetch in parallel (max 3 at a time)
+   533→  const batchSize = 3;
+   534→  for (let i = 0; i < linksToFetch.length; i += batchSize) {
+   535→    const batch = linksToFetch.slice(i, i + batchSize);
+   536→    onProgress?.(`Página ${i + 1}-${Math.min(i + batchSize, linksToFetch.length)} de ${linksToFetch.length}`);
+   537→    const results = await Promise.allSettled(
+   538→      batch.map(async (url) => {
+   539→        try {
+   540→          const { html, status } = await fetchHtml(url, 8000);
+   541→          const jsonLd = extractAllJsonLd(html);
+   542→          const items = extractMenuItems(html, jsonLd, url);
+   543→          return { url, html, status, itemsFound: items.length };
+   544→        } catch {
+   545→          return null;
+   546→        }
+   547→      })
+   548→    );
+   549→    for (const r of results) {
+   550→      if (r.status === "fulfilled" && r.value) pages.push(r.value);
+   551→    }
+   552→  }
+   553→
+   554→  return { pages, allLinks: Array.from(allLinks) };
+   555→}
+   556→
+   557→// ─── Diff against existing menu ───────────────────────────────
+   558→async function diffMenuItems(
+   559→  organizationId: string,
+   560→  detectedItems: DetectedMenuItem[]
+   561→): Promise<{
+   562→  newItems: DetectedMenuItem[];
+   563→  changedItems: Array<{ name: string; oldPrice?: string; newPrice?: string }>;
+   564→  unchangedItems: string[];
+   565→  removedItems: string[];
+   566→}> {
+   567→  const { data: existing } = await supabaseAdmin
+   568→    .from("menu_items")
+   569→    .select("id, name, price, description")
+   570→    .eq("organization_id", organizationId);
+   571→
+   572→  const existingMap = new Map<string, { id: string; name: string; price: number | null; description: string | null }>();
+   573→  for (const e of existing || []) {
+   574→    existingMap.set(normalizeName(e.name), e);
+   575→  }
+   576→
+   577→  const detectedNames = new Set(detectedItems.map((d) => normalizeName(d.name)));
+   578→  const newItems: DetectedMenuItem[] = [];
+   579→  const changedItems: Array<{ name: string; oldPrice?: string; newPrice?: string }> = [];
+   580→  const unchangedItems: string[] = [];
+   581→  const removedItems: string[] = [];
+   582→
+   583→  for (const detected of detectedItems) {
+   584→    const norm = normalizeName(detected.name);
+   585→    const existing = existingMap.get(norm);
+   586→    if (!existing) {
+   587→      newItems.push(detected);
+   588→    } else {
+   589→      const detectedPrice = detected.price ? parseFloat(detected.price) : null;
+   590→      if (detectedPrice !== null && existing.price !== null && Math.abs(detectedPrice - Number(existing.price)) > 0.01) {
+   591→        changedItems.push({
+   592→          name: existing.name,
+   593→          oldPrice: String(existing.price),
+   594→          newPrice: detected.price,
+   595→        });
+   596→      } else {
+   597→        unchangedItems.push(existing.name);
+   598→      }
+   599→    }
+   600→  }
+   601→
+   602→  for (const [norm, existing] of existingMap) {
+   603→    if (!detectedNames.has(norm)) {
+   604→      removedItems.push(existing.name);
+   605→    }
+   606→  }
+   607→
+   608→  return { newItems, changedItems, unchangedItems, removedItems };
+   609→}
+   610→
+   611→// ─── Main: run an import job ──────────────────────────────────
+   612→export async function runImportJob(opts: {
+   613→  url: string;
+   614→  organizationId: string;
+   615→  userId: string;
+   616→  userEmail: string;
+   617→  applyNew?: boolean; // if true, auto-create new menu items
+   618→}): Promise<{ jobId: string; preview: ImportPreview }> {
+   619→  const { url, organizationId, userId, userEmail, applyNew = false } = opts;
+   620→
+   621→  // Create job record
+   622→  const { data: jobRow, error: jobError } = await supabaseAdmin
+   623→    .from("import_jobs")
+   624→    .insert({
+   625→      organization_id: organizationId,
+   626→      url,
+   627→      status: "running",
+   628→      progress: 0,
+   629→      progress_label: "Iniciando...",
+   630→      started_at: new Date().toISOString(),
+   631→    })
+   632→    .select()
+   633→    .single();
+   634→
+   635→  const jobId = jobRow?.id || "unknown";
+   636→
+   637→  async function updateJob(patch: any) {
+   638→    try {
+   639→      await supabaseAdmin.from("import_jobs").update(patch).eq("id", jobId);
+   640→    } catch {}
+   641→  }
+   642→
+   643→  try {
+   644→    // ─── Step 1: Fetch main page ────────────────────────────
+   645→    await updateJob({ progress: 5, progress_label: "Descargando página principal..." });
+   646→    let mainHtml: string;
+   647→    let finalUrl: string;
+   648→    let cacheHit = false;
+   649→    try {
+   650→      const result = await fetchHtml(url);
+   651→      mainHtml = result.html;
+   652→      finalUrl = result.finalUrl;
+   653→      cacheHit = result.cacheHit;
+   654→    } catch (e: any) {
+   655→      throw new Error(`No pudimos descargar la web: ${e.message}`);
+   656→    }
+   657→
+   658→    // ─── Step 2: Parse robots.txt + sitemap ─────────────────
+   659→    await updateJob({ progress: 15, progress_label: "Analizando robots.txt y sitemap..." });
+   660→    const [robotsResult, sitemapUrls] = await Promise.all([
+   661→      parseRobots(finalUrl),
+   662→      parseSitemap(finalUrl),
+   663→    ]);
+   664→
+   665→    // ─── Step 3: Parse main page ────────────────────────────
+   666→    await updateJob({ progress: 25, progress_label: "Extrayendo datos de la página principal..." });
+   667→    const jsonLdBlocks = extractAllJsonLd(mainHtml);
+   668→    const restaurant = jsonLdBlocks.find((b) => b["@type"] === "Restaurant") ||
+   669→      jsonLdBlocks.find((b) => b["@type"] === "FoodEstablishment") || null;
+   670→    const canonical = extractCanonical(mainHtml, finalUrl);
+   671→    const og = {
+   672→      title: extractMeta(mainHtml, "og:title") || extractMeta(mainHtml, "og:site_name"),
+   673→      description: extractMeta(mainHtml, "og:description"),
+   674→      image: extractMeta(mainHtml, "og:image"),
+   675→      locale: extractMeta(mainHtml, "og:locale"),
+   676→    };
+   677→    const pageMeta = { title: extractTitle(mainHtml), description: extractMeta(mainHtml, "description") };
+   678→    const social = extractSocialLinks(mainHtml, finalUrl);
+   679→    const phone = extractPhone(mainHtml);
+   680→    const email = extractEmail(mainHtml);
+   681→    const address = extractAddress(mainHtml);
+   682→    const openingHours = extractOpeningHours(mainHtml, jsonLdBlocks);
+   683→    let menuItems = extractMenuItems(mainHtml, jsonLdBlocks, finalUrl);
+   684→
+   685→    // ─── Step 4: Crawl sub-pages ────────────────────────────
+   686→    await updateJob({ progress: 40, progress_label: "Buscando sub-páginas (carta, contacto, etc.)..." });
+   687→    const crawledPages: Array<{ url: string; status: number; itemsFound: number }> = [];
+   688→    try {
+   689→      const crawlResult = await crawlSubpages(finalUrl, mainHtml, sitemapUrls, async (label) => {
+   690→        await updateJob({ progress_label: label });
+   691→      });
+   692→
+   693→      for (const p of crawlResult.pages) {
+   694→        crawledPages.push({ url: p.url, status: p.status, itemsFound: p.itemsFound });
+   695→        // Merge items from sub-pages
+   696→        if (p.itemsFound > 0) {
+   697→          const subJsonLd = extractAllJsonLd(p.html);
+   698→          const subItems = extractMenuItems(p.html, subJsonLd, p.url);
+   699→          menuItems = menuItems.concat(subItems);
+   700→        }
+   701→        // Fill missing fields from sub-pages
+   702→        if (!phone) {
+   703→          const p2 = extractPhone(p.html);
+   704→          if (p2) social.phone = p2;
+   705→        }
+   706→      }
+   707→      await updateJob({ pages_crawled: crawledPages.length });
+   708→    } catch (e: any) {
+   709→      // crawling failed, continue with main page data
+   710→    }
+   711→
+   712→    // ─── Step 5: Deduplicate ────────────────────────────────
+   713→    await updateJob({ progress: 70, progress_label: "Deduplicando platos detectados..." });
+   714→    const seen = new Set<string>();
+   715→    const dedupedItems: DetectedMenuItem[] = [];
+   716→    for (const item of menuItems) {
+   717→      const norm = normalizeName(item.name);
+   718→      if (!norm || seen.has(norm)) continue;
+   719→      seen.add(norm);
+   720→      dedupedItems.push(item);
+   721→    }
+   722→
+   723→    // ─── Step 6: Diff against existing menu ─────────────────
+   724→    await updateJob({ progress: 80, progress_label: "Comparando con tu carta actual..." });
+   725→    let diff: any = null;
+   726→    try {
+   727→      diff = await diffMenuItems(organizationId, dedupedItems);
+   728→    } catch {}
+   729→
+   730→    // ─── Step 7: Auto-apply if requested ────────────────────
+   731→    let itemsImported = 0;
+   732→    if (applyNew && diff && diff.newItems.length > 0) {
+   733→      await updateJob({ progress: 90, progress_label: `Importando ${diff.newItems.length} platos nuevos...` });
+   734→      for (const item of diff.newItems) {
+   735→        try {
+   736→          const { error } = await supabaseAdmin.from("menu_items").insert({
+   737→            name: item.name,
+   738→            description: item.description || null,
+   739→            price: item.price ? parseFloat(item.price) : 0,
+   740→            image: item.image || null,
+   741→            visible: true,
+   742→            sort_order: 0,
+   743→            organization_id: organizationId,
+   744→          });
+   745→          if (!error) itemsImported++;
+   746→        } catch {}
+   747→      }
+   748→    }
+   749→
+   750→    // ─── Step 8: Build preview ──────────────────────────────
+   751→    const detectedRestaurant: DetectedRestaurant = {
+   752→      name: restaurant?.name || og.title || pageMeta.title || null,
+   753→      description: restaurant?.description || og.description || pageMeta.description || null,
+   754→      image: restaurant?.image || og.image || null,
+   755→      phone: restaurant?.telephone || phone || null,
+   756→      email: restaurant?.email || email || null,
+   757→      address: restaurant?.address
+   758→        ? typeof restaurant.address === "string"
+   759→          ? restaurant.address
+   760→          : [restaurant.address.streetAddress, restaurant.address.addressLocality, restaurant.address.postalCode, restaurant.address.addressCountry]
+   761→              .filter(Boolean)
+   762→              .join(", ")
+   763→        : address,
+   764→      openingHours,
+   765→      servesCuisine: restaurant?.servesCuisine || null,
+   766→      priceRange: restaurant?.priceRange || null,
+   767→      website: canonical || finalUrl,
+   768→    };
+   769→
+   770→    const preview: ImportPreview = {
+   771→      url: finalUrl,
+   772→      fetchedAt: new Date().toISOString(),
+   773→      restaurant: detectedRestaurant,
+   774→      social,
+   775→      menuItems: dedupedItems,
+   776→      diff,
+   777→      crawledPages,
+   778→      sitemapUrls,
+   779→      meta: {
+   780→        totalMenuItems: dedupedItems.length,
+   781→        htmlSize: mainHtml.length,
+   782→        detectedVia: restaurant ? "schema.org Restaurant" : "heuristics",
+   783→        cacheHit,
+   784→      },
+   785→    };
+   786→
+   787→    // ─── Step 9: Complete ───────────────────────────────────
+   788→    await updateJob({
+   789→      status: "completed",
+   790→      progress: 100,
+   791→      progress_label: `Análisis completado. ${dedupedItems.length} platos detectados, ${diff?.newItems.length || 0} nuevos.`,
+   792→      pages_crawled: crawledPages.length,
+   793→      items_detected: dedupedItems.length,
+   794→      items_imported: itemsImported,
+   795→      result: preview,
+   796→      completed_at: new Date().toISOString(),
+   797→    });
+   798→
+   799→    // Audit log
+   800→    try {
+   801→      const { db } = await import("@/lib/db");
+   802→      await db.auditLogs.insert({
+   803→        actor_id: userId,
+   804→        actor_email: userEmail,
+   805→        actor_role: "ADMIN",
+   806→        action: "WEB_IMPORT",
+   807→        target_type: "organization",
+   808→        target_id: organizationId,
+   809→        target_name: null,
+   810→        organization_id: organizationId,
+   811→        details: {
+   812→          url: finalUrl,
+   813→          itemsDetected: dedupedItems.length,
+   814→          itemsImported,
+   815→          pagesCrawled: crawledPages.length,
+   816→          cacheHit,
+   817→        },
+   818→        ip_address: null,
+   819→        user_agent: null,
+   820→      });
+   821→    } catch {}
+   822→
+   823→    return { jobId, preview };
+   824→  } catch (error: any) {
+   825→    await updateJob({
+   826→      status: "failed",
+   827→      error: error.message,
+   828→      completed_at: new Date().toISOString(),
+   829→      progress_label: `Error: ${error.message.substring(0, 100)}`,
+   830→    });
+   831→    throw error;
+   832→  }
+   833→}
+   834→
+   835→// ─── Get import history ───────────────────────────────────────
+   836→export async function getImportHistory(organizationId: string, limit = 10): Promise<ImportJob[]> {
+   837→  const { data, error } = await supabaseAdmin
+   838→    .from("import_jobs")
+   839→    .select("*")
+   840→    .eq("organization_id", organizationId)
+   841→    .order("created_at", { ascending: false })
+   842→    .limit(limit);
+   843→  if (error) return [];
+   844→  return (data || []) as ImportJob[];
+   845→}
+   846→

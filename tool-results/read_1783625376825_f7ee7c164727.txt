@@ -1,0 +1,908 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useState, useRef, useCallback, useMemo } from "react";
+     4→     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→     5→import { api } from "@/lib/api";
+     6→     6→import { formatTime } from "@/lib/format";
+     7→     7→import { SectionHeader, EmptyState } from "@/components/shared/SectionHeader";
+     8→     8→import { TableStatusBadge, ZONE_LABEL } from "@/components/shared/StatusBadge";
+     9→     9→import {
+    10→    10→  Plus, Grid3x3, Loader2, Trash2, Users, Pencil, List, MapPin,
+    11→    11→  Clock, X, Check, Crown, Sparkles, Link2, Unlink, Move, Save,
+    12→    12→  Search, Calendar, Star, TrendingUp, Phone,
+    13→    13→} from "lucide-react";
+    14→    14→import { Button } from "@/components/ui/button";
+    15→    15→import { Input } from "@/components/ui/input";
+    16→    16→import { Label } from "@/components/ui/label";
+    17→    17→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    18→    18→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+    19→    19→import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+    20→    20→import { toast } from "sonner";
+    21→    21→import { cn } from "@/lib/utils";
+    22→    22→import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+    23→    23→
+    24→    24→// ═══════════════════════════════════════════════════════════════
+    25→    25→// TYPES
+    26→    26→// ═══════════════════════════════════════════════════════════════
+    27→    27→interface Table {
+    28→    28→  id: string; number: string; name?: string | null; capacity: number;
+    29→    29→  zone: string; shape: string; posX: number; posY: number; status: string;
+    30→    30→  group_id?: string | null; blocked?: boolean;
+    31→    31→  reservations?: any[];
+    32→    32→}
+    33→    33→interface Reservation {
+    34→    34→  id: string; customerName: string; phone: string; email?: string | null;
+    35→    35→  partySize: number; date: string; status: string; shift: string;
+    36→    36→  zone?: string | null; notes?: string | null;
+    37→    37→  table?: { id: string; number: string; name?: string | null; zone: string } | null;
+    38→    38→}
+    39→    39→
+    40→    40→// ═══════════════════════════════════════════════════════════════
+    41→    41→// DESIGN SYSTEM — Neon LED table styles (milimétrico a la referencia)
+    42→    42→// ═══════════════════════════════════════════════════════════════
+    43→    43→const NEON_STYLES: Record<string, {
+    44→    44→  border: string; bg: string; text: string; glow: string; breathing: string; label: string;
+    45→    45→}> = {
+    46→    46→  AVAILABLE: {
+    47→    47→    border: "border-green-500",
+    48→    48→    bg: "bg-[#2A2D35]",
+    49→    49→    text: "text-green-400",
+    50→    50→    glow: "shadow-[0_0_20px_rgba(34,197,94,0.5),inset_0_0_15px_rgba(34,197,94,0.3)]",
+    51→    51→    breathing: "shadow-[0_0_15px_rgba(34,197,94,0.4),inset_0_0_10px_rgba(34,197,94,0.2)]",
+    52→    52→    label: "Libre",
+    53→    53→  },
+    54→    54→  OCCUPIED: {
+    55→    55→    border: "border-red-500",
+    56→    56→    bg: "bg-[#2A2D35]",
+    57→    57→    text: "text-red-400",
+    58→    58→    glow: "shadow-[0_0_20px_rgba(239,68,68,0.5),inset_0_0_15px_rgba(239,68,68,0.3)]",
+    59→    59→    breathing: "shadow-[0_0_15px_rgba(239,68,68,0.4),inset_0_0_10px_rgba(239,68,68,0.2)]",
+    60→    60→    label: "Ocupada",
+    61→    61→  },
+    62→    62→  RESERVED: {
+    63→    63→    border: "border-yellow-400",
+    64→    64→    bg: "bg-[#2A2D35]",
+    65→    65→    text: "text-yellow-400",
+    66→    66→    glow: "shadow-[0_0_20px_rgba(250,204,21,0.5),inset_0_0_15px_rgba(250,204,21,0.3)]",
+    67→    67→    breathing: "shadow-[0_0_15px_rgba(250,204,21,0.4),inset_0_0_10px_rgba(250,204,21,0.2)]",
+    68→    68→    label: "Reservada",
+    69→    69→  },
+    70→    70→  PREPARING: {
+    71→    71→    border: "border-blue-500",
+    72→    72→    bg: "bg-[#2A2D35]",
+    73→    73→    text: "text-blue-400",
+    74→    74→    glow: "shadow-[0_0_20px_rgba(59,130,246,0.5),inset_0_0_15px_rgba(59,130,246,0.3)]",
+    75→    75→    breathing: "shadow-[0_0_15px_rgba(59,130,246,0.4),inset_0_0_10px_rgba(59,130,246,0.2)]",
+    76→    76→    label: "Preparando",
+    77→    77→  },
+    78→    78→};
+    79→    79→
+    80→    80→const ZONES = [
+    81→    81→  { id: "INTERIOR", label: "Interior", color: "#6366f1", icon: "🏠" },
+    82→    82→  { id: "TERRACE", label: "Terraza", color: "#22c55e", icon: "🌿" },
+    83→    83→  { id: "BAR", label: "Barra", color: "#f59e0b", icon: "🍸" },
+    84→    84→  { id: "VIP", label: "VIP", color: "#C5A059", icon: "👑" },
+    85→    85→];
+    86→    86→
+    87→    87→const SHAPE_STYLES: Record<string, string> = { ROUND: "rounded-full", SQUARE: "rounded-xl", RECTANGLE: "rounded-lg" };
+    88→    88→
+    89→    89→// ═══════════════════════════════════════════════════════════════
+    90→    90→// MAIN SECTION
+    91→    91→// ═══════════════════════════════════════════════════════════════
+    92→    92→export function TablesSection() {
+    93→    93→  const qc = useQueryClient();
+    94→    94→  const reduceMotion = useReducedMotion();
+    95→    95→  const [editing, setEditing] = useState<Table | null>(null);
+    96→    96→  const [creating, setCreating] = useState(false);
+    97→    97→  const [selectedZone, setSelectedZone] = useState("ALL");
+    98→    98→  const [mobileView, setMobileView] = useState<"floor" | "grid">("floor");
+    99→    99→  const [selectedTable, setSelectedTable] = useState<Table | null>(null);
+   100→   100→  const [hoveredTableId, setHoveredTableId] = useState<string | null>(null);
+   101→   101→  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+   102→   102→  const [editMode, setEditMode] = useState(false);
+   103→   103→  const [selectedForGroup, setSelectedForGroup] = useState<Set<string>>(new Set());
+   104→   104→  const [pendingPositions, setPendingPositions] = useState<Record<string, { x: number; y: number }>>({});
+   105→   105→  const [draggingId, setDraggingId] = useState<string | null>(null);
+   106→   106→  const [draggedTableId, setDraggedTableId] = useState<string | null>(null);
+   107→   107→  const [dragOverZone, setDragOverZone] = useState<string | null>(null);
+   108→   108→  const dragOffset = useRef({ x: 0, y: 0 });
+   109→   109→  const containerRef = useRef<HTMLDivElement>(null);
+   110→   110→
+   111→   111→  const { data: tables = [], isLoading } = useQuery<Table[]>({ queryKey: ["tables"], queryFn: () => api("/api/tables") });
+   112→   112→  const { data: reservations = [] } = useQuery<Reservation[]>({
+   113→   113→    queryKey: ["reservations-today"],
+   114→   114→    queryFn: () => {
+   115→   115→      const today = new Date(); const tzOffset = today.getTimezoneOffset() * 60000;
+   116→   116→      return api(`/api/reservations?date=${new Date(today.getTime() - tzOffset).toISOString().slice(0, 10)}`);
+   117→   117→    },
+   118→   118→  });
+   119→   119→
+   120→   120→  const tableReservationMap = (() => {
+   121→   121→    const map = new Map<string, Reservation>();
+   122→   122→    for (const r of reservations) { if (r.table?.id && ["CONFIRMED", "SEATED", "PENDING"].includes(r.status)) map.set(r.table.id, r); }
+   123→   123→    return map;
+   124→   124→  })();
+   125→   125→
+   126→   126→  const filteredTables = tables.filter(t => selectedZone === "ALL" || t.zone === selectedZone);
+   127→   127→  const summary = {
+   128→   128→    total: tables.length, available: tables.filter(t => t.status === "AVAILABLE").length,
+   129→   129→    occupied: tables.filter(t => t.status === "OCCUPIED").length, reserved: tables.filter(t => t.status === "RESERVED").length,
+   130→   130→    preparing: tables.filter(t => t.status === "PREPARING").length,
+   131→   131→    capacity: tables.reduce((s, t) => s + t.capacity, 0),
+   132→   132→    occupiedSeats: tables.filter(t => t.status === "OCCUPIED").reduce((s, t) => s + t.capacity, 0),
+   133→   133→  };
+   134→   134→
+   135→   135→  const savePositionsMut = useMutation({
+   136→   136→    mutationFn: (updates: Array<{ id: string; posX: number; posY: number }>) =>
+   137→   137→      api("/api/tables/positions", { method: "POST", body: JSON.stringify({ updates }) }),
+   138→   138→    onSuccess: () => { qc.invalidateQueries({ queryKey: ["tables"] }); toast.success("Posiciones guardadas ✓"); setPendingPositions({}); },
+   139→   139→    onError: (e: any) => toast.error(e.message),
+   140→   140→  });
+   141→   141→
+   142→   142→  const groupMut = useMutation({
+   143→   143→    mutationFn: (tableIds: string[]) => api("/api/tables/group", { method: "POST", body: JSON.stringify({ tableIds }) }),
+   144→   144→    onSuccess: (data: any) => { qc.invalidateQueries({ queryKey: ["tables"] }); toast.success(data.message); setSelectedForGroup(new Set()); },
+   145→   145→    onError: (e: any) => toast.error(e.message),
+   146→   146→  });
+   147→   147→
+   148→   148→  const ungroupMut = useMutation({
+   149→   149→    mutationFn: (groupId: string) => api(`/api/tables/group?groupId=${groupId}`, { method: "DELETE" }),
+   150→   150→    onSuccess: () => { qc.invalidateQueries({ queryKey: ["tables"] }); toast.success("Mesas desagrupadas"); },
+   151→   151→    onError: (e: any) => toast.error(e.message),
+   152→   152→  });
+   153→   153→
+   154→   154→  const updateStatusMut = useMutation({
+   155→   155→    mutationFn: ({ id, status }: { id: string; status: string }) =>
+   156→   156→      api(`/api/tables/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
+   157→   157→    onSuccess: () => { qc.invalidateQueries({ queryKey: ["tables"] }); qc.invalidateQueries({ queryKey: ["analytics"] }); setSelectedTable(null); toast.success("Estado actualizado ✓"); },
+   158→   158→    onError: (e: any) => toast.error(e.message),
+   159→   159→  });
+   160→   160→
+   161→   161→  const transferMut = useMutation({
+   162→   162→    mutationFn: ({ reservationId, newTableId }: { reservationId: string; newTableId: string }) =>
+   163→   163→      api("/api/tables/transfer", { method: "POST", body: JSON.stringify({ reservationId, newTableId }) }),
+   164→   164→    onSuccess: (data: any) => {
+   165→   165→      qc.invalidateQueries({ queryKey: ["tables"] });
+   166→   166→      qc.invalidateQueries({ queryKey: ["reservations-today"] });
+   167→   167→      qc.invalidateQueries({ queryKey: ["reservations"] });
+   168→   168→      setSelectedTable(null);
+   169→   169→      toast.success(data.message || "Reserva traspasada ✓");
+   170→   170→    },
+   171→   171→    onError: (e: any) => toast.error(e.message),
+   172→   172→  });
+   173→   173→
+   174→   174→  const changeZoneMut = useMutation({
+   175→   175→    mutationFn: ({ id, zone }: { id: string; zone: string }) =>
+   176→   176→      api(`/api/tables/${id}`, { method: "PATCH", body: JSON.stringify({ zone }) }),
+   177→   177→    onSuccess: () => {
+   178→   178→      qc.invalidateQueries({ queryKey: ["tables"] });
+   179→   179→      toast.success("Mesa movida de zona ✓");
+   180→   180→      setDraggedTableId(null);
+   181→   181→      setDragOverZone(null);
+   182→   182→    },
+   183→   183→    onError: (e: any) => toast.error(e.message),
+   184→   184→  });
+   185→   185→
+   186→   186→  const delMut = useMutation({
+   187→   187→    mutationFn: (id: string) => api(`/api/tables/${id}`, { method: "DELETE" }),
+   188→   188→    onSuccess: () => { toast.success("Mesa eliminada"); qc.invalidateQueries({ queryKey: ["tables"] }); setConfirmDelete(null); },
+   189→   189→  });
+   190→   190→
+   191→   191→  // ─── DRAG & DROP ───
+   192→   192→  const handleDragStart = useCallback((e: React.MouseEvent, table: Table) => {
+   193→   193→    if (!editMode) return;
+   194→   194→    e.preventDefault();
+   195→   195→    setDraggingId(table.id);
+   196→   196→    const tableEl = e.currentTarget as HTMLElement;
+   197→   197→    const tableRect = tableEl.getBoundingClientRect();
+   198→   198→    dragOffset.current = { x: e.clientX - tableRect.left, y: e.clientY - tableRect.top };
+   199→   199→  }, [editMode]);
+   200→   200→
+   201→   201→  const handleDragMove = useCallback((e: React.MouseEvent) => {
+   202→   202→    if (!draggingId || !containerRef.current) return;
+   203→   203→    const rect = containerRef.current.getBoundingClientRect();
+   204→   204→    const x = e.clientX - rect.left - dragOffset.current.x;
+   205→   205→    const y = e.clientY - rect.top - dragOffset.current.y;
+   206→   206→    const clampedX = Math.max(0, Math.min(x, 800 - 70));
+   207→   207→    const clampedY = Math.max(0, Math.min(y, 520 - 70));
+   208→   208→    setPendingPositions(prev => ({ ...prev, [draggingId]: { x: clampedX, y: clampedY } }));
+   209→   209→  }, [draggingId]);
+   210→   210→
+   211→   211→  const handleDragEnd = useCallback(() => { setDraggingId(null); }, []);
+   212→   212→
+   213→   213→  const savePositions = () => {
+   214→   214→    const updates = Object.entries(pendingPositions).map(([id, pos]) => ({ id, posX: Math.round(pos.x), posY: Math.round(pos.y) }));
+   215→   215→    if (updates.length > 0) savePositionsMut.mutate(updates);
+   216→   216→  };
+   217→   217→
+   218→   218→  const toggleGroupSelection = (tableId: string) => {
+   219→   219→    setSelectedForGroup(prev => { const next = new Set(prev); if (next.has(tableId)) next.delete(tableId); else next.add(tableId); return next; });
+   220→   220→  };
+   221→   221→
+   222→   222→  const handleTableDragStart = (e: React.DragEvent, tableId: string) => {
+   223→   223→    setDraggedTableId(tableId);
+   224→   224→    e.dataTransfer.effectAllowed = "move";
+   225→   225→    e.dataTransfer.setData("text/plain", tableId);
+   226→   226→  };
+   227→   227→
+   228→   228→  const handleTableDragEnd = () => {
+   229→   229→    setDraggedTableId(null);
+   230→   230→    setDragOverZone(null);
+   231→   231→  };
+   232→   232→
+   233→   233→  const handleZoneDragOver = (e: React.DragEvent, zoneId: string) => {
+   234→   234→    e.preventDefault();
+   235→   235→    e.dataTransfer.dropEffect = "move";
+   236→   236→    setDragOverZone(zoneId);
+   237→   237→  };
+   238→   238→
+   239→   239→  const handleZoneDragLeave = (e: React.DragEvent) => {
+   240→   240→    // Only clear if leaving the zone panel entirely
+   241→   241→    const relatedTarget = e.relatedTarget as HTMLElement;
+   242→   242→    if (relatedTarget && e.currentTarget.contains(relatedTarget)) return;
+   243→   243→    setDragOverZone(null);
+   244→   244→  };
+   245→   245→
+   246→   246→  const handleZoneDrop = (e: React.DragEvent, zoneId: string) => {
+   247→   247→    e.preventDefault();
+   248→   248→    const tableId = e.dataTransfer.getData("text/plain") || draggedTableId;
+   249→   249→    if (!tableId) return;
+   250→   250→
+   251→   251→    // Find the table being dragged
+   252→   252→    const table = tables.find(t => t.id === tableId);
+   253→   253→    if (!table) return;
+   254→   254→
+   255→   255→    // If same zone, do nothing
+   256→   256→    if (table.zone === zoneId) {
+   257→   257→      setDraggedTableId(null);
+   258→   258→      setDragOverZone(null);
+   259→   259→      return;
+   260→   260→    }
+   261→   261→
+   262→   262→    // Move table to new zone
+   263→   263→    changeZoneMut.mutate({ id: tableId, zone: zoneId });
+   264→   264→  };
+   265→   265→
+   266→   266→  const getTablePos = (table: Table) => {
+   267→   267→    const pending = pendingPositions[table.id];
+   268→   268→    if (pending) return { left: pending.x, top: pending.y };
+   269→   269→    return { left: table.posX, top: table.posY };
+   270→   270→  };
+   271→   271→
+   272→   272→  return (
+   273→   273→    <div className="flex flex-col h-full" onMouseMove={handleDragMove} onMouseUp={handleDragEnd}>
+   274→   274→      {/* HEADER */}
+   275→   275→      <motion.div initial={reduceMotion ? {} : { opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
+   276→   276→        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+   277→   277→          <div>
+   278→   278→            <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-white">Plano de sala</h2>
+   279→   279→            <p className="text-sm text-gray-400 mt-0.5">{summary.total} mesas · {summary.capacity} cubiertos · {summary.occupied} ocupadas</p>
+   280→   280→          </div>
+   281→   281→          <div className="flex items-center gap-2 flex-wrap">
+   282→   282→            {editMode ? (
+   283→   283→              <>
+   284→   284→                <Button size="sm" variant="outline" className="bg-white/5 border-white/10 text-gray-400" onClick={() => { setEditMode(false); setPendingPositions({}); setSelectedForGroup(new Set()); }}>
+   285→   285→                  <X className="w-3.5 h-3.5 mr-1" /> Cancelar
+   286→   286→                </Button>
+   287→   287→                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={savePositions} disabled={savePositionsMut.isPending || Object.keys(pendingPositions).length === 0}>
+   288→   288→                  {savePositionsMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Save className="w-3.5 h-3.5 mr-1" /> Guardar</>}
+   289→   289→                </Button>
+   290→   290→                {selectedForGroup.size >= 2 && (
+   291→   291→                  <Button size="sm" className="bg-yellow-400 hover:bg-yellow-500 text-black" onClick={() => groupMut.mutate(Array.from(selectedForGroup))} disabled={groupMut.isPending}>
+   292→   292→                    {groupMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Link2 className="w-3.5 h-3.5 mr-1" /> Agrupar ({selectedForGroup.size})</>}
+   293→   293→                  </Button>
+   294→   294→                )}
+   295→   295→              </>
+   296→   296→            ) : (
+   297→   297→              <>
+   298→   298→                <Button size="sm" variant="outline" className="bg-white/5 border-white/10 text-gray-400" onClick={() => setEditMode(true)}>
+   299→   299→                  <Move className="w-3.5 h-3.5 mr-1" /> Editar plano
+   300→   300→                </Button>
+   301→   301→                <div className="flex lg:hidden items-center bg-white/5 border border-white/10 rounded-lg p-1">
+   302→   302→                  <button onClick={() => setMobileView("floor")} className={cn("px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5", mobileView === "floor" ? "bg-yellow-400 text-black" : "text-gray-400")}><MapPin className="w-3.5 h-3.5" /> Plano</button>
+   303→   303→                  <button onClick={() => setMobileView("grid")} className={cn("px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5", mobileView === "grid" ? "bg-yellow-400 text-black" : "text-gray-400")}><List className="w-3.5 h-3.5" /> Lista</button>
+   304→   304→                </div>
+   305→   305→                <Button className="bg-yellow-400 hover:bg-yellow-500 text-black" onClick={() => setCreating(true)}><Plus className="w-4 h-4 mr-1.5" /> Nueva</Button>
+   306→   306→              </>
+   307→   307→            )}
+   308→   308→          </div>
+   309→   309→        </div>
+   310→   310→        {/* KPIs */}
+   311→   311→        <div className="grid grid-cols-3 md:grid-cols-6 gap-1.5 sm:gap-2">
+   312→   312→          {[
+   313→   313→            { label: "Total", value: summary.total, cls: "bg-white/5 border-white/10 text-white" },
+   314→   314→            { label: "Libres", value: summary.available, cls: "bg-green-500/10 border-green-500/20 text-green-400" },
+   315→   315→            { label: "Reservadas", value: summary.reserved, cls: "bg-yellow-400/10 border-yellow-400/20 text-yellow-400" },
+   316→   316→            { label: "Ocupadas", value: summary.occupied, cls: "bg-red-500/10 border-red-500/20 text-red-400" },
+   317→   317→            { label: "Preparando", value: summary.preparing, cls: "bg-blue-500/10 border-blue-500/20 text-blue-400" },
+   318→   318→            { label: "Cubiertos", value: `${summary.occupiedSeats}/${summary.capacity}`, cls: "bg-yellow-400/10 border-yellow-400/20 text-yellow-400" },
+   319→   319→          ].map((kpi, i) => (
+   320→   320→            <motion.div key={kpi.label} initial={reduceMotion ? {} : { opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.05 }} className={cn("rounded-lg sm:rounded-xl p-2 sm:p-2.5 border flex items-center gap-1.5 sm:gap-2.5", kpi.cls)}>
+   321→   321→              <div><p className="text-sm sm:text-lg font-bold leading-none">{kpi.value}</p><p className="text-[8px] sm:text-[9px] opacity-60 mt-0.5">{kpi.label}</p></div>
+   322→   322→            </motion.div>
+   323→   323→          ))}
+   324→   324→        </div>
+   325→   325→      </motion.div>
+   326→   326→
+   327→   327→      {/* Zone filters + legend */}
+   328→   328→      <div className="flex flex-wrap items-center gap-2 mb-4 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+   329→   329→        <button onClick={() => setSelectedZone("ALL")} className={cn("px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap border", selectedZone === "ALL" ? "bg-yellow-400 text-black border-yellow-400" : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/10")}>Todas ({tables.length})</button>
+   330→   330→        {ZONES.map(z => { const count = tables.filter(t => t.zone === z.id).length; if (count === 0) return null;
+   331→   331→          return <button key={z.id} onClick={() => setSelectedZone(z.id)} className={cn("px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap border flex items-center gap-1.5", selectedZone === z.id ? "bg-yellow-400 text-black border-yellow-400" : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/10")}><span>{z.icon}</span> {z.label} ({count})</button>;
+   332→   332→        })}
+   333→   333→        <div className="flex-1" />
+   334→   334→        {editMode && <span className="text-xs text-yellow-400 flex items-center gap-1"><Move className="w-3 h-3" /> Arrastra las mesas entre zonas</span>}
+   335→   335→      </div>
+   336→   336→
+   337→   337→      {/* MAIN */}
+   338→   338→      {isLoading ? (
+   339→   339→        <div className="py-20 flex items-center justify-center text-gray-400"><Loader2 className="w-5 h-5 animate-spin" /></div>
+   340→   340→      ) : filteredTables.length === 0 ? (
+   341→   341→        <div className="bg-white/5 backdrop-blur-md rounded-2xl border border-white/10"><EmptyState icon={<Grid3x3 className="w-6 h-6" />} title="No hay mesas" description="Crea tu primera mesa." action={<Button className="bg-yellow-400 hover:bg-yellow-500 text-black" onClick={() => setCreating(true)}><Plus className="w-4 h-4 mr-1.5" /> Añadir mesa</Button>} /></div>
+   342→   342→      ) : (
+   343→   343→        <div className="grid lg:grid-cols-[1fr_280px] gap-4 flex-1 min-h-0">
+   344→   344→          {/* FLOOR PLAN */}
+   345→   345→          <div className={cn(mobileView === "grid" && "hidden lg:block")}>
+   346→   346→            <div className="bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 p-3 sm:p-4 overflow-hidden">
+   347→   347→              <div className="flex items-center justify-between mb-3">
+   348→   348→                <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-yellow-400" /><h3 className="font-semibold text-white text-sm">Sala en vivo</h3></div>
+   349→   349→                <div className="flex items-center gap-2 text-xs">
+   350→   350→                  <span className="text-green-400">{summary.available} libres</span><span className="text-gray-600">·</span>
+   351→   351→                  <span className="text-red-400">{summary.occupied} ocupadas</span>
+   352→   352→                </div>
+   353→   353→              </div>
+   354→   354→
+   355→   355→              {/* Zone-based floor plan — each zone is a separate bordered panel */}
+   356→   356→              <div className="space-y-3 max-h-[520px] overflow-y-auto rounded-xl pr-1" style={{ scrollbarWidth: "thin" }}>
+   357→   357→                {(selectedZone === "ALL" ? ZONES : ZONES.filter(z => z.id === selectedZone)).map(zone => {
+   358→   358→                  const zoneTables = tables.filter(t => t.zone === zone.id);
+   359→   359→                  if (zoneTables.length === 0) return null;
+   360→   360→
+   361→   361→                  // Group tables by group_id
+   362→   362→                  const groups = new Map<string, Table[]>();
+   363→   363→                  const ungrouped: Table[] = [];
+   364→   364→                  for (const t of zoneTables) {
+   365→   365→                    if (t.group_id) {
+   366→   366→                      if (!groups.has(t.group_id)) groups.set(t.group_id, []);
+   367→   367→                      groups.get(t.group_id)!.push(t);
+   368→   368→                    } else {
+   369→   369→                      ungrouped.push(t);
+   370→   370→                    }
+   371→   371→                  }
+   372→   372→
+   373→   373→                  return (
+   374→   374→                    <div
+   375→   375→                      key={zone.id}
+   376→   376→                      onDragOver={(e) => handleZoneDragOver(e, zone.id)}
+   377→   377→                      onDragLeave={handleZoneDragLeave}
+   378→   378→                      onDrop={(e) => handleZoneDrop(e, zone.id)}
+   379→   379→                      className={cn(
+   380→   380→                        "rounded-xl border-2 p-3 relative overflow-hidden transition-all",
+   381→   381→                        dragOverZone === zone.id && draggedTableId && "scale-[1.01] border-dashed"
+   382→   382→                      )}
+   383→   383→                      style={{
+   384→   384→                        borderColor: dragOverZone === zone.id && draggedTableId ? zone.color : `${zone.color}40`,
+   385→   385→                        background: dragOverZone === zone.id && draggedTableId ? `${zone.color}15` : `linear-gradient(135deg, ${zone.color}0a, transparent)`,
+   386→   386→                        minHeight: '100px',
+   387→   387→                      }}
+   388→   388→                    >
+   389→   389→                      {/* Zone header */}
+   390→   390→                      <div className="flex items-center justify-between mb-3">
+   391→   391→                        <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5" style={{ color: zone.color }}>
+   392→   392→                          <span className="text-base">{zone.icon}</span>
+   393→   393→                          {zone.label}
+   394→   394→                          <span className="text-neutral-500 font-normal normal-case">· {zoneTables.length} mesas</span>
+   395→   395→                        </span>
+   396→   396→                        <span className="text-[10px] text-neutral-500">
+   397→   397→                          {zoneTables.filter(t => t.status === 'AVAILABLE').length} libres · {zoneTables.filter(t => t.status === 'OCCUPIED').length} ocupadas
+   398→   398→                        </span>
+   399→   399→                      </div>
+   400→   400→
+   401→   401→                      {/* Tables in this zone — grouped + ungrouped */}
+   402→   402→                      <div className="flex flex-wrap gap-2.5 items-start">
+   403→   403→                        {/* Grouped tables */}
+   404→   404→                        {Array.from(groups.entries()).map(([groupId, groupTables]) => (
+   405→   405→                          <div
+   406→   406→                            key={groupId}
+   407→   407→                            className="rounded-lg border-2 border-dashed p-2.5 relative"
+   408→   408→                            style={{ borderColor: `${zone.color}50`, background: `${zone.color}08` }}
+   409→   409→                          >
+   410→   410→                            <span className="absolute -top-2.5 left-2 text-[9px] px-2 py-0.5 rounded-full font-bold" style={{ background: zone.color, color: '#0a0a0a' }}>
+   411→   411→                              Grupo · {groupTables.reduce((s, t) => s + t.capacity, 0)}p
+   412→   412→                            </span>
+   413→   413→                            <div className="flex gap-1.5 pt-1">
+   414→   414→                              {groupTables.map(t => (
+   415→   415→                                <ZoneTable
+   416→   416→                                  key={t.id}
+   417→   417→                                  table={t}
+   418→   418→                                  reservation={tableReservationMap.get(t.id) || null}
+   419→   419→                                  editMode={editMode}
+   420→   420→                                  isSelected={selectedTable?.id === t.id}
+   421→   421→                                  isHovered={hoveredTableId === t.id}
+   422→   422→                                  isGroupSelected={selectedForGroup.has(t.id)}
+   423→   423→                                  reduceMotion={!!reduceMotion}
+   424→   424→                                  onHover={(id) => setHoveredTableId(id)}
+   425→   425→                                  onSelect={(t) => editMode ? toggleGroupSelection(t.id) : setSelectedTable(t)}
+   426→   426→                                  onDragStart={handleTableDragStart}
+   427→   427→                                  onDragEnd={handleTableDragEnd}
+   428→   428→                                  isDragging={draggedTableId === t.id}
+   429→   429→                                />
+   430→   430→                              ))}
+   431→   431→                            </div>
+   432→   432→                            {editMode && (
+   433→   433→                              <button
+   434→   434→                                onClick={() => ungroupMut.mutate(groupId)}
+   435→   435→                                className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 z-10"
+   436→   436→                                title="Desagrupar"
+   437→   437→                              >
+   438→   438→                                <Unlink className="w-3 h-3" />
+   439→   439→                              </button>
+   440→   440→                            )}
+   441→   441→                          </div>
+   442→   442→                        ))}
+   443→   443→
+   444→   444→                        {/* Ungrouped tables */}
+   445→   445→                        {ungrouped.map(t => (
+   446→   446→                          <ZoneTable
+   447→   447→                            key={t.id}
+   448→   448→                            table={t}
+   449→   449→                            reservation={tableReservationMap.get(t.id) || null}
+   450→   450→                            editMode={editMode}
+   451→   451→                            isSelected={selectedTable?.id === t.id}
+   452→   452→                            isHovered={hoveredTableId === t.id}
+   453→   453→                            isGroupSelected={selectedForGroup.has(t.id)}
+   454→   454→                            reduceMotion={!!reduceMotion}
+   455→   455→                            onHover={(id) => setHoveredTableId(id)}
+   456→   456→                            onSelect={(t) => editMode ? toggleGroupSelection(t.id) : setSelectedTable(t)}
+   457→   457→                            onDragStart={handleTableDragStart}
+   458→   458→                            onDragEnd={handleTableDragEnd}
+   459→   459→                            isDragging={draggedTableId === t.id}
+   460→   460→                          />
+   461→   461→                        ))}
+   462→   462→                      </div>
+   463→   463→                    </div>
+   464→   464→                  );
+   465→   465→                })}
+   466→   466→              </div>
+   467→   467→
+   468→   468→              {/* Footer stats */}
+   469→   469→              <div className="mt-3 pt-3 border-t border-white/[0.04] grid grid-cols-4 gap-2 text-center">
+   470→   470→                <div><p className="text-lg font-bold text-green-400">{summary.available}</p><p className="text-[9px] text-gray-600">Libres</p></div>
+   471→   471→                <div><p className="text-lg font-bold text-yellow-400">{summary.reserved}</p><p className="text-[9px] text-gray-600">Reservadas</p></div>
+   472→   472→                <div><p className="text-lg font-bold text-red-400">{summary.occupied}</p><p className="text-[9px] text-gray-600">Ocupadas</p></div>
+   473→   473→                <div><p className="text-lg font-bold text-blue-400">{summary.preparing}</p><p className="text-[9px] text-gray-600">Preparando</p></div>
+   474→   474→              </div>
+   475→   475→            </div>
+   476→   476→          </div>
+   477→   477→
+   478→   478→          {/* SIDEBAR — ReservationSidebar con efecto borde amarillo luminoso */}
+   479→   479→          <div className={cn("space-y-2 overflow-y-auto max-h-[calc(100vh-340px)] pr-1", mobileView === "floor" && "hidden lg:block")} style={{ scrollbarWidth: "thin" }}>
+   480→   480→            <div className="bg-white/5 backdrop-blur-md rounded-xl border border-white/10 p-3">
+   481→   481→              <p className="text-xs font-semibold text-gray-400 uppercase mb-2 flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-yellow-400" /> Reservas activas</p>
+   482→   482→              <div className="space-y-1.5 max-h-[calc(100vh-420px)] overflow-y-auto" style={{ scrollbarWidth: "none" }}>
+   483→   483→                {reservations.filter(r => ["CONFIRMED", "SEATED", "PENDING"].includes(r.status)).slice(0, 15).map((r, i) => {
+   484→   484→                  const isActive = hoveredTableId && r.table?.id === hoveredTableId;
+   485→   485→                  return (
+   486→   486→                    <motion.div
+   487→   487→                      key={r.id}
+   488→   488→                      initial={{ opacity: 0, x: 10 }}
+   489→   489→                      animate={{ opacity: 1, x: 0 }}
+   490→   490→                      transition={{ delay: i * 0.03 }}
+   491→   491→                      whileHover={{ x: -2 }}
+   492→   492→                      onHoverStart={() => { if (r.table?.id) setHoveredTableId(r.table.id); }}
+   493→   493→                      onHoverEnd={() => setHoveredTableId(null)}
+   494→   494→                      className={cn(
+   495→   495→                        "flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all",
+   496→   496→                        isActive
+   497→   497→                          ? "bg-yellow-400/10 border border-yellow-400/80 shadow-[0_0_15px_rgba(250,204,21,0.4)]"
+   498→   498→                          : "bg-black/30 border border-white/[0.04] hover:border-white/[0.08]"
+   499→   499→                      )}
+   500→   500→                    >
+   501→   501→                      <div className="flex flex-col items-center justify-center min-w-10 pr-2 border-r border-white/[0.06]">
+   502→   502→                        <p className="text-sm font-bold text-white">{formatTime(r.date)}</p>
+   503→   503→                        <div className="flex items-center gap-0.5 text-[10px] text-gray-400"><Users className="w-2.5 h-2.5" />{r.partySize}</div>
+   504→   504→                      </div>
+   505→   505→                      <div className="flex-1 min-w-0">
+   506→   506→                        <p className="text-xs font-medium text-white truncate">{r.customerName}</p>
+   507→   507→                        {r.table ? <p className="text-[10px] text-yellow-400">Mesa {r.table.number} · {ZONE_LABEL[r.table.zone]}</p> : <p className="text-[10px] text-gray-600">Sin mesa</p>}
+   508→   508→                      </div>
+   509→   509→                      <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded uppercase", r.status === "CONFIRMED" ? "bg-green-500/15 text-green-400" : r.status === "SEATED" ? "bg-blue-500/15 text-blue-400" : "bg-yellow-400/15 text-yellow-400")}>{r.status}</span>
+   510→   510→                    </motion.div>
+   511→   511→                  );
+   512→   512→                })}
+   513→   513→                {reservations.filter(r => ["CONFIRMED", "SEATED", "PENDING"].includes(r.status)).length === 0 && <p className="text-xs text-gray-600 py-4 text-center">Sin reservas activas</p>}
+   514→   514→              </div>
+   515→   515→            </div>
+   516→   516→          </div>
+   517→   517→        </div>
+   518→   518→      )}
+   519→   519→
+   520→   520→      {/* TABLE DETAIL DIALOG */}
+   521→   521→      <TableDetailDialog table={selectedTable} reservation={selectedTable ? tableReservationMap.get(selectedTable.id) || null : null} onClose={() => setSelectedTable(null)} onEdit={(t) => { setSelectedTable(null); setEditing(t); }} onStatusChange={(id, status) => updateStatusMut.mutate({ id, status })} onUngroup={(groupId) => { ungroupMut.mutate(groupId); setSelectedTable(null); }} allTables={tables} onTransfer={(resvId, newTableId) => transferMut.mutate({ reservationId: resvId, newTableId })} onZoneChange={(id, zone) => changeZoneMut.mutate({ id, zone })} />
+   522→   522→
+   523→   523→      {/* CREATE/EDIT DIALOG */}
+   524→   524→      <TableDialog key={editing?.id || "new"} open={creating || !!editing} table={editing} onClose={() => { setCreating(false); setEditing(null); }} onSaved={() => { qc.invalidateQueries({ queryKey: ["tables"] }); qc.invalidateQueries({ queryKey: ["analytics"] }); }} />
+   525→   525→
+   526→   526→      {/* DELETE */}
+   527→   527→      <AlertDialog open={!!confirmDelete} onOpenChange={(v) => !v && setConfirmDelete(null)}>
+   528→   528→        <AlertDialogContent className="bg-[#1A1D24] border-white/10 text-white"><AlertDialogHeader><AlertDialogTitle>¿Eliminar mesa?</AlertDialogTitle><AlertDialogDescription>Esta acción no se puede deshacer.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-white/5 border-white/10 text-gray-300">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-red-600 hover:bg-red-700 text-white" onClick={() => confirmDelete && delMut.mutate(confirmDelete)} disabled={delMut.isPending}>{delMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Eliminar"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+   529→   529→      </AlertDialog>
+   530→   530→    </div>
+   531→   531→  );
+   532→   532→}
+   533→   533→
+   534→   534→// ═══════════════════════════════════════════════════════════════
+   535→   535→// InteractiveTable — Mesa arrastrable con neón LED + popover CRM
+   536→   536→// ═══════════════════════════════════════════════════════════════
+   537→   537→function InteractiveTable({
+   538→   538→  table, reservation, editMode, isDragging, isSelected, isHovered, isGroupSelected, pos, reduceMotion,
+   539→   539→  onDragStart, onHover, onSelect,
+   540→   540→}: {
+   541→   541→  table: Table; reservation: Reservation | null; editMode: boolean; isDragging: boolean;
+   542→   542→  isSelected: boolean; isHovered: boolean; isGroupSelected: boolean;
+   543→   543→  pos: { left: number; top: number }; reduceMotion: boolean;
+   544→   544→  onDragStart: (e: React.MouseEvent, t: Table) => void;
+   545→   545→  onHover: (id: string | null) => void;
+   546→   546→  onSelect: (t: Table) => void;
+   547→   547→}) {
+   548→   548→  const [showPopover, setShowPopover] = useState(false);
+   549→   549→  const style = NEON_STYLES[table.status] || NEON_STYLES.AVAILABLE;
+   550→   550→  const shapeCls = SHAPE_STYLES[table.shape] || SHAPE_STYLES.SQUARE;
+   551→   551→  const sizeCls = table.shape === "RECTANGLE" ? "w-16 h-10" : "w-14 h-14";
+   552→   552→
+   553→   553→  return (
+   554→   554→    <motion.div
+   555→   555→      initial={reduceMotion ? {} : { opacity: 0, scale: 0.8 }}
+   556→   556→      animate={{ opacity: 1, scale: 1 }}
+   557→   557→      transition={{ duration: 0.2 }}
+   558→   558→      style={{ position: "absolute", left: `${pos.left}px`, top: `${pos.top}px`, cursor: editMode ? (isDragging ? "grabbing" : "grab") : "pointer", zIndex: isDragging ? 20 : 1 }}
+   559→   559→      onMouseDown={(e) => onDragStart(e, table)}
+   560→   560→      onMouseEnter={() => { if (!editMode) { onHover(table.id); setShowPopover(true); } }}
+   561→   561→      onMouseLeave={() => { if (!editMode) { onHover(null); setShowPopover(false); } }}
+   562→   562→      onClick={() => onSelect(table)}
+   563→   563→      whileHover={editMode ? {} : { scale: 1.12, zIndex: 10 }}
+   564→   564→      whileTap={{ scale: 0.95 }}
+   565→   565→      className={cn(
+   566→   566→        "border-2 flex flex-col items-center justify-center transition-all select-none drop-shadow-2xl",
+   567→   567→        shapeCls, sizeCls, style.bg, style.border, style.text,
+   568→   568→        (isHovered || isSelected) && "ring-2 ring-yellow-400 ring-offset-2 ring-offset-[#13151A]",
+   569→   569→        style.glow,
+   570→   570→        isGroupSelected && "ring-2 ring-yellow-400 ring-offset-2 ring-offset-[#13151A]",
+   571→   571→        table.group_id && "border-dashed",
+   572→   572→        isDragging && "opacity-80 scale-105",
+   573→   573→      )}
+   574→   574→    >
+   575→   575→      {/* Breathing neon effect — pulsación del box-shadow */}
+   576→   576→      {(table.status === "OCCUPIED" || table.status === "RESERVED" || table.status === "PREPARING") && !reduceMotion && (
+   577→   577→        <motion.span
+   578→   578→          animate={{ boxShadow: [
+   579→   579→            "0 0 8px rgba(34,197,94,0.3)",
+   580→   580→            "0 0 16px rgba(34,197,94,0.5)",
+   581→   581→            "0 0 8px rgba(34,197,94,0.3)",
+   582→   582→          ] }}
+   583→   583→          transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+   584→   584→          className={cn("absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full",
+   585→   585→            table.status === "OCCUPIED" ? "bg-red-500" : table.status === "RESERVED" ? "bg-yellow-400" : "bg-blue-500"
+   586→   586→          )}
+   587→   587→        />
+   588→   588→      )}
+   589→   589→
+   590→   590→      {/* Contenido de la mesa */}
+   591→   591→      <span className="text-xs font-bold leading-none text-white">{table.number}</span>
+   592→   592→      {reservation ? (
+   593→   593→        <>
+   594→   594→          <span className="text-[7px] mt-0.5 truncate max-w-full px-0.5 leading-tight text-white">{reservation.customerName.split(" ")[0]}</span>
+   595→   595→          <span className="text-[7px] opacity-70 text-gray-300">{formatTime(reservation.date)}</span>
+   596→   596→        </>
+   597→   597→      ) : (
+   598→   598→        <span className="text-[8px] mt-0.5 opacity-50 text-gray-400">{table.capacity}p</span>
+   599→   599→      )}
+   600→   600→
+   601→   601→      {/* VIP crown */}
+   602→   602→      {table.zone === "VIP" && <Crown className="absolute -top-2 left-1/2 -translate-x-1/2 w-2.5 h-2.5 text-yellow-400" />}
+   603→   603→
+   604→   604→      {/* Group indicator */}
+   605→   605→      {table.group_id && <Link2 className="absolute -bottom-1 -right-1 w-3 h-3 text-yellow-400 bg-[#13151A] rounded-full p-0.5" />}
+   606→   606→
+   607→   607→      {/* Selection check */}
+   608→   608→      {isGroupSelected && <Check className="absolute -top-1 -left-1 w-3 h-3 text-green-400 bg-[#13151A] rounded-full p-0.5" />}
+   609→   609→
+   610→   610→      {/* ─── POPOVER CRM (Glassmorphism extremo) ─── */}
+   611→   611→      <AnimatePresence>
+   612→   612→        {showPopover && !editMode && (
+   613→   613→          <motion.div
+   614→   614→            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+   615→   615→            animate={{ opacity: 1, y: 0, scale: 1 }}
+   616→   616→            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+   617→   617→            transition={{ duration: 0.15 }}
+   618→   618→            className="absolute z-30 pointer-events-none"
+   619→   619→            style={{ bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: "8px" }}
+   620→   620→          >
+   621→   621→            <div className="w-52 bg-[#1A1D24]/80 backdrop-blur-xl border border-yellow-400/50 rounded-xl shadow-[0_0_30px_rgba(250,204,21,0.15)] p-3">
+   622→   622→              <div className="flex items-center justify-between mb-2">
+   623→   623→                <span className="text-sm font-bold text-white">Mesa {table.number}</span>
+   624→   624→                <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded uppercase", style.bg, style.text, "border", style.border)}>{style.label}</span>
+   625→   625→              </div>
+   626→   626→              {reservation ? (
+   627→   627→                <div className="space-y-2">
+   628→   628→                  {/* Avatar + nombre */}
+   629→   629→                  <div className="flex items-center gap-2">
+   630→   630→                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 text-black flex items-center justify-center text-[10px] font-bold border border-yellow-400/50">
+   631→   631→                      {reservation.customerName.slice(0, 1).toUpperCase()}
+   632→   632→                    </div>
+   633→   633→                    <div className="min-w-0">
+   634→   634→                      <p className="text-xs font-medium text-white truncate">{reservation.customerName}</p>
+   635→   635→                      <p className="text-[10px] text-gray-400">{reservation.phone}</p>
+   636→   636→                    </div>
+   637→   637→                  </div>
+   638→   638→                  {/* Stats en cajas negras */}
+   639→   639→                  <div className="grid grid-cols-2 gap-1.5">
+   640→   640→                    <div className="bg-black/40 rounded-xl p-1.5">
+   641→   641→                      <div className="flex items-center gap-1 text-[10px] text-gray-400"><Clock className="w-2.5 h-2.5 text-yellow-400" />{formatTime(reservation.date)}</div>
+   642→   642→                    </div>
+   643→   643→                    <div className="bg-black/40 rounded-xl p-1.5">
+   644→   644→                      <div className="flex items-center gap-1 text-[10px] text-gray-400"><Users className="w-2.5 h-2.5 text-yellow-400" />{reservation.partySize} pax</div>
+   645→   645→                    </div>
+   646→   646→                  </div>
+   647→   647→                  {/* Estado */}
+   648→   648→                  <div className="flex items-center gap-1 pt-1 border-t border-white/[0.04]">
+   649→   649→                    <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded uppercase",
+   650→   650→                      reservation.status === "CONFIRMED" ? "bg-green-500/15 text-green-400" :
+   651→   651→                      reservation.status === "SEATED" ? "bg-blue-500/15 text-blue-400" :
+   652→   652→                      "bg-yellow-400/15 text-yellow-400"
+   653→   653→                    )}>{reservation.status.replace(/_/g, " ")}</span>
+   654→   654→                    <span className="text-[9px] text-gray-500">{ZONE_LABEL[reservation.zone || ""] || reservation.zone}</span>
+   655→   655→                  </div>
+   656→   656→                  {reservation.notes && <p className="text-[9px] text-gray-400 italic truncate">"{reservation.notes}"</p>}
+   657→   657→                </div>
+   658→   658→              ) : (
+   659→   659→                <div className="text-center py-1">
+   660→   660→                  <Sparkles className="w-4 h-4 text-green-400 mx-auto mb-0.5" />
+   661→   661→                  <p className="text-[10px] text-gray-400">Mesa disponible</p>
+   662→   662→                  <p className="text-[9px] text-gray-600">Capacidad: {table.capacity}p</p>
+   663→   663→                </div>
+   664→   664→              )}
+   665→   665→            </div>
+   666→   666→          </motion.div>
+   667→   667→        )}
+   668→   668→      </AnimatePresence>
+   669→   669→    </motion.div>
+   670→   670→  );
+   671→   671→}
+   672→   672→
+   673→   673→// ═══════════════════════════════════════════════════════════════
+   674→   674→// ZONE TABLE — Simplified table card for zone-based layout
+   675→   675→// ═══════════════════════════════════════════════════════════════
+   676→   676→function ZoneTable({
+   677→   677→  table, reservation, editMode, isSelected, isHovered, isGroupSelected, reduceMotion,
+   678→   678→  onHover, onSelect, onDragStart, onDragEnd, isDragging,
+   679→   679→}: {
+   680→   680→  table: Table;
+   681→   681→  reservation: Reservation | null;
+   682→   682→  editMode: boolean;
+   683→   683→  isSelected: boolean;
+   684→   684→  isHovered: boolean;
+   685→   685→  isGroupSelected: boolean;
+   686→   686→  reduceMotion: boolean;
+   687→   687→  onHover: (id: string | null) => void;
+   688→   688→  onSelect: (t: Table) => void;
+   689→   689→  onDragStart?: (e: React.DragEvent, tableId: string) => void;
+   690→   690→  onDragEnd?: () => void;
+   691→   691→  isDragging?: boolean;
+   692→   692→}) {
+   693→   693→  const [showPopover, setShowPopover] = useState(false);
+   694→   694→  const style = NEON_STYLES[table.status] || NEON_STYLES.AVAILABLE;
+   695→   695→  const shapeCls = SHAPE_STYLES[table.shape] || "rounded-xl";
+   696→   696→  const sizeCls = table.shape === "RECTANGLE" ? "w-16 h-12" : table.shape === "ROUND" ? "w-14 h-14" : "w-14 h-12";
+   697→   697→
+   698→   698→  return (
+   699→   699→    <motion.div
+   700→   700→      initial={reduceMotion ? {} : { opacity: 0, scale: 0.8 }}
+   701→   701→      animate={{ opacity: 1, scale: 1 }}
+   702→   702→      transition={{ duration: 0.2 }}
+   703→   703→      draggable={editMode}
+   704→   704→      onDragStart={(e: any) => { if (editMode && onDragStart) onDragStart(e, table.id); }}
+   705→   705→      onDragEnd={() => { if (editMode && onDragEnd) onDragEnd(); }}
+   706→   706→      onMouseEnter={() => { onHover(table.id); setShowPopover(true); }}
+   707→   707→      onMouseLeave={() => { onHover(null); setShowPopover(false); }}
+   708→   708→      onClick={() => onSelect(table)}
+   709→   709→      whileHover={editMode ? {} : { scale: 1.1, zIndex: 10 }}
+   710→   710→      whileTap={{ scale: 0.95 }}
+   711→   711→      className={cn(
+   712→   712→        "border-2 flex flex-col items-center justify-center transition-all select-none cursor-pointer relative",
+   713→   713→        shapeCls, sizeCls, style.bg, style.border, style.text,
+   714→   714→        (isHovered || isSelected) && "ring-2 ring-yellow-400 ring-offset-2 ring-offset-[#0a0a0a]",
+   715→   715→        style.glow,
+   716→   716→        isGroupSelected && "ring-2 ring-green-400 ring-offset-2 ring-offset-[#0a0a0a]",
+   717→   717→        table.group_id && "border-dashed",
+   718→   718→        isDragging && "opacity-40",
+   719→   719→        editMode && "cursor-grab active:cursor-grabbing",
+   720→   720→      )}
+   721→   721→    >
+   722→   722→      {(table.status === "OCCUPIED" || table.status === "RESERVED" || table.status === "PREPARING") && !reduceMotion && (
+   723→   723→        <motion.span
+   724→   724→          animate={{ opacity: [0.4, 1, 0.4] }}
+   725→   725→          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+   726→   726→          className={cn("absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full",
+   727→   727→            table.status === "OCCUPIED" ? "bg-red-500" : table.status === "RESERVED" ? "bg-yellow-400" : "bg-blue-500"
+   728→   728→          )}
+   729→   729→        />
+   730→   730→      )}
+   731→   731→
+   732→   732→      <span className="text-xs font-bold leading-none text-white">{table.number}</span>
+   733→   733→      {reservation ? (
+   734→   734→        <>
+   735→   735→          <span className="text-[7px] mt-0.5 truncate max-w-full px-0.5 leading-tight text-white">{reservation.customerName.split(" ")[0]}</span>
+   736→   736→          <span className="text-[7px] opacity-70 text-gray-300">{formatTime(reservation.date)}</span>
+   737→   737→        </>
+   738→   738→      ) : (
+   739→   739→        <span className="text-[8px] mt-0.5 opacity-50 text-gray-400">{table.capacity}p</span>
+   740→   740→      )}
+   741→   741→
+   742→   742→      {table.zone === "VIP" && <Crown className="absolute -top-2 left-1/2 -translate-x-1/2 w-2.5 h-2.5 text-yellow-400" />}
+   743→   743→      {table.group_id && <Link2 className="absolute -bottom-1 -right-1 w-3 h-3 text-yellow-400 bg-[#0a0a0a] rounded-full p-0.5" />}
+   744→   744→      {isGroupSelected && <Check className="absolute -top-1 -left-1 w-3 h-3 text-green-400 bg-[#0a0a0a] rounded-full p-0.5" />}
+   745→   745→
+   746→   746→      {/* Popover on hover */}
+   747→   747→      <AnimatePresence>
+   748→   748→        {showPopover && !editMode && (
+   749→   749→          <motion.div
+   750→   750→            initial={{ opacity: 0, y: 5 }}
+   751→   751→            animate={{ opacity: 1, y: 0 }}
+   752→   752→            exit={{ opacity: 0, y: 5 }}
+   753→   753→            transition={{ duration: 0.15 }}
+   754→   754→            className="absolute z-30 pointer-events-none"
+   755→   755→            style={{ bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: "4px" }}
+   756→   756→          >
+   757→   757→            <div className="w-44 bg-[#1A1D24]/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-xl p-2.5">
+   758→   758→              <div className="flex items-center justify-between mb-1.5">
+   759→   759→                <span className="text-xs font-bold text-white">Mesa {table.number}</span>
+   760→   760→                <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded uppercase", style.bg, style.text, "border", style.border)}>{style.label}</span>
+   761→   761→              </div>
+   762→   762→              {reservation ? (
+   763→   763→                <div className="space-y-1">
+   764→   764→                  <p className="text-[10px] text-white truncate">{reservation.customerName}</p>
+   765→   765→                  <div className="flex items-center gap-2 text-[9px] text-gray-400">
+   766→   766→                    <span className="flex items-center gap-0.5"><Clock className="w-2.5 h-2.5" />{formatTime(reservation.date)}</span>
+   767→   767→                    <span className="flex items-center gap-0.5"><Users className="w-2.5 h-2.5" />{reservation.partySize}pax</span>
+   768→   768→                  </div>
+   769→   769→                </div>
+   770→   770→              ) : (
+   771→   771→                <p className="text-[10px] text-gray-400">{table.capacity} comensales</p>
+   772→   772→              )}
+   773→   773→            </div>
+   774→   774→          </motion.div>
+   775→   775→        )}
+   776→   776→      </AnimatePresence>
+   777→   777→    </motion.div>
+   778→   778→  );
+   779→   779→}
+   780→   780→
+   781→   781→// ═══════════════════════════════════════════════════════════════
+   782→   782→// TABLE DETAIL DIALOG
+   783→   783→// ═══════════════════════════════════════════════════════════════
+   784→   784→function TableDetailDialog({ table, reservation, onClose, onEdit, onStatusChange, onUngroup, allTables, onTransfer, onZoneChange }: {
+   785→   785→  table: Table | null; reservation: Reservation | null; onClose: () => void;
+   786→   786→  onEdit: (t: Table) => void; onStatusChange: (id: string, status: string) => void; onUngroup: (groupId: string) => void;
+   787→   787→  allTables: Table[]; onTransfer: (reservationId: string, newTableId: string) => void;
+   788→   788→  onZoneChange: (id: string, zone: string) => void;
+   789→   789→}) {
+   790→   790→  const [showTransfer, setShowTransfer] = useState(false);
+   791→   791→  const [targetTableId, setTargetTableId] = useState("");
+   792→   792→  if (!table) return null;
+   793→   793→  const style = NEON_STYLES[table.status] || NEON_STYLES.AVAILABLE;
+   794→   794→  const availableForTransfer = allTables.filter(t => t.id !== table.id && !t.blocked && t.status !== "OCCUPIED");
+   795→   795→  return (
+   796→   796→    <Dialog open={!!table} onOpenChange={(v) => !v && onClose()}>
+   797→   797→      <DialogContent className="max-w-md bg-[#1A1D24]/95 backdrop-blur-xl border-white/10 text-white">
+   798→   798→        <DialogHeader><DialogTitle className="flex items-center gap-2"><div className={cn("w-9 h-9 rounded-lg border-2 flex items-center justify-center text-sm font-bold", style.bg, style.border, style.text)}>{table.number}</div>{table.name || `Mesa ${table.number}`}</DialogTitle></DialogHeader>
+   799→   799→        <div className="space-y-4 py-2">
+   800→   800→          <div className="grid grid-cols-2 gap-3 text-sm">
+   801→   801→            <div><p className="text-xs text-gray-400">Capacidad</p><p className="font-medium text-white flex items-center gap-1"><Users className="w-3.5 h-3.5" />{table.capacity}</p></div>
+   802→   802→            <div><p className="text-xs text-gray-400">Zona</p><p className="font-medium text-white">{ZONE_LABEL[table.zone] || table.zone}</p></div>
+   803→   803→            <div><p className="text-xs text-gray-400">Forma</p><p className="font-medium text-white">{table.shape === "ROUND" ? "Redonda" : table.shape === "RECTANGLE" ? "Rectangular" : "Cuadrada"}</p></div>
+   804→   804→            </div>
+   805→   805→          {/* Zone change */}
+   806→   806→          <div className="p-3 rounded-lg bg-black/30 border border-white/[0.06]">
+   807→   807→            <p className="text-[10px] font-semibold text-gray-400 uppercase mb-2 flex items-center gap-1"><MapPin className="w-3 h-3 text-[#C5A059]" />Cambiar zona</p>
+   808→   808→            <div className="grid grid-cols-2 gap-2">
+   809→   809→              {ZONES.map(z => (
+   810→   810→                <button
+   811→   811→                  key={z.id}
+   812→   812→                  onClick={() => onZoneChange(table.id, z.id)}
+   813→   813→                  disabled={z.id === table.zone}
+   814→   814→                  className={cn(
+   815→   815→                    "px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5",
+   816→   816→                    z.id === table.zone
+   817→   817→                      ? "bg-white/[0.03] text-gray-500 border-white/[0.04] cursor-not-allowed"
+   818→   818→                      : "bg-black/30 text-gray-300 border-white/[0.06] hover:bg-white/[0.04]"
+   819→   819→                  )}
+   820→   820→                >
+   821→   821→                  <span>{z.icon}</span> {z.label}
+   822→   822→                </button>
+   823→   823→              ))}
+   824→   824→            </div>
+   825→   825→          </div>
+   826→   826→          <div>
+   827→   827→            <div><p className="text-xs text-gray-400">Estado</p><TableStatusBadge status={table.status} /></div>
+   828→   828→            {table.group_id && <div className="col-span-2"><p className="text-xs text-gray-400">Grupo</p><div className="flex items-center gap-2"><span className="text-sm text-yellow-400 flex items-center gap-1"><Link2 className="w-3.5 h-3.5" /> Agrupada</span><button onClick={() => onUngroup(table.group_id!)} className="text-xs text-red-400 hover:underline flex items-center gap-1"><Unlink className="w-3 h-3" /> Desagrupar</button></div></div>}
+   829→   829→          </div>
+   830→   830→          <div><p className="text-[10px] font-semibold text-gray-400 uppercase mb-2">Cambiar estado</p><div className="grid grid-cols-2 gap-2">{Object.entries(NEON_STYLES).map(([key, val]) => (<button key={key} onClick={() => onStatusChange(table.id, key)} disabled={key === table.status} className={cn("px-3 py-2 rounded-lg text-xs font-medium border transition-colors", key === table.status ? "bg-white/[0.03] text-gray-500 border-white/[0.04] cursor-not-allowed" : "bg-black/30 text-gray-300 border-white/[0.06] hover:bg-white/[0.04]")}><span className={cn("inline-block w-2 h-2 rounded-full mr-1.5 border", val.border)} />{val.label}</button>))}</div></div>
+   831→   831→          {reservation ? (<div className="p-3 rounded-lg bg-black/30 border border-white/[0.06]"><p className="text-[10px] font-semibold text-gray-400 uppercase mb-1.5 flex items-center gap-1"><Calendar className="w-3 h-3 text-yellow-400" />Reserva asociada</p><div className="flex items-center justify-between text-sm"><div><p className="font-medium text-white">{reservation.customerName}</p><p className="text-xs text-gray-400">{formatTime(reservation.date)} · {reservation.partySize} pax</p></div><span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded uppercase", reservation.status === "CONFIRMED" ? "bg-green-500/15 text-green-400" : reservation.status === "SEATED" ? "bg-blue-500/15 text-blue-400" : "bg-yellow-400/15 text-yellow-400")}>{reservation.status}</span></div></div>) : <p className="text-xs text-gray-600 text-center py-3">Sin reservas próximas</p>}
+   832→   832→          {reservation && (
+   833→   833→            <div className="pt-2 border-t border-white/[0.06]">
+   834→   834→              {!showTransfer ? (
+   835→   835→                <button onClick={() => setShowTransfer(true)} className="w-full px-3 py-2 rounded-lg bg-[#C5A059]/10 border border-[#C5A059]/30 text-[#C5A059] text-xs font-semibold hover:bg-[#C5A059]/20 transition-colors flex items-center justify-center gap-1.5">
+   836→   836→                  <Move className="w-3.5 h-3.5" /> Traspasar a otra mesa
+   837→   837→                </button>
+   838→   838→              ) : (
+   839→   839→                <div className="space-y-2">
+   840→   840→                  <select value={targetTableId} onChange={(e) => setTargetTableId(e.target.value)} className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#C5A059]">
+   841→   841→                    <option value="">Seleccionar mesa de destino...</option>
+   842→   842→                    {availableForTransfer.map(t => (
+   843→   843→                      <option key={t.id} value={t.id}>Mesa {t.number} · {ZONE_LABEL[t.zone] || t.zone} · {t.capacity}pax</option>
+   844→   844→                    ))}
+   845→   845→                  </select>
+   846→   846→                  <div className="flex gap-2">
+   847→   847→                    <button onClick={() => { if (targetTableId) { onTransfer(reservation.id, targetTableId); setShowTransfer(false); setTargetTableId(""); } }} disabled={!targetTableId} className="flex-1 px-3 py-2 rounded-lg bg-[#C5A059] text-[#0a0a0a] text-xs font-semibold hover:bg-[#b08d4e] disabled:opacity-50">Confirmar traspaso</button>
+   848→   848→                    <button onClick={() => { setShowTransfer(false); setTargetTableId(""); }} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs">Cancelar</button>
+   849→   849→                  </div>
+   850→   850→                </div>
+   851→   851→              )}
+   852→   852→            </div>
+   853→   853→          )}
+   854→   854→          <div className="flex gap-2 pt-2 border-t border-white/[0.06]"><Button variant="outline" className="flex-1 h-9 text-xs bg-black/30 border-white/[0.06] text-gray-300" onClick={() => onEdit(table)}><Pencil className="w-3.5 h-3.5 mr-1" /> Editar</Button><Button variant="outline" onClick={onClose} className="h-9 text-xs bg-black/30 border-white/[0.06] text-gray-300">Cerrar</Button></div>
+   855→   855→        </div>
+   856→   856→      </DialogContent>
+   857→   857→    </Dialog>
+   858→   858→  );
+   859→   859→}
+   860→   860→
+   861→   861→// ═══════════════════════════════════════════════════════════════
+   862→   862→// TABLE DIALOG (create/edit)
+   863→   863→// ═══════════════════════════════════════════════════════════════
+   864→   864→function TableDialog({ open, table, onClose, onSaved }: { open: boolean; table: Table | null; onClose: () => void; onSaved: () => void; }) {
+   865→   865→  const [number, setNumber] = useState(table?.number || "");
+   866→   866→  const [name, setName] = useState(table?.name || "");
+   867→   867→  const [capacity, setCapacity] = useState(table?.capacity || 4);
+   868→   868→  const [zone, setZone] = useState(table?.zone || "INTERIOR");
+   869→   869→  const [shape, setShape] = useState(table?.shape || "SQUARE");
+   870→   870→  const [status, setStatus] = useState(table?.status || "AVAILABLE");
+   871→   871→  const [saving, setSaving] = useState(false);
+   872→   872→
+   873→   873→  async function handleSave() {
+   874→   874→    if (!number.trim()) { toast.error("Número obligatorio"); return; }
+   875→   875→    setSaving(true);
+   876→   876→    try {
+   877→   877→      const payload = { number: number.trim(), name: name.trim() || null, capacity: Number(capacity), zone, shape, status };
+   878→   878→      if (table) { await api(`/api/tables/${table.id}`, { method: "PATCH", body: JSON.stringify(payload) }); toast.success("Mesa actualizada ✓"); }
+   879→   879→      else { await api("/api/tables", { method: "POST", body: JSON.stringify(payload) }); toast.success("Mesa creada ✓"); }
+   880→   880→      onSaved(); onClose();
+   881→   881→    } catch (e: any) { toast.error(e.message); } finally { setSaving(false); }
+   882→   882→  }
+   883→   883→
+   884→   884→  return (
+   885→   885→    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+   886→   886→      <DialogContent className="bg-[#1A1D24] border-white/10 text-white">
+   887→   887→        <DialogHeader><DialogTitle>{table ? `Editar mesa ${table.number}` : "Nueva mesa"}</DialogTitle></DialogHeader>
+   888→   888→        <div className="space-y-4 py-2">
+   889→   889→          <div className="grid grid-cols-2 gap-3">
+   890→   890→            <div className="space-y-1.5"><Label className="text-xs text-gray-400">Número *</Label><Input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="1" className="bg-black/30 border-white/10 text-white" /></div>
+   891→   891→            <div className="space-y-1.5"><Label className="text-xs text-gray-400">Nombre</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Mesa ventana" className="bg-black/30 border-white/10 text-white" /></div>
+   892→   892→          </div>
+   893→   893→          <div className="grid grid-cols-3 gap-3">
+   894→   894→            <div className="space-y-1.5"><Label className="text-xs text-gray-400">Capacidad</Label><Input type="number" min={1} value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} className="bg-black/30 border-white/10 text-white" /></div>
+   895→   895→            <div className="space-y-1.5"><Label className="text-xs text-gray-400">Zona</Label><Select value={zone} onValueChange={setZone}><SelectTrigger className="bg-black/30 border-white/10 text-white"><SelectValue /></SelectTrigger><SelectContent>{ZONES.map(z => <SelectItem key={z.id} value={z.id}>{z.icon} {z.label}</SelectItem>)}</SelectContent></Select></div>
+   896→   896→            <div className="space-y-1.5"><Label className="text-xs text-gray-400">Forma</Label><Select value={shape} onValueChange={setShape}><SelectTrigger className="bg-black/30 border-white/10 text-white"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="SQUARE">Cuadrada</SelectItem><SelectItem value="ROUND">Redonda</SelectItem><SelectItem value="RECTANGLE">Rectangular</SelectItem></SelectContent></Select></div>
+   897→   897→          </div>
+   898→   898→          <div className="space-y-1.5"><Label className="text-xs text-gray-400">Estado</Label><Select value={status} onValueChange={setStatus}><SelectTrigger className="bg-black/30 border-white/10 text-white"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(NEON_STYLES).map(([k, v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}</SelectContent></Select></div>
+   899→   899→        </div>
+   900→   900→        <DialogFooter>
+   901→   901→          <Button variant="outline" onClick={onClose} className="bg-black/30 border-white/10 text-gray-300">Cancelar</Button>
+   902→   902→          <Button className="bg-yellow-400 hover:bg-yellow-500 text-black" onClick={handleSave} disabled={saving}>{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : table ? "Guardar" : "Crear mesa"}</Button>
+   903→   903→        </DialogFooter>
+   904→   904→      </DialogContent>
+   905→   905→    </Dialog>
+   906→   906→  );
+   907→   907→}
+   908→   908→

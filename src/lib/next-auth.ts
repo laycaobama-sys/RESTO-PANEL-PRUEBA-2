@@ -9,6 +9,8 @@ import {
   getLockoutRemaining,
   generateJti,
   createSession,
+  isSessionValid,
+  revokeSession,
   updateLastLogin,
   logActivity,
 } from '@/lib/session-management'
@@ -149,6 +151,20 @@ export const authOptions: NextAuthOptions = {
         token.impersonatingOrgId = null
         token.impersonatingOrgName = null
         token.jti = u.jti || ''
+        return token
+      }
+
+      // ─── Per-request session validity check ────────────────
+      // If the JTI has been revoked (e.g., user logged out from
+      // another device, or super-admin revoked the session), the
+      // token is invalidated and the user must re-authenticate.
+      if (token.jti) {
+        const valid = await isSessionValid(token.jti as string)
+        if (!valid) {
+          // Returning an empty object drops all claims — NextAuth
+          // treats this as "logged out" and redirects to /login.
+          return {} as any
+        }
       }
 
       // Read impersonation cookies (set by /api/admin/impersonate).
@@ -205,6 +221,17 @@ export const authOptions: NextAuthOptions = {
         u.impersonatingOrgName = token.impersonatingOrgName
       }
       return session
+    },
+  },
+  events: {
+    // When the user logs out (signOut), revoke the DB-tracked session
+    // so that the JTI can no longer be used even if the JWT cookie
+    // hasn't expired client-side.
+    async signOut(message) {
+      const token = message.token as any
+      if (token?.jti) {
+        await revokeSession(token.jti as string)
+      }
     },
   },
 }

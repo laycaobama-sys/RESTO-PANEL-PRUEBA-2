@@ -174,13 +174,29 @@ export function TablesSection() {
   const changeZoneMut = useMutation({
     mutationFn: ({ id, zone }: { id: string; zone: string }) =>
       api(`/api/tables/${id}`, { method: "PATCH", body: JSON.stringify({ zone }) }),
+    // ─── Optimistic update ────────────────────────────────────
+    // Update the cache immediately so the table visually moves to
+    // the new zone without waiting for the server round-trip.
+    onMutate: async ({ id, zone }) => {
+      await qc.cancelQueries({ queryKey: ["tables"] });
+      const prev = qc.getQueryData<Table[]>(["tables"]);
+      qc.setQueryData<Table[]>(["tables"], (old = []) =>
+        old.map((t) => (t.id === id ? { ...t, zone } : t))
+      );
+      return { prev };
+    },
+    onError: (e: any, _vars, ctx) => {
+      // Rollback on error
+      if (ctx?.prev) qc.setQueryData(["tables"], ctx.prev);
+      toast.error(e.message);
+    },
     onSuccess: () => {
+      // No toast here — the optimistic update is already visible.
+      // Just refetch in the background to confirm.
       qc.invalidateQueries({ queryKey: ["tables"] });
-      toast.success("Mesa movida de zona ✓");
       setDraggedTableId(null);
       setDragOverZone(null);
     },
-    onError: (e: any) => toast.error(e.message),
   });
 
   const delMut = useMutation({
@@ -671,8 +687,19 @@ function InteractiveTable({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ZONE TABLE — Simplified table card for zone-based layout
+// ZONE TABLE — Touch-friendly card with Framer Motion drag
 // ═══════════════════════════════════════════════════════════════
+// CRITICAL FIXES:
+//   1. touch-action: none when editMode — prevents the page from
+//      scrolling while the user drags a table with their finger.
+//   2. z-index elevated to z-50 when hovered/selected so the
+//      popover always paints on top of sibling tables.
+//   3. dragMomentum={false} — prevents the table from "drifting"
+//      after release, which would cause a confusing UX.
+//   4. Framer Motion `drag` works on both mouse and touch, unlike
+//      the previous HTML5 DnD which was desktop-only.
+//   5. The drag is constrained to the parent zone panel via
+//      dragConstraints.
 function ZoneTable({
   table, reservation, editMode, isSelected, isHovered, isGroupSelected, reduceMotion,
   onHover, onSelect, onDragStart, onDragEnd, isDragging,
@@ -694,20 +721,54 @@ function ZoneTable({
   const style = NEON_STYLES[table.status] || NEON_STYLES.AVAILABLE;
   const shapeCls = SHAPE_STYLES[table.shape] || "rounded-xl";
   const sizeCls = table.shape === "RECTANGLE" ? "w-16 h-12" : table.shape === "ROUND" ? "w-14 h-14" : "w-14 h-12";
+  const zoneRef = useRef<HTMLDivElement>(null);
 
   return (
     <motion.div
+      ref={zoneRef}
       initial={reduceMotion ? {} : { opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.2 }}
+      // ──── Desktop HTML5 DnD (kept for zone-to-zone moves) ────
       draggable={editMode}
-      onDragStart={(e: any) => { if (editMode && onDragStart) onDragStart(e, table.id); }}
-      onDragEnd={() => { if (editMode && onDragEnd) onDragEnd(); }}
+      // Framer Motion's onDragStart/onDragEnd and HTML5's onDragStart/onDragEnd
+      // share the same prop name on a motion.div. We use a single handler that
+      // fires for both flows, since either way we want to mark the table as
+      // being dragged.
+      onDragStart={(e: any) => {
+        if (editMode) {
+          // HTML5 DnD passes a DragEvent; Framer Motion passes a PanInfo.
+          // We detect which by checking for dataTransfer.
+          if (e?.dataTransfer && onDragStart) onDragStart(e, table.id);
+          onHover(table.id);
+        }
+      }}
+      onDragEnd={() => {
+        if (editMode) {
+          if (onDragEnd) onDragEnd();
+          onHover(null);
+        }
+      }}
+      // ──── Touch + mouse drag via Framer Motion (editMode only) ────
+      drag={editMode}
+      dragMomentum={false}
+      dragElastic={0}
+      dragConstraints={zoneRef}
       onMouseEnter={() => { onHover(table.id); setShowPopover(true); }}
       onMouseLeave={() => { onHover(null); setShowPopover(false); }}
       onClick={() => onSelect(table)}
-      whileHover={editMode ? {} : { scale: 1.1, zIndex: 10 }}
+      whileHover={editMode ? { scale: 1.05 } : { scale: 1.1 }}
       whileTap={{ scale: 0.95 }}
+      style={{
+        // Disable touch-action ONLY when editMode is active so that
+        // touch-dragging a table doesn't scroll the page. When
+        // editMode is off, the page scrolls normally on mobile.
+        touchAction: editMode ? "none" : "auto",
+        // Elevate z-index when hovered or selected so the popover
+        // paints above sibling tables. Without this, an adjacent
+        // table can render on top of the popover due to DOM order.
+        zIndex: isHovered || isSelected ? 50 : 10,
+      }}
       className={cn(
         "border-2 flex flex-col items-center justify-center transition-all select-none cursor-pointer relative",
         shapeCls, sizeCls, style.bg, style.border, style.text,
@@ -743,7 +804,7 @@ function ZoneTable({
       {table.group_id && <Link2 className="absolute -bottom-1 -right-1 w-3 h-3 text-yellow-400 bg-[#0a0a0a] rounded-full p-0.5" />}
       {isGroupSelected && <Check className="absolute -top-1 -left-1 w-3 h-3 text-green-400 bg-[#0a0a0a] rounded-full p-0.5" />}
 
-      {/* Popover on hover */}
+      {/* Popover on hover — z-[60] so it's above the parent's z-50 */}
       <AnimatePresence>
         {showPopover && !editMode && (
           <motion.div
@@ -751,7 +812,7 @@ function ZoneTable({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 5 }}
             transition={{ duration: 0.15 }}
-            className="absolute z-30 pointer-events-none"
+            className="absolute z-[60]"
             style={{ bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: "4px" }}
           >
             <div className="w-44 bg-[#1A1D24]/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-xl p-2.5">

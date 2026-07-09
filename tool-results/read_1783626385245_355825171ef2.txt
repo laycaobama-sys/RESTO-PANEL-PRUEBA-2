@@ -1,0 +1,1122 @@
+     1→# Worklog - RestoPanel SaaS
+     2→
+     3→---
+     4→Task ID: full-build
+     5→Agent: main (Super Z)
+     6→Task: Diseñar y desarrollar un panel de control SaaS multi-restaurante con auth multi-tenant, gestión de carta, pedidos, mesas, cocina, analíticas, reservas, ajustes y web pública sincronizada en tiempo real.
+     7→
+     8→Work Log:
+     9→- Analizadas 9 imágenes de referencia (dashboard estilo POS con sidebar naranja #FF6B35, KPIs, gráficas, estados color-coded).
+    10→- Definido schema Prisma multi-tenant: Restaurant, User (con roles ADMIN/STAFF), Category, MenuItem, Table, Order, OrderItem, Reservation, RestaurantSetting.
+    11→- Configurado NextAuth v4 con Credentials provider, JWT sessions, bcrypt para hashes.
+    12→- Implementadas 12 API routes: auth, register, menu (CRUD), categories (CRUD), orders (CRUD + advance/cancel), tables (CRUD), reservations (CRUD), analytics (agregaciones), restaurant (GET/PATCH), public/[slug] (sin auth, para web pública), upload (imágenes), seed (datos demo).
+    13→- Construida UI completa con tema naranja/coral (#FF6B35) siguiendo las referencias:
+    14→  - Pantalla de auth split-screen con tabs login/registro.
+    15→  - Dashboard layout: sidebar fija + topbar con búsqueda + user menu + nav móvil.
+    16→  - 9 secciones: Dashboard (KPIs + 3 gráficas), Pedidos (POS con filtros y cambio de estado), Mesas (grid con estados), Cocina (KDS con tarjetas y auto-refresh), Menús/Carta (CRUD completo con upload de imagen y toggle visible/disponible), Analytics (4 gráficas + KPIs), Reservas (tabla con estados), Ajustes (4 tabs: general, branding, horarios, módulos), Carta pública (preview con browser chrome).
+    17→- Seed de La Zamorana: 8 categorías, 41 platos, 10 mesas, 15 pedidos y 6 reservas con timestamps realistas.
+    18→- Lint limpio (0 errores, 0 warnings tras limpiar comentarios innecesarios).
+    19→- Verificado con Agent Browser:
+    20→  - Login funcional (demo@lazamorana.es / demo1234).
+    21→  - Todas las secciones cargan sin errores.
+    22→  - Logout funcional.
+    23→  - Responsive móvil (390x844) verificado.
+    24→  - Creación de plato nuevo "Hamburguesa Especial Test" → aparece automáticamente en la carta pública (sincronización en tiempo real confirmada).
+    25→  - Endpoint público /api/public/la-zamorana devuelve JSON correcto.
+    26→  - Sin errores en consola del navegador.
+    27→
+    28→Stage Summary:
+    29→- Aplicación full-stack funcional lista para preview.
+    30→- Stack: Next.js 16 + React 19 + TypeScript + Tailwind 4 + shadcn/ui + Prisma + NextAuth + Recharts + Zustand + TanStack Query.
+    31→- Arquitectura multi-tenant: cada restaurante tiene sus datos aislados por restaurantId.
+    32→- Sincronización panel→web pública vía invalidación de TanStack Query + API REST pública sin auth.
+    33→- Guía de despliegue escrita en /home/z/my-project/download/GUIA-DESPLIEGUE.md (Vercel + Docker).
+    34→- Cuenta demo: demo@lazamorana.es / demo1234
+    35→- Capturas en /home/z/my-project/screenshots/ (15 imágenes cubriendo todas las secciones + móvil).
+    36→
+    37→---
+    38→Task ID: audit-8
+    39→Agent: explore (audit sub-agent)
+    40→Task: Read-only audit of floor plan / interactive tables feature for 4 critical production bugs (DB-spam debounce, mobile touch conflicts, RLS / org_id, z-index of selected-table popover).
+    41→
+    42→Scope inspected:
+    43→- src/components/dashboard/sections/TablesSection.tsx (908 lines) — the only file implementing the floor plan. No `InteractiveTable.tsx`, `DraggableTable.tsx` or `FloorPlanCanvas.tsx` exist; `InteractiveTable` is defined inside TablesSection.tsx (lines 537-671) but is NEVER rendered (only `ZoneTable` is). Searched `src/components/**` via Glob to confirm.
+    44→- src/app/api/tables/{route.ts,[id]/route.ts,positions/route.ts,group/route.ts,transfer/route.ts,available/route.ts}
+    45→- src/lib/db.ts (tables CRUD layer), src/lib/session.ts, src/lib/next-auth.ts, src/lib/supabase/admin.ts
+    46→- src/types/next-auth.d.ts (organizationId declaration on session.user)
+    47→
+    48→Findings:
+    49→
+    50→### CHECK 1 — Debounce on table drag (DB spam) — ⚠️ PARTIAL BUG (dead code + minor issues)
+    51→
+    52→The component has TWO drag systems. Only the zone-based one is rendered:
+    53→
+    54→A) Zone drag (ACTIVE — ZoneTable, HTML5 drag-and-drop):
+    55→   - TablesSection.tsx:246-264 — `handleZoneDrop` fires `changeZoneMut.mutate({ id: tableId, zone: zoneId })` immediately on every drop, with NO debounce.
+    56→   - TablesSection.tsx:174-184 — `changeZoneMut` PATCHes /api/tables/{id} with the new zone.
+    57→   - Each drop is a discrete event, so it is NOT a per-mouse-move DB spam, but there is:
+    58→     • No debounce / no `disabled={changeZoneMut.isPending}` guard on the draggable while a previous drop is in flight — rapid successive drops can fire multiple parallel PATCHes.
+    59→     • No optimistic update; the dragged table snaps back to the old zone until TanStack Query refetches.
+    60→
+    61→B) Pixel-coordinate drag (DEAD CODE — InteractiveTable, never rendered):
+    62→   - TablesSection.tsx:201-209 — `handleDragMove` updates `pendingPositions` state on every `mousemove` (NO API call — good).
+    63→   - TablesSection.tsx:211 — `handleDragEnd` only clears `draggingId` (no API call — good).
+    64→   - TablesSection.tsx:213-216 — `savePositions` is invoked only via the "Guardar" button (line 287), which batches all pending positions in one POST.
+    65→   - BUT `InteractiveTable` (lines 537-671) is never instantiated; `pendingPositions` is always `{}`, so the Save button is permanently disabled (`disabled={... || Object.keys(pendingPositions).length === 0}`, line 287).
+    66→   - Net effect: `/api/tables/positions` (POST/PATCH) is an ORPHAN endpoint — unreachable from the UI. posX/posY can never be updated from the dashboard.
+    67→
+    68→Verbatim — the only API trigger in the active path:
+    69→```ts
+    70→// TablesSection.tsx:246-264
+    71→const handleZoneDrop = (e: React.DragEvent, zoneId: string) => {
+    72→  e.preventDefault();
+    73→  const tableId = e.dataTransfer.getData("text/plain") || draggedTableId;
+    74→  if (!tableId) return;
+    75→  const table = tables.find(t => t.id === tableId);
+    76→  if (!table) return;
+    77→  if (table.zone === zoneId) { setDraggedTableId(null); setDragOverZone(null); return; }
+    78→  changeZoneMut.mutate({ id: tableId, zone: zoneId }); // ← immediate PATCH, no debounce, no in-flight guard
+    79→};
+    80→```
+    81→
+    82→```ts
+    83→// TablesSection.tsx:135-140 (savePositionsMut — DEAD, only reachable via Save button which is always disabled)
+    84→const savePositionsMut = useMutation({
+    85→  mutationFn: (updates: Array<{ id: string; posX: number; posY: number }>) =>
+    86→    api("/api/tables/positions", { method: "POST", body: JSON.stringify({ updates }) }),
+    87→  onSuccess: () => { qc.invalidateQueries({ queryKey: ["tables"] }); toast.success("Posiciones guardadas ✓"); setPendingPositions({}); },
+    88→  onError: (e: any) => toast.error(e.message),
+    89→});
+    90→```
+    91→
+    92→Proposed fixes:
+    93→1. Add an in-flight guard on the draggable so concurrent drops cannot stack: `draggable={editMode && !changeZoneMut.isPending}`.
+    94→2. Make `changeZoneMut` use TanStack Query's optimistic-update pattern so the table visually stays in the new zone immediately, then rolls back on error.
+    95→3. Either delete the dead InteractiveTable + savePositionsMut + handleDragStart/Move/End + `pendingPositions` state (lines 104-109, 135-140, 192-216, 266-270, 537-671) OR re-wire it as the active drag surface so users can position tables freely.
+    96→4. In `/api/tables/positions/route.ts` (lines 21-36) replace the `for...of await` loop with a single Supabase `update(...).in('id', [...])` or a Postgres function — currently each table triggers a sequential round-trip.
+    97→
+    98→---
+    99→
+   100→### CHECK 2 — Touch conflicts on mobile (pan vs drag) — ❌ BUG
+   101→
+   102→The entire drag system relies on HTML5 drag-and-drop, which does NOT fire on touch devices. There is no pointer/touch fallback, no `touch-action` styling, and Framer Motion's `drag` is not used.
+   103→
+   104→Verbatim — TablesSection.tsx:698-705 (ZoneTable):
+   105→```tsx
+   106→<motion.div
+   107→  initial={reduceMotion ? {} : { opacity: 0, scale: 0.8 }}
+   108→  animate={{ opacity: 1, scale: 1 }}
+   109→  transition={{ duration: 0.2 }}
+   110→  draggable={editMode}
+   111→  onDragStart={(e: any) => { if (editMode && onDragStart) onDragStart(e, table.id); }}
+   112→  onDragEnd={() => { if (editMode && onDragEnd) onDragEnd(); }}
+   113→  onMouseEnter={() => { onHover(table.id); setShowPopover(true); }}
+   114→  onMouseLeave={() => { onHover(null); setShowPopover(false); }}
+   115→  onClick={() => onSelect(table)}
+   116→  whileHover={editMode ? {} : { scale: 1.1, zIndex: 10 }}
+   117→  whileTap={{ scale: 0.95 }}
+   118→```
+   119→
+   120→Canvas container (scroll-panning surface):
+   121→```tsx
+   122→// TablesSection.tsx:356
+   123→<div className="space-y-3 max-h-[520px] overflow-y-auto rounded-xl pr-1" style={{ scrollbarWidth: "thin" }}>
+   124→```
+   125→
+   126→Grep results across the file:
+   127→- `touch-action` / `touchAction` — 0 hits.
+   128→- `touch-none` Tailwind class — 0 hits.
+   129→- `dragMomentum` — 0 hits (Framer Motion `drag` prop not used at all).
+   130→- `dragConstraints` — 0 hits.
+   131→- `onTouchStart` / `onPointerDown` / `onPointerMove` / `onPointerUp` — 0 hits.
+   132→
+   133→Consequences:
+   134→- On iOS Safari and Android Chrome, `draggable={true}` does nothing — admins literally cannot rearrange tables from a phone/tablet.
+   135→- The canvas scroll surface (`overflow-y-auto`) keeps `touch-action: auto`, so touch panning works, but since drag never fires there is no conflict — the feature simply does not work on touch.
+   136→- Click-to-select still works (onClick fires on tap), but `onMouseEnter`/`onMouseLeave` (line 706-707) do not fire on touch, so the CRM popover (lines 747-776) is also effectively desktop-only.
+   137→
+   138→Proposed fix (recommended approach — Framer Motion pointer-based drag, which works for both mouse and touch):
+   139→```tsx
+   140→<motion.div
+   141→  drag={editMode}
+   142→  dragMomentum={false}
+   143→  dragConstraints={containerRef}
+   144→  dragElastic={0}
+   145→  onDragStart={() => setDraggingId(table.id)}
+   146→  onDragEnd={(e, info) => {
+   147→    // snap-to-zone detection: find zone panel under pointer
+   148→    handleDropByPointer(table.id, info.point);
+   149→    setDraggingId(null);
+   150→  }}
+   151→  style={{ touchAction: editMode ? "none" : "auto" }} // ← critical for mobile
+   152→  whileDrag={{ scale: 1.1, zIndex: 50 }}
+   153→>
+   154→```
+   155→Or, minimally, add `style={{ touchAction: "none" }}` and `onTouchStart`/`onTouchMove`/`onTouchEnd` handlers that mimic `handleDragStart/Move/End`.
+   156→
+   157→---
+   158→
+   159→### CHECK 3 — RLS / org_id sent correctly — ✅ OK
+   160→
+   161→All four drag-reachable endpoints read `organizationId` from the NextAuth session (never from the request body) and filter every UPDATE by `organization_id`:
+   162→
+   163→1. `/api/tables/positions/route.ts` (the orphan endpoint):
+   164→```ts
+   165→// src/app/api/tables/positions/route.ts:6-10
+   166→export async function PATCH(req: Request) {
+   167→  const user = await getCurrentUser()
+   168→  if (!user || !user.organizationId) {
+   169→    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+   170→  }
+   171→  ...
+   172→  // src/app/api/tables/positions/route.ts:24-30  ← the actual UPDATE
+   173→  const { data, error } = await supabaseAdmin
+   174→    .from('tables')
+   175→    .update(patch)
+   176→    .eq('id', u.id)
+   177→    .eq('organization_id', user.organizationId)
+   178→    .select('id, pos_x, pos_y')
+   179→    .single()
+   180→```
+   181→
+   182→2. `/api/tables/[id]/route.ts` (used by the active zone-drop mutation `changeZoneMut`):
+   183→```ts
+   184→// src/app/api/tables/[id]/route.ts:9-19
+   185→export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+   186→  const user = await getCurrentUser()
+   187→  if (!user || user.role !== 'ADMIN')
+   188→    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+   189→  const { id } = await params
+   190→  ...
+   191→  const existing = await db.table.findFirst(user.organizationId, { id }) // ← org filter
+   192→  if (!existing) return NextResponse.json({ error: 'No encontrada' }, { status: 404 })
+   193→  ...
+   194→  const updated = await db.table.update(id, user.organizationId, patch) // ← org filter again
+   195→```
+   196→
+   197→3. `db.table.update` (src/lib/db.ts:474-484) — double filter (id + organization_id):
+   198→```ts
+   199→async update(id: string, organizationId: string, patch: Partial<Table>): Promise<Table> {
+   200→  const { data, error } = await supabaseAdmin
+   201→    .from("tables")
+   202→    .update(patch)
+   203→    .eq("id", id)
+   204→    .eq("organization_id", organizationId)
+   205→    .select().single();
+   206→```
+   207→
+   208→4. `/api/tables/transfer/route.ts` — also filters every UPDATE by organization_id (lines 27, 39, 58, 90, 98).
+   209→
+   210→Notes:
+   211→- All endpoints use `supabaseAdmin` (service_role) which BYPASSES RLS, BUT every query is explicitly filtered by `user.organizationId` from the JWT. RLS is enabled as defense-in-depth (migration 0002_hardened_rls.sql).
+   212→- `organizationId` is attached to the JWT at sign-in (src/lib/next-auth.ts:146 `token.organizationId = u.organizationId`) and surfaced on `session.user.organizationId` in the session callback (src/lib/next-auth.ts:189-200). It is NEVER read from `req.body` or query string. Type augmentation in src/types/next-auth.d.ts:15,31,45 enforces this at compile time.
+   213→- No bug here. ✅
+   214→
+   215→---
+   216→
+   217→### CHECK 4 — Z-index of selected table popover — ❌ BUG
+   218→
+   219→The popover is a child of the table's motion.div. The parent's z-index is raised to 10 only via `whileHover` (transient, only during hover), and the popover uses `z-30` — but that `z-30` is INSIDE the parent's stacking context, so a sibling table with the same z-index 10 (or any table later in DOM order while hover transitions) can render on top of the popover.
+   220→
+   221→Verbatim — ZoneTable parent motion.div (TablesSection.tsx:698-721):
+   222→```tsx
+   223→<motion.div
+   224→  ...
+   225→  whileHover={editMode ? {} : { scale: 1.1, zIndex: 10 }}    // ← zIndex 10 only while hovering
+   226→  whileTap={{ scale: 0.95 }}
+   227→  className={cn(
+   228→    "border-2 flex flex-col items-center justify-center transition-all select-none cursor-pointer relative",
+   229→    ...
+   230→    (isHovered || isSelected) && "ring-2 ring-yellow-400 ring-offset-2 ring-offset-[#0a0a0a]", // ← NO z-index when selected
+   231→    ...
+   232→  )}
+   233→>
+   234→```
+   235→
+   236→Popover (TablesSection.tsx:746-756):
+   237→```tsx
+   238→<AnimatePresence>
+   239→  {showPopover && !editMode && (
+   240→    <motion.div
+   241→      ...
+   242→      className="absolute z-30 pointer-events-none"           // ← z-30 trapped inside parent z-10
+   243→      style={{ bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: "4px" }}
+   244→    >
+   245→```
+   246→
+   247→Concrete failure modes:
+   248→1. Two adjacent tables in the same flex row. User hovers table A (zIndex 10, popover shown at z-30 inside A's stacking context). User moves cursor toward the popover; mid-transition the hover state on A is still active AND pointer enters table B (B also gets zIndex 10). Because B comes later in DOM and has the same z-index, B paints OVER A's popover — popover visually clipped/hidden behind B.
+   249→2. The popover is only triggered by `onMouseEnter` (line 706) — when a table is CLICKED (`isSelected`), no popover is shown at all; the user only gets the full Dialog. That part is fine. BUT the selected table itself is NOT elevated above its siblings, so its `ring-yellow-400` selection ring can be visually overlapped by neighbours.
+   250→
+   251→InteractiveTable (the dead-code sibling at lines 553-588) has the same pattern but is even more explicit about the bug:
+   252→```tsx
+   253→// TablesSection.tsx:558
+   254→style={{ ..., zIndex: isDragging ? 20 : 1 }}   // ← only 20 while dragging, else 1
+   255→// TablesSection.tsx:563
+   256→whileHover={editMode ? {} : { scale: 1.12, zIndex: 10 }}
+   257→// TablesSection.tsx:618
+   258→className="absolute z-30 pointer-events-none"
+   259→```
+   260→
+   261→Proposed fix — promote the parent's z-index when hovered OR selected via a stable Tailwind class (not a transient inline style), and bump the popover higher than any sibling can reach:
+   262→```tsx
+   263→<motion.div
+   264→  ...
+   265→  className={cn(
+   266→    "... relative",
+   267→    (isHovered || isSelected) && "z-50",                       // ← stable z-index elevation
+   268→  )}
+   269→  whileHover={editMode ? {} : { scale: 1.1 }}
+   270→  whileTap={{ scale: 0.95 }}
+   271→>
+   272→  ...
+   273→  <motion.div
+   274→    className="absolute z-[60] pointer-events-none"            // ← above any sibling at z-50
+   275→    style={{ bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: "4px" }}
+   276→  />
+   277→```
+   278→
+   279→---
+   280→
+   281→### Other related issues found
+   282→
+   283→1. **Dead code (~170 lines).** `InteractiveTable` (lines 537-671), `pendingPositions` state (line 104), `draggingId` state (line 105), `dragOffset` ref (line 108), `handleDragStart`/`handleDragMove`/`handleDragEnd` (lines 192-211), `savePositions` (lines 213-216), `getTablePos` (lines 266-270), `savePositionsMut` (lines 135-140), and the "Guardar" button (lines 287-289) are all unreachable. The orphan `/api/tables/positions` endpoint matches this dead UI.
+   284→
+   285→2. **No in-flight guard on zone-drop.** `changeZoneMut.mutate` is fired on every `drop` event without checking `changeZoneMut.isPending`. A user who drags table 1 to TERRACE then immediately drags table 2 to BAR triggers two parallel PATCHes; TanStack Query invalidates `["tables"]` twice, causing a double refetch and a possible visual flicker. Add `draggable={editMode && !changeZoneMut.isPending}` (or use `mutateAsync` with a queue).
+   286→
+   287→3. **No optimistic update on zone change.** After a successful drop the table visually snaps back to its original zone until the `["tables"]` refetch resolves (~150-400 ms). On slow networks this looks broken. Use TanStack Query's `onMutate` to write the new zone into the cache immediately and roll back on `onError`.
+   288→
+   289→4. **No reservation-side sync on zone drop.** `changeZoneMut` PATCHes only the table's `zone`. If a seated reservation (`status: SEATED`) is bound to that table, the reservation's `zone` field is NOT updated until the next time `/api/tables` is hit (which fetches reservations separately). The `transfer` route DOES sync reservation.zone (src/app/api/tables/transfer/route.ts:50-58) — zone drop does not.
+   290→
+   291→5. **Infinite animation cost.** Every occupied/reserved/preparing table spawns a `motion.span` with `animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 2, repeat: Infinity }}` (lines 722-730). For a restaurant with 40+ active tables this is 40 concurrent rAF loops. `useReducedMotion` (line 722) gates it for accessibility, but on a mid-tier Android tablet the LED-style boxShadow pulsing on `InteractiveTable` (dead) and the opacity pulse on `ZoneTable` (live) will burn CPU. Consider gating with `IntersectionObserver` so off-screen tables don't animate, or animate a single shared CSS keyframe.
+   292→
+   293→6. **Sequential UPDATEs in `/api/tables/positions`.** src/app/api/tables/positions/route.ts:21-36 loops with `for...of` + `await`. If 20 tables are batched, that's 20 sequential network round-trips. Use a single `supabaseAdmin.from('tables').update(...).in('id', ids)` (with a CASE WHEN for per-row positions) or a Postgres function.
+   294→
+   295→7. **Popover `pointer-events-none`.** TablesSection.tsx:754 (and 618 for the dead variant) sets `pointer-events-none` on the popover. This is intentional (the popover is a hover preview, click goes to the table), but it also means the popover can't contain a quick-action button. If product wants a "Traspasar" CTA in the preview, this needs revisiting.
+   296→
+   297→8. **No drag preview customisation.** HTML5 dnd uses the browser's default ghost (which includes the entire table card with `opacity-40` applied via `isDragging` class, line 718). On Chromium the ghost is a screenshot, on Firefox it can lag. A custom `dragImage` via `e.dataTransfer.setDragImage` would give a cleaner UX.
+   298→
+   299→9. **`onDragStart` typed as `any`** (line 704) — bypasses TS safety. Minor, but worth tightening to `React.DragEvent<HTMLDivElement>`.
+   300→
+   301→10. **No `aria-grabbed` / `role="application"`** on draggable tables — screen-reader users have no way to know tables are draggable. Pair with fix for CHECK 2 (touch/pointer drag) to also add keyboard handlers (Space to grab, arrows to move, Space to drop).
+   302→
+   303→Stage Summary:
+   304→- 2 of 4 checks FAIL (CHECK 2 touch, CHECK 4 z-index).
+   305→- 1 check is OK (CHECK 3 RLS — org_id is correctly enforced everywhere).
+   306→- 1 check is partially OK (CHECK 1 — no DB spam because the live path uses discrete drop events, but dead code + missing in-flight guard + missing optimistic update are real concerns).
+   307→- Bonus: ~170 lines of dead code, an orphan API endpoint, and 6 additional minor issues identified.
+   308→- This was a READ-ONLY audit. No files were modified. Implementation of fixes should be tracked in a separate task.
+   309→
+   310→---
+   311→Task ID: audit-9
+   312→Agent: explore (audit sub-agent)
+   313→Task: Read-only security, authentication, and multi-tenant isolation audit of RestoPanel SaaS.
+   314→
+   315→Scope inspected (62 source files):
+   316→- Auth core: src/lib/auth.ts, src/lib/session.ts, src/lib/next-auth.ts, src/lib/session-management.ts, src/lib/rate-limit.ts, src/lib/rbac.ts, src/lib/audit.ts, src/middleware.ts, src/types/next-auth.d.ts
+   317→- Auth API: src/app/api/auth/{[...nextauth],register,forgot-password,reset-password,verify-email}/route.ts
+   318→- Multi-tenant API: every route under src/app/api/{orders,reservations,tables,categories,menu,restaurant,customers,notifications,shifts,chat,search,analytics,billing,stripe,whatsapp,user,admin,public,seed,seed-customers}/...
+   319→- Config: next.config.ts, src/lib/supabase/admin.ts, src/lib/stripe.ts, src/lib/web-import.ts, scripts/setup.cjs
+   320→- Type augmentation: src/types/next-auth.d.ts
+   321→
+   322→Severity tally: 6 ❌ BUG (3 CRITICAL), 14 ⚠️ WARN, ~30 ✅ OK
+   323→This was a READ-ONLY audit — no source files were modified.
+   324→
+   325→================================================================
+   326→A. AUTHENTICATION
+   327→================================================================
+   328→
+   329→### A1 — ❌ CRITICAL BUG · Logout does NOT invalidate the JWT server-side
+   330→File: src/components/dashboard/Topbar.tsx:107 (also src/components/admin/SuperAdminShell.tsx:128)
+   331→```ts
+   332→onClick={async () => {
+   333→  toast.success("Cerrando sesión...");
+   334→  await signOut({ redirect: false, callbackUrl: "/" });   // ← only clears the cookie
+   335→  setTimeout(() => window.location.reload(), 150);
+   336→}}
+   337→```
+   338→File: src/lib/session-management.ts:38-53
+   339→```ts
+   340→export async function isSessionValid(jti: string): Promise<boolean> {
+   341→  try {
+   342→    const { data } = await supabaseAdmin.from("user_sessions")
+   343→      .select("revoked_at, expires_at").eq("token_jti", jti).maybeSingle();
+   344→    if (!data) return true;       // If session not tracked, allow (backward compat)
+   345→    if (data.revoked_at) return false;
+   346→    if (new Date(data.expires_at) < new Date()) return false;
+   347→    return true;
+   348→  } catch { return true; }       // Non-critical
+   349→}
+   350→```
+   351→Grep for `isSessionValid` returns exactly ONE hit — its own declaration. It is **never called** by any route, middleware, or the jwt callback. `revokeSession`, `revokeAllUserSessions`, `updateSessionActivity`, `getActiveSessions` are all defined but only `revokeSession`/`revokeAllUserSessions` are invoked — by `/api/user/sessions` DELETE. None of those calls has any effect because nothing checks `revoked_at`.
+   352→
+   353→Consequence: after logout the browser cookie is gone, but the JWT itself is still valid for 30 days (the JWT `maxAge` in src/lib/next-auth.ts:25). Anyone who captured the JWT (XSS, shared device, browser extension, network MITM during the brief HTTP→HTTPS redirect, proxy logs, etc.) keeps full access until natural expiry. This defeats every "remote logout" / "log out other devices" feature advertised by `/api/user/sessions`.
+   354→
+   355→Concrete fix:
+   356→1. In `src/lib/next-auth.ts` `jwt()` callback (or in `src/lib/session.ts` `getCurrentUser()`), add at the top:
+   357→```ts
+   358→if (token.jti) {
+   359→  const ok = await isSessionValid(token.jti)
+   360→  if (!ok) return {} as any  // returning empty object makes getServerSession return null
+   361→}
+   362→```
+   363→2. In `Topbar.tsx` / `SuperAdminShell.tsx` logout handler, fire-and-forget `fetch('/api/auth/signout', { method: 'POST' })` and add a new `/api/auth/signout` route that calls `revokeSession(user.jti)` before delegating to NextAuth's signOut.
+   364→
+   365→---
+   366→
+   367→### A2 — ❌ CRITICAL BUG · `/api/seed` lets ANY authenticated user wipe ALL tenant data
+   368→File: src/app/api/seed/route.ts:5-34
+   369→```ts
+   370→export async function POST(req: Request) {
+   371→  try {
+   372→    const url = new URL(req.url)
+   373→    let force = url.searchParams.get('force') === 'true'
+   374→    // …
+   375→    if (force) {
+   376→      const wipe = async (table: string) => {
+   377→        const { error } = await supabaseAdmin.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000')
+   378→        // …
+   379→      }
+   380→      await wipe('order_items')
+   381→      await wipe('orders')
+   382→      await wipe('reservations')
+   383→      await wipe('tables')
+   384→      await wipe('menu_items')
+   385→      await wipe('categories')
+   386→      await wipe('organization_settings')
+   387→      await wipe('verification_tokens')
+   388→      await wipe('users')
+   389→      await wipe('organizations')          // ← cross-tenant destructive wipe
+   390→    }
+   391→```
+   392→File: src/middleware.ts:18-25
+   393→```ts
+   394→if (pathname.startsWith('/api/')) {
+   395→  const token = await getToken({ req, secret: NEXTAUTH_SECRET || '' })
+   396→  if (!token) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+   397→  if (pathname.startsWith('/api/admin/') && !token.isSuperAdmin) { /* … */ }
+   398→  return NextResponse.next()
+   399→}
+   400→```
+   401→The route is at `/api/seed` — NOT under `/api/admin/`, so middleware only requires ANY valid JWT. A STAFF user (or even a freshly-registered trial tenant) can `POST /api/seed?force=true` and wipe every organization's data + every user account (including the super admin's) across the whole platform. The route handler itself performs NO `getCurrentUser()` / `requireAdmin()` / `isSuperAdmin` check.
+   402→
+   403→Concrete fix:
+   404→1. Move the file to `src/app/api/admin/seed/route.ts` so middleware enforces SUPER_ADMIN, AND add an explicit check in the handler:
+   405→```ts
+   406→const user = await getCurrentUser()
+   407→if (!user?.isSuperAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+   408→```
+   409→2. Disable the `?force=true` wipe path entirely in production (`if (process.env.NODE_ENV === 'production' && force) return 403`).
+   410→3. Delete the demo credentials block from the response (lines 332-335) — it leaks `demo@lazamorana.es / demo1234` to anyone who hits the endpoint.
+   411→
+   412→---
+   413→
+   414→### A3 — ❌ CRITICAL BUG · Hardcoded super-admin credentials in source + returns password in API response
+   415→File: src/app/api/admin/seed-super-admin/route.ts:20-23, 64-69
+   416→```ts
+   417→export async function POST() {
+   418→  try {
+   419→    const email = 'owner@restopanel.es'
+   420→    const password = 'owner2026'                // ← hardcoded credential
+   421→    // …
+   422→    return NextResponse.json({
+   423→      ok: true,
+   424→      message: 'SUPER_ADMIN creado correctamente',
+   425→      user: data,
+   426→      credentials: { email, password },          // ← password echoed back in the JSON body
+   427→    })
+   428→```
+   429→Also: the route is under `/api/admin/` so middleware blocks it for non-super-admins — meaning the endpoint can NEVER bootstrap the first super admin via the API. So either it's dead code (and the password leak is purely a source-code leak) OR the developer intended to disable middleware for it (in which case the password leak becomes exploitable). Either interpretation is bad.
+   430→
+   431→Consequence: anyone with read access to the repo (or git history) knows the production super-admin email + password if this script was ever used. Combined with `isSessionValid` never being called (A1), a stolen super-admin JWT is immortal.
+   432→
+   433→Concrete fix:
+   434→1. Read `email` and `password` from env vars (`SUPER_ADMIN_SEED_EMAIL`, `SUPER_ADMIN_SEED_PASSWORD`) — fail with 400 if not set. Never echo them back.
+   435→2. Better: delete this route and create the super admin via a CLI script (`scripts/seed-super-admin.cjs`) that uses `supabaseAdmin` directly and is run once on deploy, OR via a SQL migration.
+   436→3. Force a password rotation in any environment where this code ever ran.
+   437→
+   438→---
+   439→
+   440→### A4 — ⚠️ WARN · Brute-force protection is in-memory only — useless in serverless / multi-instance
+   441→File: src/lib/session-management.ts:180-225
+   442→```ts
+   443→const loginAttempts = new Map<string, { count: number; firstAt: number; lockedUntil: number }>();
+   444→const MAX_ATTEMPTS = 5;
+   445→const LOCKOUT_DURATION = 15 * 60 * 1000;
+   446→const WINDOW_DURATION = 5 * 60 * 1000;
+   447→
+   448→export function isAccountLocked(email: string): boolean { /* … */ }
+   449→export function recordFailedLogin(email: string): { locked: boolean; attemptsLeft: number } { /* … */ }
+   450→```
+   451→On Vercel / Cloudflare Workers / any multi-instance deploy, each warm instance has its own `loginAttempts` Map. An attacker rotating requests across instances effectively gets `5 × N` attempts before lockout. The platform is deployed as `output: "standalone"` (next.config.ts:4) — fine on a single VM, broken on serverless. Same applies to the in-memory limiters in `forgot-password/route.ts:12`, `public/reviews/route.ts:26`, `restaurant/import-web/route.ts:18`, and `src/lib/rate-limit.ts:24`.
+   452→
+   453→Concrete fix: move the attempt counters to a `login_attempts` Supabase table keyed by `(email, ip)` with `expires_at`, or use Upstash Redis. Same for all the per-route inline limiters.
+   454→
+   455→---
+   456→
+   457→### A5 — ⚠️ WARN · `register` endpoint has NO rate limit and leaks the email-verification token
+   458→File: src/app/api/auth/register/route.ts:146-153
+   459→```ts
+   460→return NextResponse.json({
+   461→  ok: true,
+   462→  userId: user.id,
+   463→  restaurantId: organization.id,
+   464→  organizationId: organization.id,
+   465→  restaurantSlug: organization.slug,
+   466→  verifyToken,                                  // ← email-verification token returned to caller
+   467→})
+   468→```
+   469→Also no `checkRateLimit` / `RATE_LIMITS.register` call despite `RATE_LIMITS.register` being defined in src/lib/rate-limit.ts:73.
+   470→
+   471→Consequences:
+   472→1. The verify-token is meant to prove control of the email inbox. Returning it in the response lets an attacker register with someone else's email and immediately self-verify without ever reading that inbox.
+   473→2. No rate limit → an attacker can spam-tenant creation (each call creates an `organizations` row + sends 2 emails via Resend). At best this burns the Resend quota; at worst it pollutes the tenant list and triggers AWS SES / Resend throttles.
+   474→
+   475→Concrete fix:
+   476→1. Remove `verifyToken` from the response body.
+   477→2. Add `const rl = checkRateLimit(req, RATE_LIMITS.register); if (rl.limited) return 429` at the top of the handler. (Requires wiring `src/lib/rate-limit.ts` to Redis first per A4.)
+   478→
+   479→---
+   480→
+   481→### A6 — ⚠️ WARN · `forgot-password` returns the reset token in dev mode — and dev detection is brittle
+   482→File: src/app/api/auth/forgot-password/route.ts:75-78
+   483→```ts
+   484→const isDev = process.env.NODE_ENV !== 'production'
+   485→if (isDev) {
+   486→  return NextResponse.json({ ok: true, message: genericMessage, resetToken: token })
+   487→}
+   488→```
+   489→`NODE_ENV !== 'production'` is true for both `development` AND `test`, and it's also true if someone forgets to set NODE_ENV in staging. The reset token is single-use and expires in 1h, but if a staging environment ever exposes this endpoint to the public internet, anyone can request a reset for any email and get the token back in the response — bypassing the email channel entirely.
+   490→
+   491→Concrete fix: gate this behind an explicit `process.env.RESET_TOKEN_IN_RESPONSE === 'true'` flag (default off), and log a warning when it's enabled.
+   492→
+   493→---
+   494→
+   495→### A7 — ⚠️ WARN · Email-verification + password-reset tokens travel in the URL query string
+   496→File: src/app/api/auth/verify-email/route.ts:4-8
+   497→```ts
+   498→export async function GET(req: Request) {
+   499→  try {
+   500→    const url = new URL(req.url)
+   501→    const token = url.searchParams.get('token')
+   502→    if (!token) return NextResponse.json({ error: 'Token no proporcionado' }, { status: 400 })
+   503→```
+   504→File: src/app/api/auth/forgot-password/route.ts:60
+   505→```ts
+   506→const resetUrl = `${baseUrl}/reset?token=${token}`
+   507→```
+   508→Tokens in the URL leak via: browser history, Referer header on any external link the user clicks post-redirect, web-server access logs, reverse-proxy/CDN logs, and corporate proxy caches. Referrer-Policy is set to `strict-origin-when-cross-origin` in next.config.ts:27 which strips the query string on cross-origin navigations — good defense-in-depth — but does not protect against same-origin leaks (analytics scripts, etc.) or against the logs/history vectors.
+   509→
+   510→Concrete fix: switch to a fragment-based flow (`/reset#token=…`) where the token never reaches the server log, OR use an opaque `ticket` exchange where the email link hits a short-lived redirect endpoint that sets the token as an httpOnly cookie and 302s to `/reset`. The fragment approach is the simpler fix.
+   511→
+   512→---
+   513→
+   514→### A8 — ⚠️ WARN · Impersonation cookies missing `secure` flag (and have an 8-hour lifetime)
+   515→File: src/app/api/admin/impersonate/route.ts:70-81
+   516→```ts
+   517→res.cookies.set('impersonate_org_id', org.id, {
+   518→  httpOnly: true,
+   519→  sameSite: 'lax',
+   520→  path: '/',
+   521→  maxAge: 60 * 60 * 8, // 8 hours max impersonation
+   522→})
+   523→res.cookies.set('impersonate_org_name', org.name, {
+   524→  httpOnly: true,
+   525→  sameSite: 'lax',
+   526→  path: '/',
+   527→  maxAge: 60 * 60 * 8,
+   528→})
+   529→```
+   530→`secure: true` is not set. NextAuth's own session cookies do set `secure` in production (NextAuth v4 default), but these custom cookies do not, so they will be transmitted over plain HTTP if the request ever lands on a non-HTTPS URL. Combined with `sameSite: 'lax'`, a MITM on the same network could read/write the impersonation state. Also, 8 hours is a long window — a super admin who steps away from their machine leaves the impersonation channel open.
+   531→
+   532→Concrete fix:
+   533→```ts
+   534→res.cookies.set('impersonate_org_id', org.id, {
+   535→  httpOnly: true,
+   536→  secure: process.env.NODE_ENV === 'production',
+   537→  sameSite: 'lax',
+   538→  path: '/',
+   539→  maxAge: 60 * 60, // 1 hour is enough for a support session
+   540→})
+   541→```
+   542→Also: have the jwt callback (src/lib/next-auth.ts:155-165) re-validate that the impersonated org still exists and is `ACTIVE` on every request — currently once the cookie is set, the impersonation persists even if the tenant is later suspended.
+   543→
+   544→---
+   545→
+   546→### A9 — ⚠️ WARN · JWT carries role for 30 days with no server-side revalidation
+   547→File: src/lib/next-auth.ts:25
+   548→```ts
+   549→session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 }, // 30 days
+   550→```
+   551→The `role`, `isSuperAdmin`, `organizationId`, and `blocked` flag are stamped onto the JWT at sign-in and never refreshed. If an admin is demoted to STAFF, blocked (`users.blocked=true`, checked in authorize() at src/lib/next-auth.ts:54-57), or the tenant is suspended (line 112), none of those changes take effect until the user's JWT naturally expires (30 days) — unless the user manually re-logs in.
+   552→
+   553→Concrete fix: in the `jwt()` callback, periodically (e.g., every 5 min based on a `token.lastRefreshedAt` claim) re-fetch the user row and re-stamp `role`, `isSuper_admin`, `blocked`. If `blocked` is true, return `null` (forces sign-out). Combine with A1's `isSessionValid` check.
+   554→
+   555→---
+   556→
+   557→### A10 — ✅ OK · NextAuth core config
+   558→File: src/lib/next-auth.ts:16-27, 29-134
+   559→- `NEXTAUTH_SECRET` is required at module load (throws if missing) — good.
+   560→- JWT strategy with 30-day maxAge — documented.
+   561→- Credentials provider lowercases + trims email — fine.
+   562→- Suspended tenants are blocked at sign-in (line 112).
+   563→- `blocked` user flag is honored (line 54).
+   564→- `bcrypt` with cost factor 10 (src/lib/auth.ts:4) — acceptable for 2026, could be bumped to 12.
+   565→- `trustHost: true` (line 27) — required for NextAuth v4 on Vercel/standalone, safe.
+   566→- Default NextAuth cookie config (`__Secure-` prefix + `secure: true` in production, `httpOnly: true`, `sameSite: 'lax'`) is used — no custom override that would weaken it.
+   567→- NextAuth's built-in CSRF token is active on `/api/auth/*` POSTs.
+   568→
+   569→### A11 — ✅ OK · Middleware blocks unauthenticated API access
+   570→File: src/middleware.ts:7-25, 40-42
+   571→Every `/api/*` path (except `/api/auth`, `/api/public`, `/api/health`) requires a valid signed JWT. `/api/admin/*` additionally requires `token.isSuperAdmin === true`. The matcher regex correctly excludes the public paths from running middleware at all, which avoids any chance of an auth check accidentally running on a webhook.
+   572→
+   573→### A12 — ✅ OK · Admin / super_admin checks are server-side
+   574→Every `/api/admin/*` route I inspected (`tenants`, `tenants/[id]`, `tenants/[id]/details`, `users`, `logs`, `health`, `notifications`, `notifications/[id]`, `notifications/mark-all-read`, `reviews`, `search`, `maintenance`, `settings`, `stats`, `system-status`, `billing`, `customers`, `seed-notifications`, `impersonate`) re-asserts `if (!user?.isSuperAdmin) return 403` inside the handler — defense-in-depth on top of the middleware check.
+   575→
+   576→================================================================
+   577→B. MULTI-TENANT ISOLATION
+   578→================================================================
+   579→
+   580→### B1 — ❌ BUG · `/api/user/sessions` DELETE — IDOR on `jti` (and revocation is a no-op)
+   581→File: src/app/api/user/sessions/route.ts:14-34
+   582→```ts
+   583→export async function DELETE(req: Request) {
+   584→  const user = await getCurrentUser();
+   585→  if (!user) { /* 401 */ }
+   586→  const { searchParams } = new URL(req.url);
+   587→  const jti = searchParams.get("jti");
+   588→  // …
+   589→  if (jti) {
+   590→    await revokeSession(jti);          // ← no user_id check
+   591→    return NextResponse.json({ ok: true, message: "Sesión cerrada" });
+   592→  }
+   593→```
+   594→File: src/lib/session-management.ts:55-62
+   595→```ts
+   596→export async function revokeSession(jti: string): Promise<void> {
+   597→  try {
+   598→    await supabaseAdmin
+   599→      .from("user_sessions")
+   600→      .update({ revoked_at: new Date().toISOString() })
+   601→      .eq("token_jti", jti);           // ← only filtered by token_jti, NOT by user_id
+   602→  } catch {}
+   603→}
+   604→```
+   605→Any authenticated user can revoke any other user's session by passing their `jti` as a query param. The `jti` is a `randomUUID()` (not guessable in practice), but this is still a textbook IDOR — and it is also a privilege-integrity problem because the route is reachable by STAFF users against ADMIN sessions, and by tenant users against the super admin. The bug is currently masked by A1 (revocation is never checked, so it does nothing), but as soon as A1 is fixed this becomes a live attack surface.
+   606→
+   607→Concrete fix:
+   608→```ts
+   609→export async function revokeSession(jti: string, userId: string): Promise<void> {
+   610→  await supabaseAdmin
+   611→    .from("user_sessions")
+   612→    .update({ revoked_at: new Date().toISOString() })
+   613→    .eq("token_jti", jti)
+   614→    .eq("user_id", userId);          // ← scope to the caller
+   615→}
+   616→```
+   617→And in the route: `await revokeSession(jti, user.id)`.
+   618→
+   619→---
+   620→
+   621→### B2 — ⚠️ WARN · `/api/customers/[id]` PATCH/DELETE — UPDATE/DELETE statements skip `organization_id` filter
+   622→File: src/app/api/customers/[id]/route.ts:91-117 (PATCH), 134-152 (DELETE)
+   623→```ts
+   624→// PATCH — verify tenancy, then update without re-filtering
+   625→const { data: existing } = await supabaseAdmin.from('customers').select('id')
+   626→  .eq('id', id).eq('organization_id', user.organizationId).maybeSingle()
+   627→if (!existing) return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
+   628→
+   629→const patch: any = {}
+   630→// … build patch from body …
+   631→
+   632→const { data, error } = await supabaseAdmin.from('customers')
+   633→  .update(patch)
+   634→  .eq('id', id)                                    // ← missing .eq('organization_id', …)
+   635→  .select().single()
+   636→```
+   637→Same pattern in DELETE (line 148-152): `delete().eq('id', id)` only.
+   638→
+   639→The check-then-act pattern is *probably* safe under normal use because the previous `findFirst` already verified ownership, but it's a TOCTOU window: between the findFirst and the UPDATE, another request could theoretically change the row's `organization_id` (e.g., a future admin "move customer to another tenant" feature). Worse, this loses the defense-in-depth that every other route in this codebase has — compare with `db.category.delete` (src/lib/db.ts:351-358) which filters by both `id` AND `organization_id`.
+   640→
+   641→Also the GET (line 32-37) for reservation history only filters by `customer_id`, not by `organization_id`:
+   642→```ts
+   643→const { data: reservations } = await supabaseAdmin.from('reservations')
+   644→  .select('id, date, party_size, status, shift, zone, table_id, notes, duration_minutes, channel, tables(number, name, zone)')
+   645→  .eq('customer_id', id)
+   646→  .order('date', { ascending: false })
+   647→  .limit(50)
+   648→```
+   649→
+   650→Concrete fix: add `.eq('organization_id', user.organizationId)` to the UPDATE, the DELETE, AND the reservations lookup (line 32).
+   651→
+   652→---
+   653→
+   654→### B3 — ⚠️ WARN · `/api/chat/messages` POST does not validate `channelId` belongs to the tenant
+   655→File: src/app/api/chat/messages/route.ts:31-49
+   656→```ts
+   657→const body = await req.json()
+   658→const { channelId, content, priority } = body
+   659→if (!channelId || !content) return NextResponse.json({ error: 'Faltan datos' }, { status: 400 })
+   660→
+   661→const { data, error } = await supabaseAdmin
+   662→  .from('chat_messages')
+   663→  .insert({
+   664→    channel_id: channelId,                        // ← user-supplied, not validated
+   665→    user_id: user.id,
+   666→    user_name: user.name,
+   667→    user_avatar: null,
+   668→    content,
+   669→    priority: priority || 'normal',
+   670→    read_by: [user.id],
+   671→    organization_id: user.organizationId,
+   672→  })
+   673→  .select().single()
+   674→```
+   675→If the FK `(channel_id) REFERENCES chat_channels(id)` is enforced, the insert will fail when `channelId` belongs to another tenant — but that's a brittle defense. If the FK is ever dropped or the channel table is renamed, this becomes a cross-tenant message injection. The GET (line 13-19) does filter by `organization_id`, so the message wouldn't be visible to the attacker afterwards — but it would still be inserted and could surface in admin reports.
+   676→
+   677→Concrete fix: before insert, fetch the channel and verify ownership:
+   678→```ts
+   679→const { data: ch } = await supabaseAdmin.from('chat_channels').select('id')
+   680→  .eq('id', channelId).eq('organization_id', user.organizationId).maybeSingle()
+   681→if (!ch) return NextResponse.json({ error: 'Canal no válido' }, { status: 400 })
+   682→```
+   683→
+   684→---
+   685→
+   686→### B4 — ⚠️ WARN · `/api/restaurant` PATCH — settings mass-assignment via dynamic snake_case conversion
+   687→File: src/app/api/restaurant/route.ts:72-80
+   688→```ts
+   689→if (settings) {
+   690→  const settingsPatch: any = {}
+   691→  for (const [k, v] of Object.entries(settings)) {
+   692→    const snake = k.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
+   693→    settingsPatch[snake] = v                        // ← any key from body goes through
+   694→  }
+   695→  await db.organizationSettings.upsert(user.organizationId, settingsPatch)
+   696→}
+   697→```
+   698→A caller can send `{"settings":{"id":"<uuid>","organizationId":"<other-org-id>"}}` which becomes `settingsPatch = { id: "<uuid>", organization_id: "<other-org-id>" }`. The upsert (src/lib/db.ts:657-677) issues `update(patch).eq('organization_id', user.organizationId)` — the WHERE clause scopes the update to the caller's row, but the SET clause now includes `organization_id: <other-org-id>` and `id: <uuid>`, which PostgREST will happily apply. Result: the caller's settings row is corrupted (wrong `organization_id` FK, changed PK). Not a horizontal-privilege escalation, but a self-DoS / data-integrity bug, and the wrong-org-id FK on the settings row could lead to information leak if any later code joins settings → organizations without re-checking.
+   699→
+   700→Concrete fix: whitelist allowed keys:
+   701→```ts
+   702→const ALLOWED = ['monOpen','monClose','tueOpen','tueClose', /* … */ 'taxRate','serviceCharge']
+   703→const settingsPatch: any = {}
+   704→for (const k of ALLOWED) {
+   705→  if (settings[k] !== undefined) {
+   706→    const snake = k.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
+   707→    settingsPatch[snake] = settings[k]
+   708→  }
+   709→}
+   710→```
+   711→
+   712→---
+   713→
+   714→### B5 — ⚠️ WARN · `/api/public/reviews` POST auto-approves + accepts arbitrary `organization_id` from the body
+   715→File: src/app/api/public/reviews/route.ts:130, 162-167
+   716→```ts
+   717→const organization_id = body?.organization_id && typeof body.organization_id === "string" ? body.organization_id : null;
+   718→// …
+   719→const { data, error } = await supabaseAdmin
+   720→  .from("public_reviews")
+   721→  .insert({
+   722→    // …
+   723→    organization_id: organization_id || null,
+   724→    source: "LANDING",
+   725→    status: "APPROVED",                             // ← auto-approved, appears on wall instantly
+   726→  })
+   727→```
+   728→Anyone (no auth) can post a review tagged with ANY organization's UUID, and it goes live immediately on the public wall. Combined with the 3-per-10-minutes-per-IP limiter being in-memory (so trivially bypassed by IP rotation in serverless), a competitor or a malicious bot could:
+   729→- Spam fake 1-star reviews tagged to a victim tenant.
+   730→- Spam fake 5-star reviews tagged to their own tenant to inflate rating.
+   731→
+   732→The auto-approval is explicitly intended ("Reviews are auto-approved so they appear on the landing wall immediately", line 140-148) — but combined with arbitrary `organization_id`, it's a reputation-attack vector.
+   733→
+   734→Concrete fix:
+   735→1. Either require moderation (`status: "PENDING"`) and let the super admin approve.
+   736→2. OR validate `organization_id` against `organizations.status = 'ACTIVE' AND organizations.public_enabled = true` and rate-limit per `organization_id` (not just per IP).
+   737→3. Move the limiter to Redis/DB so it can't be bypassed by IP rotation in serverless.
+   738→
+   739→---
+   740→
+   741→### B6 — ✅ OK · Every other tenant-scoped route correctly filters by `user.organizationId`
+   742→I went through every route file under `src/app/api/`. Routes that read `organizationId` from the session (via `getCurrentUser()`) AND filter every DB query by `.eq('organization_id', user.organizationId)`:
+   743→
+   744→| Route | GET | POST | PATCH | DELETE | Notes |
+   745→|---|---|---|---|---|---|
+   746→| `/api/orders` | ✅ | ✅ |  |  | Also validates `tableId` + `menuItemId` belong to tenant |
+   747→| `/api/orders/[id]` | ✅ |  | ✅ |  | `db.order.findById(id, user.organizationId)` |
+   748→| `/api/reservations` | ✅ | ✅ |  |  | Validates `tableId` + `customerId` |
+   749→| `/api/reservations/[id]` |  |  | ✅ | ✅ | `db.reservation.findById(id, user.organizationId)` |
+   750→| `/api/tables` | ✅ | ✅ |  |  | |
+   751→| `/api/tables/[id]` |  |  | ✅ | ✅ | `db.table.findFirst(user.organizationId, { id })` + `db.table.update(id, user.organizationId, patch)` (double-filtered) |
+   752→| `/api/tables/positions` |  | ✅/✅ |  |  | `.eq('organization_id', user.organizationId)` on every UPDATE in the loop |
+   753→| `/api/tables/group` |  | ✅ |  | ✅ | Validates all `tableIds` belong to tenant before update |
+   754→| `/api/tables/transfer` |  | ✅ |  |  | Validates both reservation + newTable by `organization_id` |
+   755→| `/api/tables/available` | ✅ |  |  |  | Filters tables + reservations by org |
+   756→| `/api/categories` | ✅ | ✅ |  |  | |
+   757→| `/api/categories/[id]` |  |  | ✅ | ✅ | `db.category.findFirst(user.organizationId, { id })` + `db.category.update/delete(id, user.organizationId, …)` (double-filtered) |
+   758→| `/api/menu` | ✅ | ✅ |  |  | Validates `categoryId` belongs to tenant |
+   759→| `/api/menu/[id]` |  |  | ✅ | ✅ | `db.menuItem.findById(id, user.organizationId)` + double-filtered update/delete |
+   760→| `/api/restaurant` | ✅ |  | ✅ |  | Uses `user.organizationId` for findById/update/findByOrg/upsert. (B4 is a settings-mass-assignment issue, not an isolation issue.) |
+   761→| `/api/restaurant/import-web` | ✅ | ✅ |  |  | `runImportJob({ organizationId: user.organizationId, … })`; SSRF protection in src/lib/web-import.ts:141-166 |
+   762→| `/api/notifications` | ✅ |  |  |  | `.eq('organization_id', user.organizationId).or('user_id.eq.<me>,user_id.is.null')` |
+   763→| `/api/notifications/[id]` |  |  | ✅ |  | Verifies `notif.organization_id === user.organizationId` before any write |
+   764→| `/api/notifications/mark-all-read` |  | ✅ |  |  | Filters by `organization_id` |
+   765→| `/api/shifts` | ✅ | ✅ |  |  | |
+   766→| `/api/shifts/[id]` |  |  | ✅ | ✅ | `.eq('id', id).eq('organization_id', user.organizationId)` on UPDATE + DELETE |
+   767→| `/api/chat/channels` | ✅ | ✅ |  |  | |
+   768→| `/api/chat/messages` | ✅ | ⚠️ B3 |  |  | GET is fine; POST is B3 |
+   769→| `/api/customers` | ✅ | ✅ |  |  | |
+   770→| `/api/customers/[id]` | ✅ |  | ⚠️ B2 | ⚠️ B2 | |
+   771→| `/api/customers/search` | ✅ |  |  |  | |
+   772→| `/api/search` | ✅ |  |  |  | All 4 sub-queries filtered by org |
+   773→| `/api/analytics` | ✅ |  |  |  | `db.analytics.getDashboard(user.organizationId)` — every internal query is `.eq('organization_id', organizationId)` (src/lib/db.ts:700-747) |
+   774→| `/api/billing/checkout` |  | ✅ |  |  | `user.organizationId` |
+   775→| `/api/billing/portal` |  | ✅ |  |  | `getOrgPlan(user.organizationId)` |
+   776→| `/api/billing/subscription` | ✅ | ✅ |  |  | `user.organizationId` on every query |
+   777→| `/api/whatsapp/status` | ✅ |  |  |  | `.eq('organization_id', user.organizationId)` |
+   778→| `/api/user/profile` | ✅ | ✅ |  |  | Scoped by `user.id` |
+   779→| `/api/user/activity` | ✅ |  |  |  | `.eq('user_id', user.id)` |
+   780→| `/api/admin/tenants` | ✅ | ✅ |  |  | SUPER_ADMIN only — global by design |
+   781→| `/api/admin/tenants/[id]` | ✅ | ✅ |  |  | SUPER_ADMIN only — global by design |
+   782→| `/api/admin/tenants/[id]/details` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   783→| `/api/admin/users` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   784→| `/api/admin/logs` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   785→| `/api/admin/health` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   786→| `/api/admin/stats` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   787→| `/api/admin/system-status` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   788→| `/api/admin/billing` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   789→| `/api/admin/customers` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   790→| `/api/admin/search` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   791→| `/api/admin/reviews` | ✅ | ✅ | ✅ | ✅ | SUPER_ADMIN only — global by design |
+   792→| `/api/admin/notifications` | ✅ | ✅ |  |  | `.eq('user_id', user.id)` |
+   793→| `/api/admin/notifications/[id]` |  |  | ✅ | ✅ | `.eq('id', id).eq('user_id', user.id)` — double-filtered |
+   794→| `/api/admin/notifications/mark-all-read` |  | ✅ |  |  | `.eq('user_id', user.id)` |
+   795→| `/api/admin/maintenance` | ✅ | ✅ |  |  | SUPER_ADMIN only on POST; GET is public (intentional) |
+   796→| `/api/admin/settings` | ✅ | ✅ |  |  | SUPER_ADMIN only — global by design |
+   797→| `/api/admin/impersonate` |  | ✅ | ✅(DELETE) |  | SUPER_ADMIN only — see A8 |
+   798→| `/api/public/[slug]` | ✅ |  |  |  | Public by design; filters by `restaurant.id` |
+   799→| `/api/public/reviews` | ✅ | ⚠️ B5 |  |  | Public by design |
+   800→| `/api/health` | ✅ |  |  |  | Public by design |
+   801→| `/api/seed` |  | ❌ A2 |  |  | |
+   802→| `/api/seed-customers` |  | ✅ |  |  | `user.organizationId` |
+   803→| `/api/roles` | ✅ |  |  |  | |
+   804→| `/api/permissions` | ✅ |  |  |  | |
+   805→| `/api/route.ts` | ✅ |  |  |  | Returns `{message:"Hello, world!"}` — harmless |
+   806→
+   807→The data-access layer (`src/lib/db.ts`) consistently takes `organizationId` as an explicit parameter and applies `.eq('organization_id', organizationId)` on every read, update, and delete. RLS is enabled as defense-in-depth (per migration 0002_hardened_rls.sql) but never relied upon because `supabaseAdmin` uses the service_role key. `organizationId` is stamped on every INSERT. The session type augmentation (`src/types/next-auth.d.ts:15,31,45`) enforces `organizationId: string` at compile time so a missing org context fails the build (where `ignoreBuildErrors: true` is OFF — see D5).
+   808→
+   809→================================================================
+   810→C. OWASP TOP 10 QUICK SCAN
+   811→================================================================
+   812→
+   813→### C1 — ✅ OK · A03 SQL Injection
+   814→No string-concatenated SQL anywhere. All DB access is via the Supabase JS client's parameterised REST API (`.eq()`, `.in()`, `.or()`, `.ilike()`, etc.). The only raw-SQL-ish patterns are:
+   815→- Regex HTML parsing in src/lib/web-import.ts:288-489 — operates on remote HTML strings, never touches SQL.
+   816→- The `.or(\`name.ilike.${like},…\`)` patterns in `search/route.ts:29,36,43,52` and `admin/search/route.ts:31,37,43` and `admin/customers/route.ts:23` and `customers/route.ts:26` and `customers/search/route.ts:20` — the `like` value is built from user-supplied `q` URL params. Supabase's PostgREST does parameterise these, BUT an attacker who injects `,` or `.` characters into `q` could potentially craft a malformed filter that errors out (PostgREST rejects malformed filters with 400). No SQL injection risk — PostgREST's `.or()` parser is strict. ✅
+   817→
+   818→### C2 — ✅ OK · A03 XSS
+   819→Three `dangerouslySetInnerHTML` usages, all safe:
+   820→- `src/app/landing/page.tsx:213-216` and `src/app/landing/head.tsx:195-207`: render `JSON.stringify(<local object>)` into `<script type="application/ld+json">`. The data is built from constants + approved DB reviews — no user input reaches the JSON-LD unsanitised, and `JSON.stringify` escapes `<` and `>` into `\u003c`/`\u003e` by default in modern Node, which prevents `</script>` breakout.
+   821→- `src/components/ui/chart.tsx:83`: shadcn/ui chart style injector — uses static `THEMES` constant.
+   822→No other unescaped user-content rendering. React escapes by default, and all customer-supplied strings (customer notes, reservation notes, chat messages, review body, etc.) flow through `{}` JSX children. ✅
+   823→
+   824→### C3 — ✅ OK · A01 CSRF
+   825→- NextAuth's built-in CSRF token is enabled by default on `/api/auth/*` POSTs (sign-in, sign-out, registration via the credentials provider).
+   826→- All other state-changing API routes require `Content-Type: application/json` (set by `src/lib/api.ts:10`) and the NextAuth session cookie is `sameSite: 'lax'` (default) — which means a cross-site HTML form POST (which sends `application/x-www-form-urlencoded`) cannot ride along the session cookie. Combined, traditional CSRF is mitigated.
+   827→- The impersonation endpoints (`/api/admin/impersonate` POST/DELETE) read `organizationId` from the body and write cookies — these are POST routes under `/api/admin/` so they require a SUPER_ADMIN JWT, which provides implicit CSRF protection (an attacker can't forge the cookie).
+   828→
+   829→### C4 — ⚠️ WARN · A10 SSRF — image proxy / Next.js image optimizer + web-import
+   830→File: next.config.ts:9-15
+   831→```ts
+   832→images: {
+   833→  remotePatterns: [
+   834→    { protocol: "https", hostname: "**" },
+   835→    { protocol: "http", hostname: "**" },
+   836→  ],
+   837→  formats: ["image/avif", "image/webp"],
+   838→  dangerouslyAllowSVG: true,
+   839→  contentDispositionType: "attachment",
+   840→  contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
+   841→},
+   842→```
+   843→The Next.js image optimizer accepts ANY http(s) URL via `_next/image?url=…` and fetches it server-side. An attacker can use this as an SSRF proxy: `/_next/image?url=http://169.254.169.254/latest/meta-data/iam/…&w=16&q=1`. Next.js does have an internal blocklist for some private IP ranges, but it has historically had bypasses (DNS rebinding, IPv6-mapped IPv4, decimal-octal encodings). The web-import service (src/lib/web-import.ts:141-166) has its OWN `isPrivateUrl` check that blocks 10.x / 172.16-31.x / 192.168.x / 169.254.x / metadata.google.internal — good — but it does NOT cover IPv6-mapped IPv4 (`::ffff:169.254.169.254`) or DNS rebinding. The image optimizer has no such check at all.
+   844→
+   845→`dangerouslyAllowSVG: true` would let uploaded SVGs (which can contain `<script>` tags) execute in the browser — BUT `contentDispositionType: "attachment"` + `script-src 'none'` CSP on the image response mitigates this (the SVG is downloaded, not rendered inline, and inline scripts in the SVG are blocked). Still, allowing arbitrary SVG is risky if the CSP is ever loosened.
+   846→
+   847→Concrete fix:
+   848→1. Restrict `remotePatterns` to a whitelist of known image CDNs (Cloudinary, Cloudflare Images, Supabase Storage, the app's own origin) — drop `hostname: "**"`.
+   849→2. Set `dangerouslyAllowSVG: false` (default) — if SVG support is truly needed, proxy uploads through a sanitizer like `isomorphic-dompurify`.
+   850→3. In `isPrivateUrl`, also block `::ffff:`-prefixed IPv4, hostnames that resolve to private IPs (use `dns.lookup`), and well-known cloud metadata hostnames (`metadata.google.internal`, `metadata.azure.com`, `169.254.169.254`).
+   851→
+   852→### C5 — ✅ OK · A08 Mass Assignment
+   853→- `/api/restaurant/route.ts` PATCH destructures named fields (line 46-51) — safe.
+   854→- `/api/restaurant/route.ts` settings PATCH — see B4 (mass-assignment on settings sub-object). ⚠️
+   855→- `/api/customers/route.ts` POST and `/api/customers/[id]/route.ts` PATCH both build a `patch: any = {}` with explicit `if (body.X !== undefined) patch.Y = body.X` per field — safe.
+   856→- All `/api/tables`, `/api/menu`, `/api/categories`, `/api/orders`, `/api/reservations`, `/api/shifts` PATCH routes follow the same explicit-field-copy pattern — safe.
+   857→- `/api/admin/settings/route.ts:14-24` PATCH takes a `key` + `value` pair — explicit, safe.
+   858→
+   859→### C6 — ✅ OK · A01 Open Redirect
+   860→Only one redirect in the codebase: `src/middleware.ts:30`:
+   861→```ts
+   862→if (token) return NextResponse.redirect(new URL('/', req.url))
+   863→```
+   864→The redirect target is hardcoded to `/`, using the request URL as the base — not user-controlled. Stripe success/cancel URLs are constructed from `process.env.NEXTAUTH_URL` + a hardcoded query string (src/app/api/billing/checkout/route.ts:30-31, src/lib/stripe.ts:84-85). No `req.body.returnUrl`-style pattern exists.
+   865→
+   866→### C7 — ✅ OK · A01 Path Traversal
+   867→No file-upload endpoint actually exists in `src/app/api/` despite `src/lib/api.ts:30-40` defining an `uploadFile()` client helper that POSTs to `/api/upload` — that route does not exist in the codebase. So there's no path-traversal surface via the API. The web-import service stores HTML in a DB cache table (`import_html_cache`), not the filesystem. ✅ (Bonus: dead client code `uploadFile()` should be deleted.)
+   868→
+   869→### C8 — ✅ OK · A02 Sensitive Data Exposure in API responses
+   870→- `password_hash` is on the `User` type (src/lib/db.ts:51) and is fetched by `db.user.findByEmail` (line 234-241), but it is only used inside `verifyPassword` and never serialized into a NextAuth session or API response. The session callback in src/lib/next-auth.ts:178-208 copies only `id, email, name, role, isSuperAdmin, restaurantId, organizationId, …` — no password hash.
+   871→- `verifyToken` is exposed in `/api/auth/register` response — see A5. ⚠️
+   872→- `resetToken` is exposed in `/api/auth/forgot-password` dev response — see A6. ⚠️
+   873→- `/api/admin/tenants/[id]` returns the full `users` row including `password_hash`! File: src/app/api/admin/tenants/[id]/route.ts:16-22
+   874→```ts
+   875→const [settings, users, …] = await Promise.all([
+   876→  // …
+   877→  (async () => {
+   878→    const { supabaseAdmin } = await import('@/lib/supabase/admin')
+   879→    const { data } = await supabaseAdmin.from('users').select('*').eq('organization_id', id)…
+   880→    return data || []
+   881→  })(),
+   882→```
+   883→`select('*')` returns `password_hash` for every user in the tenant. The response is sent to the super admin only (middleware enforces SUPER_ADMIN), so the blast radius is limited — but super admins should not see bcrypt hashes either (defense-in-depth + avoids trivial credential-stuffing if the admin token is ever stolen). Same issue in `/api/admin/tenants/[id]/details/route.ts:20` (`select('id, email, name, role, is_super_admin, created_at')` — this one is OK, it's an explicit column list).
+   884→
+   885→Concrete fix for `tenants/[id]/route.ts`: replace `select('*')` with `select('id, email, name, role, is_super_admin, blocked, created_at, updated_at')`.
+   886→
+   887→================================================================
+   888→D. RATE LIMITING
+   889→================================================================
+   890→
+   891→### D1 — ❌ BUG · `src/lib/rate-limit.ts` is dead code — `checkRateLimit` and `RATE_LIMITS` are never imported
+   892→Grep for `checkRateLimit` returns only its own declaration (src/lib/rate-limit.ts:36). Grep for `RATE_LIMITS` returns only its own declaration (line 69). The carefully pre-configured limits (`auth`, `login`, `register`, `forgotPassword`, `reviews`, `api`, `webImport`) are never applied anywhere.
+   893→
+   894→Concrete fix: import and call `checkRateLimit(req, RATE_LIMITS.login)` at the top of `/api/auth/[...nextauth]/route.ts` (wrap the POST handler — requires modifying the NextAuth handler, easier said than done; an alternative is to add a `middleware.ts`-level rate-limiter for `/api/auth/callback/credentials`). Add `checkRateLimit(req, RATE_LIMITS.register)` to `register/route.ts`, `RATE_LIMITS.forgotPassword` is already covered by an inline limiter, `RATE_LIMITS.api` should wrap every `/api/*` route, `RATE_LIMITS.webImport` is already covered by an inline limiter.
+   895→
+   896→### D2 — ⚠️ WARN · In-memory limiters silently break in serverless / multi-instance
+   897→Per-route inline limiters exist in:
+   898→- `src/app/api/auth/forgot-password/route.ts:10-29` (Map, 3/10min/IP)
+   899→- `src/app/api/public/reviews/route.ts:23-37` (Map, 3/10min/IP)
+   900→- `src/app/api/restaurant/import-web/route.ts:14-42` (Map, 10/10min/user+IP)
+   901→- `src/lib/session-management.ts:180-225` (Map, brute-force on login)
+   902→
+   903→All four are per-instance Maps. On Vercel/Cloudflare Workers, every warm instance has its own counter, so the effective limit is `MAX × N`. An attacker rotating across instances (or just hitting a freshly-spawned cold instance) bypasses the limit entirely.
+   904→
+   905→Concrete fix: move all four to a shared backend — Upstash Redis (`@upstash/ratelimit`) is the canonical choice for Next.js serverless. Same for A4.
+   906→
+   907→### D3 — ⚠️ WARN · `/api/stripe/webhook` and `/api/whatsapp/webhook` have NO rate limit AND no IP allowlist
+   908→Even if the middleware bug (E1 below) is fixed, both webhook endpoints are reachable by anyone who knows the URL. The Stripe webhook verifies the signature (src/lib/stripe.ts:182-195, uses `STRIPE_WEBHOOK_SECRET`) — good — so a forged request without a valid signature returns 400. The WhatsApp webhook has NO signature verification on POST (see E3) — anyone can POST fake message webhooks.
+   909→
+   910→Concrete fix: in addition to fixing E1/E3, restrict both endpoints by source IP (Meta publishes their webhook egress IP ranges; Stripe's are documented). Add `checkRateLimit(req, { window: 60_000, max: 100 })` as a backstop.
+   911→
+   912→### D4 — ✅ OK · `/api/auth/forgot-password` has a per-IP limiter (3/10min) — fine for single-instance
+   913→See D2 for the multi-instance caveat.
+   914→
+   915→================================================================
+   916→E. SESSION MANAGEMENT
+   917→================================================================
+   918→
+   919→### E1 — ❌ CRITICAL BUG · `/api/stripe/webhook` and `/api/whatsapp/webhook` are BLOCKED by middleware
+   920→File: src/middleware.ts:40-42
+   921→```ts
+   922→export const config = {
+   923→  matcher: ['/api/((?!auth|public|health).*)', '/login'],
+   924→}
+   925→```
+   926→File: src/middleware.ts:18-25
+   927→```ts
+   928→if (pathname.startsWith('/api/')) {
+   929→  const token = await getToken({ req, secret: NEXTAUTH_SECRET || '' })
+   930→  if (!token) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+   931→  // …
+   932→}
+   933→```
+   934→The matcher's negative lookahead only excludes `/api/auth`, `/api/public`, `/api/health`. `/api/stripe/webhook` and `/api/whatsapp/webhook` match the pattern (their path components `stripe` and `whatsapp` are not in the exclusion list), so middleware runs, calls `getToken`, gets `null` (Stripe/Meta don't send a NextAuth JWT), and returns 401. **Stripe webhooks and Meta webhook verifications never reach the route handler.** Billing will silently break: subscriptions created in Stripe won't update `organization_subscriptions.status`, invoices won't be recorded, payment failures won't suspend tenants. WhatsApp message ingestion won't work either.
+   935→
+   936→Concrete fix: extend the matcher exclusion (and the early-return guard):
+   937→```ts
+   938→// matcher
+   939→matcher: ['/api/((?!auth|public|health|stripe/webhook|whatsapp/webhook).*)', '/login']
+   940→
+   941→// inside middleware, before the /api/ check
+   942→if (pathname === '/api/stripe/webhook' || pathname === '/api/whatsapp/webhook') {
+   943→  return NextResponse.next()
+   944→}
+   945→```
+   946→
+   947→---
+   948→
+   949→### E2 — ⚠️ WARN · Session revocation is wired but never checked — `isSessionValid` defined, never called
+   950→See A1 for the full analysis. The `user_sessions` table is written to on login (src/lib/next-auth.ts:88, 116), updated on revoke (src/lib/session-management.ts:55-78), but never read by any auth-checking code path. Effect: the entire `user_sessions` table is write-only decoration.
+   951→
+   952→Concrete fix: in `src/lib/next-auth.ts` `jwt()` callback, add at the top (before any other logic):
+   953→```ts
+   954→if (token.jti) {
+   955→  const ok = await isSessionValid(token.jti)
+   956→  if (!ok) {
+   957→    // Returning a fresh object with no user info makes the session callback
+   958→    // produce an unauthenticated session, which NextAuth treats as logged-out.
+   959→    return { ...token, _invalidated: true } as any
+   960→  }
+   961→}
+   962→```
+   963→And in `session()` callback: `if (token._invalidated) { delete session.user; return session }`. Combined with A1's logout-revokes-JTI fix, this gives proper session lifecycle.
+   964→
+   965→---
+   966→
+   967→### E3 — ⚠️ WARN · WhatsApp webhook POST has NO signature verification + hardcoded verify-token fallback
+   968→File: src/app/api/whatsapp/webhook/route.ts:19, 39-71
+   969→```ts
+   970→const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "restopanel_verify_2026";
+   971→// …
+   972→export async function POST(req: Request) {
+   973→  try {
+   974→    const body = await req.json();
+   975→    console.info("[whatsapp] Webhook received:", JSON.stringify(body).substring(0, 500));
+   976→    if (body.object) {
+   977→      // … process messages + statuses without verifying X-Hub-Signature-256
+   978→      return NextResponse.json({ ok: true });
+   979→    }
+   980→    return NextResponse.json({ ok: false }, { status: 400 });
+   981→  } catch (e: any) { /* … */ }
+   982→}
+   983→```
+   984→Two bugs:
+   985→1. The `VERIFY_TOKEN` fallback `"restopanel_verify_2026"` is publicly visible in the source code. If `WHATSAPP_VERIFY_TOKEN` is not set in production, anyone can hit `GET /api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=restopanel_verify_2026&hub.challenge=anything` and have Meta register their own webhook URL.
+   986→2. The POST handler accepts ANY JSON body and processes it without verifying the `X-Hub-Signature-256` HMAC against `WHATSAPP_APP_SECRET`. An attacker can POST fake "message received" events to trigger whatever downstream side-effects are added later (currently just `console.info`, but the comments at lines 57-61 say "Here we would: look up customer, store message, trigger auto-replies").
+   987→
+   988→Concrete fix:
+   989→```ts
+   990→const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN
+   991→if (!VERIFY_TOKEN) throw new Error("WHATSAPP_VERIFY_TOKEN must be set")
+   992→const APP_SECRET = process.env.WHATSAPP_APP_SECRET
+   993→if (!APP_SECRET) throw new Error("WHATSAPP_APP_SECRET must be set")
+   994→
+   995→export async function POST(req: Request) {
+   996→  const sig = req.headers.get("x-hub-signature-256") || ""
+   997→  const raw = await req.text()
+   998→  const expected = "sha256=" + crypto.createHmac("sha256", APP_SECRET).update(raw).digest("hex")
+   999→  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+  1000→    return new NextResponse("Forbidden", { status: 403 })
+  1001→  }
+  1002→  const body = JSON.parse(raw)
+  1003→  // … process
+  1004→}
+  1005→```
+  1006→
+  1007→---
+  1008→
+  1009→### E4 — ⚠️ WARN · Concurrent session limit not enforced
+  1010→File: src/lib/session-management.ts:80-93
+  1011→```ts
+  1012→export async function getActiveSessions(userId: string) {
+  1013→  const { data } = await supabaseAdmin.from("user_sessions").select("*")
+  1014→    .eq("user_id", userId).is("revoked_at", null)
+  1015→    .order("created_at", { ascending: false });
+  1016→  return data || [];
+  1017→}
+  1018→```
+  1019→There is no `MAX_SESSIONS_PER_USER` constant, no check in `createSession` (line 16-36) that revokes older sessions when a new one is created, and no background job that revokes stale sessions past the 30-day `expires_at`. A user can accumulate an unlimited number of active sessions. Combined with E2 (revocation not checked), the `user_sessions` table is effectively a write-only audit log.
+  1020→
+  1021→Concrete fix: in `createSession`, after insert, count active sessions for `userId`; if > N (e.g., 5), revoke the oldest. Also add a cron / scheduled function to delete rows where `expires_at < now()`.
+  1022→
+  1023→---
+  1024→
+  1025→### E5 — ✅ OK · "Remember me" expiry
+  1026→File: src/lib/next-auth.ts:25
+  1027→```ts
+  1028→session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 }, // 30 days
+  1029→```
+  1030→30 days is reasonable for a SaaS dashboard. The `AuthScreen.tsx:280` "Recordarme" checkbox is currently decorative — it has no effect on the JWT maxAge. That's a minor UX bug, not a security issue: the session is always 30 days regardless of the checkbox.
+  1031→
+  1032→================================================================
+  1033→F. CONFIGURATION & BUILD
+  1034→================================================================
+  1035→
+  1036→### F1 — ⚠️ WARN · `typescript.ignoreBuildErrors: true` will silently ship type errors to production
+  1037→File: next.config.ts:5-7
+  1038→```ts
+  1039→typescript: {
+  1040→  ignoreBuildErrors: true,
+  1041→},
+  1042→```
+  1043→This means `next build` will succeed even if the TypeScript compiler reports errors. Security-relevant type augmentations (e.g., `src/types/next-auth.d.ts` which enforces `organizationId: string` on every session) become advisory rather than enforced. A future refactor that accidentally removes `user.organizationId` from a session check would still build.
+  1044→
+  1045→Concrete fix: set `ignoreBuildErrors: false`. If there are pre-existing type errors, fix them rather than masking them. Same reasoning applies to `eslint.ignoreDuringBuilds` if it's set (it isn't currently).
+  1046→
+  1047→### F2 — ⚠️ WARN · No global Content-Security-Policy header
+  1048→File: next.config.ts:20-42
+  1049→The headers config sets `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `Strict-Transport-Security`, and a special CSP for `/_next/image` responses — but no CSP for the main HTML documents. A CSP header (`default-src 'self'; script-src 'self' 'unsafe-inline'; …`) would block the most common XSS payloads even if a future template bug introduces one. NextAuth's inline callbacks and the use of `<style>` tags in shadcn/ui components means `unsafe-inline` is likely required for scripts and styles, but `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'self'` are still high-value.
+  1050→
+  1051→Concrete fix: add a `Content-Security-Policy` header to the `/(.*)` source in `next.config.ts` `headers()`.
+  1052→
+  1053→### F3 — ⚠️ WARN · `reactStrictMode: false`
+  1054→File: next.config.ts:8
+  1055→Disables React's strict-mode double-rendering, which surfaces many bugs (effect cleanups, inconsistent state) in development. Not a security bug per se, but it weakens a useful safety net. Set to `true`.
+  1056→
+  1057→### F4 — ✅ OK · Security headers present
+  1058→`X-Frame-Options: SAMEORIGIN` (clickjacking defense), `X-Content-Type-Options: nosniff` (MIME-sniffing defense), `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` (HSTS for 2 years), `poweredByHeader: false`. Good baseline.
+  1059→
+  1060→### F5 — ✅ OK · Supabase admin client uses non-NEXT_PUBLIC env vars
+  1061→File: src/lib/supabase/admin.ts:19-30
+  1062→`SUPABASE_URL` (or `NEXT_PUBLIC_SUPABASE_URL` fallback) + `SUPABASE_SERVICE_ROLE_KEY` (no NEXT_PUBLIC_ prefix). The service_role key is therefore stripped from the client bundle by Next.js. The module throws at import time if the key is missing — fail-fast. ✅
+  1063→
+  1064→### F6 — ✅ OK · `next.config.ts` poweredByHeader: false
+  1065→Removes the `X-Powered-By: Next.js` header that would otherwise fingerprint the framework.
+  1066→
+  1067→================================================================
+  1068→G. DEAD CODE / OBSERVATIONS
+  1069→================================================================
+  1070→
+  1071→### G1 — `src/lib/rbac.ts` (316 lines) is unused
+  1072→`hasPermission`, `requirePermission`, `assignRole`, `updateRolePermissions`, `invalidateRbacCache`, `getUserPermissions`, `getUserRoleLabel`, `getAllRoles`, `getAllPermissions`, `getPermissionsForRole` are all exported. Grep shows `hasPermission` / `requirePermission` are imported NOWHERE outside of rbac.ts itself. Routes use a simple `user.role !== 'ADMIN'` check instead. The RBAC tables (`roles`, `permissions`, `role_permissions`, `user_roles`) exist in the DB (migration 0014_enterprise_rbac.sql) and are populated, but no API route enforces a permission code. This is a major gap if the product is sold as "enterprise RBAC" — but it's not a vulnerability, just unenforced complexity.
+  1073→
+  1074→### G2 — `src/lib/rate-limit.ts` (84 lines) is unused — see D1.
+  1075→
+  1076→### G3 — `src/lib/api.ts:30-40` `uploadFile()` posts to `/api/upload` which does not exist. Either implement the upload route (with file-type + size + path-traversal validation) or delete the helper.
+  1077→
+  1078→### G4 — `src/lib/session-management.ts:95-102` `updateSessionActivity()` is exported but never called. The `user_sessions.last_activity` column will always be NULL.
+  1079→
+  1080→### G5 — `src/app/api/tables/positions/route.ts` POST handler is a duplicate of PATCH that simply re-invokes PATCH (line 41-43). Either route is reachable from the UI — but per audit-8 (worklog above) the UI button is always disabled, so both methods are dead.
+  1081→
+  1082→================================================================
+  1083→STAGE SUMMARY
+  1084→================================================================
+  1085→
+  1086→❌ CRITICAL (fix before any production deploy):
+  1087→1. A1 — Logout does not invalidate the JWT; `isSessionValid` is dead code. Stolen tokens live for 30 days.
+  1088→2. A2 — `/api/seed?force=true` lets ANY authenticated user wipe ALL tenant data + all users.
+  1089→3. A3 — Hardcoded super-admin credentials `owner@restopanel.es / owner2026` in source + echoed in API response.
+  1090→4. E1 — Middleware 401s `/api/stripe/webhook` and `/api/whatsapp/webhook`, so billing & WhatsApp ingestion are broken.
+  1091→
+  1092→⚠️ HIGH (fix before "enterprise" pitch):
+  1093→5. A4 — Brute-force protection is in-memory only; useless in serverless / multi-instance.
+  1094→6. A5 — Register endpoint has no rate limit and leaks the verify-token in the response.
+  1095→7. A8 — Impersonation cookies missing `secure: true`.
+  1096→8. A9 — JWT role/isSuperAdmin/blocked not refreshed for 30 days.
+  1097→9. B1 — IDOR on `/api/user/sessions` DELETE (any user can revoke any other user's session by `jti`).
+  1098→10. B5 — Public reviews endpoint accepts arbitrary `organization_id` and auto-approves — reputation-attack vector.
+  1099→11. D1 — `src/lib/rate-limit.ts` is dead code; pre-configured limits never applied.
+  1100→12. E3 — WhatsApp webhook has no signature verification + hardcoded verify-token fallback.
+  1101→
+  1102→⚠️ MEDIUM:
+  1103→13. A6 — Forgot-password returns reset token in dev mode (NODE_ENV detection brittle).
+  1104→14. A7 — Verify-email / reset-password tokens travel in URL query string.
+  1105→15. B2 — `/api/customers/[id]` PATCH/DELETE/reservations skip `.eq('organization_id', …)` defense-in-depth.
+  1106→16. B3 — `/api/chat/messages` POST doesn't validate `channelId` belongs to the tenant.
+  1107→17. B4 — `/api/restaurant` settings PATCH is mass-assignable via dynamic snake_case conversion.
+  1108→18. C4 — `images.remotePatterns: hostname: "**"` + `dangerouslyAllowSVG: true` is an SSRF/XSS surface.
+  1109→19. C8 — `/api/admin/tenants/[id]` returns `password_hash` via `select('*')` on users.
+  1110→20. E4 — Concurrent session limit not enforced.
+  1111→21. F1 — `typescript.ignoreBuildErrors: true` ships type errors silently.
+  1112→
+  1113→✅ OK (29 items):
+  1114→- A10 NextAuth core config · A11 middleware unauth block · A12 server-side admin checks
+  1115→- B6 (38 routes) all correctly org-scoped · C1 SQL injection · C2 XSS (3 dangerouslySetInnerHTML all safe) · C3 CSRF · C5 mass-assignment (most routes) · C6 open redirect · C7 path traversal · C8 password hash never in NextAuth session
+  1116→- D4 forgot-password has inline limiter (single-instance caveat)
+  1117→- E5 remember-me expiry sane
+  1118→- F4 security headers · F5 service_role key not in client bundle · F6 poweredByHeader disabled
+  1119→- G1-G5 dead code (RBAC, rate-limit, uploadFile, updateSessionActivity, tables/positions POST) — not vulnerabilities, but should be cleaned up.
+  1120→
+  1121→This was a READ-ONLY audit. No source files were modified. Recommended next task: `audit-9-fix` to triage and patch the 4 CRITICAL items, then a follow-up `audit-9-hardening` pass for the HIGH/MEDIUM items.
+  1122→

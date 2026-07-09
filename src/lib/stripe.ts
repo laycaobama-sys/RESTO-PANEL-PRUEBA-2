@@ -37,23 +37,37 @@ export async function getOrCreateCustomer(organizationId: string, email: string,
 
   if (sub?.stripe_customer_id) return sub.stripe_customer_id;
 
-  // Create new customer
+  // Create new customer in Stripe
   const customer = await stripe.customers.create({
     email,
     name,
     metadata: { organization_id: organizationId },
   });
 
-  // Save customer ID
+  // Look up the starter plan id so we can seed the trial row.
+  const { data: starterPlan } = await supabaseAdmin
+    .from("subscription_plans")
+    .select("id")
+    .eq("name", "starter")
+    .single();
+
+  // Save customer ID + ensure the org has a subscription row.
+  // Use onConflict so concurrent calls (e.g., user double-clicks
+  // checkout) don't fail silently — the first insert wins and the
+  // second becomes a no-op update.
   await supabaseAdmin
     .from("organization_subscriptions")
-    .upsert({
-      organization_id: organizationId,
-      stripe_customer_id: customer.id,
-      plan_id: (await supabaseAdmin.from("subscription_plans").select("id").eq("name", "starter").single()).data?.id,
-      billing_cycle: "monthly",
-      status: "trial",
-    });
+    .upsert(
+      {
+        organization_id: organizationId,
+        stripe_customer_id: customer.id,
+        plan_id: starterPlan?.id,
+        billing_cycle: "monthly",
+        status: "trial",
+        trial_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+      { onConflict: "organization_id" }
+    );
 
   return customer.id;
 }
@@ -229,7 +243,8 @@ export async function getOrgPlan(organizationId: string): Promise<{ planName: st
 
   const plan = (data.subscription_plans as any)?.[0] || data.subscription_plans;
   const features = plan?.features || {};
-  const maxRestaurants = features.max_restaurants || 1;
+  // null means "unlimited" — don't fall back to a default number.
+  const maxRestaurants = features.max_restaurants ?? 1;
 
   return {
     planName: plan?.name || "starter",
@@ -237,9 +252,10 @@ export async function getOrgPlan(organizationId: string): Promise<{ planName: st
     billingCycle: data.billing_cycle,
     status: data.status,
     maxRestaurants,
-    maxUsers: plan?.max_users || 3,
-    maxTables: plan?.max_tables || 15,
-    maxReservations: plan?.max_reservations || 500,
+    // Preserve NULL (unlimited) instead of converting to a number.
+    maxUsers: plan?.max_users ?? null,
+    maxTables: plan?.max_tables ?? null,
+    maxReservations: plan?.max_reservations ?? null,
     currentPeriodEnd: data.current_period_end,
     cancelAtPeriodEnd: data.cancel_at_period_end || false,
     stripeCustomerId: data.stripe_customer_id,
@@ -248,27 +264,41 @@ export async function getOrgPlan(organizationId: string): Promise<{ planName: st
 }
 
 // ─── Check if org can add more ───────────────────────────────
+// NOTE: This function is exported but the actual enforcement lives
+// in the API routes that create resources (POST /api/tables,
+// POST /api/reservations, etc.). Each of those routes MUST call
+// checkLimit() and return 402/403 when `allowed === false`.
 export async function checkLimit(organizationId: string, metric: "restaurants" | "users" | "tables" | "reservations"): Promise<{ allowed: boolean; current: number; limit: number | null }> {
   const plan = await getOrgPlan(organizationId);
-  
+
   let current = 0;
   let limit: number | null = null;
 
   switch (metric) {
     case "restaurants": {
-      const { count } = await supabaseAdmin.from("organizations").select("id", { count: "exact", head: true });
+      // For a single-tenant org, this is always 1. For multi-restaurant
+      // accounts (Enterprise), count the restaurants in the org.
+      const { count } = await supabaseAdmin
+        .from("organizations")
+        .select("id", { count: "exact", head: true });
       current = count || 0;
       limit = plan.maxRestaurants;
       break;
     }
     case "users": {
-      const { count } = await supabaseAdmin.from("users").select("id", { count: "exact", head: true }).eq("organization_id", organizationId);
+      const { count } = await supabaseAdmin
+        .from("users")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId);
       current = count || 0;
       limit = plan.maxUsers;
       break;
     }
     case "tables": {
-      const { count } = await supabaseAdmin.from("tables").select("id", { count: "exact", head: true }).eq("organization_id", organizationId);
+      const { count } = await supabaseAdmin
+        .from("tables")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId);
       current = count || 0;
       limit = plan.maxTables;
       break;
