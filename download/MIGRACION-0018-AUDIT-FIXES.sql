@@ -321,19 +321,28 @@ ALTER TABLE tables
 -- Stripe reenvía eventos cuando recibe 500. Necesitamos un UNIQUE
 -- compuesto para que el ON CONFLICT del webhook funcione.
 -- Antes de crear el índice, eliminamos duplicados existentes.
+-- Envuelto en DO $$ para no fallar si subscription_history no existe.
 
--- 6a. De-duplicar subscription_history por (organization_id, event_type, details)
--- Mantener solo la fila más reciente (MAX(created_at)).
-DELETE FROM subscription_history a
-USING subscription_history b
-WHERE a.organization_id IS NOT DISTINCT FROM b.organization_id
-  AND a.event_type = b.event_type
-  AND a.details::text IS NOT DISTINCT FROM b.details::text
-  AND a.id < b.id;  -- a es más viejo que b → borramos a
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_schema = 'public' AND table_name = 'subscription_history') THEN
 
--- 6b. Ahora crear el índice UNIQUE
-CREATE UNIQUE INDEX IF NOT EXISTS subscription_history_org_event_details_uniq
-  ON subscription_history(organization_id, event_type, details);
+    -- 6a. De-duplicar subscription_history por (organization_id, event_type, details)
+    -- Mantener solo la fila más reciente (la de id mayor — usamos UUID,
+    -- así que comparamos por created_at).
+    DELETE FROM subscription_history a
+    USING subscription_history b
+    WHERE a.organization_id IS NOT DISTINCT FROM b.organization_id
+      AND a.event_type = b.event_type
+      AND a.details::text IS NOT DISTINCT FROM b.details::text
+      AND a.created_at < b.created_at;
+
+    -- 6b. Crear el índice UNIQUE
+    CREATE UNIQUE INDEX IF NOT EXISTS subscription_history_org_event_details_uniq
+      ON subscription_history(organization_id, event_type, details);
+  END IF;
+END $$;
 
 -- UNIQUE en invoices.stripe_invoice_id (ya tiene UNIQUE en la tabla)
 -- UNIQUE en payment_methods.stripe_payment_method_id (ya tiene UNIQUE en la tabla)
@@ -351,19 +360,46 @@ CREATE UNIQUE INDEX IF NOT EXISTS subscription_plans_stripe_price_yearly_uniq
 -- ============================================================
 -- 7. ÍNDICES FALTANTES EN FKs CRÍTICAS
 -- ============================================================
-CREATE INDEX IF NOT EXISTS order_items_menu_item_id_idx ON order_items(menu_item_id);
-CREATE INDEX IF NOT EXISTS orders_table_id_idx ON orders(table_id);
-CREATE INDEX IF NOT EXISTS reservations_table_id_idx ON reservations(table_id);
-CREATE INDEX IF NOT EXISTS chat_messages_user_id_idx ON chat_messages(user_id);
-CREATE INDEX IF NOT EXISTS role_permissions_permission_id_idx ON role_permissions(permission_id);
-CREATE INDEX IF NOT EXISTS user_roles_role_id_idx ON user_roles(role_id);
-CREATE INDEX IF NOT EXISTS order_items_order_id_idx ON order_items(order_id);
-CREATE INDEX IF NOT EXISTS reservations_customer_id_idx ON reservations(customer_id);
-CREATE INDEX IF NOT EXISTS menu_items_category_id_idx ON menu_items(category_id);
-CREATE INDEX IF NOT EXISTS reservations_status_idx ON reservations(status);
-CREATE INDEX IF NOT EXISTS reservations_date_idx ON reservations(date);
-CREATE INDEX IF NOT EXISTS orders_status_idx ON orders(status);
-CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders(created_at desc);
+-- Cada CREATE INDEX se envuelve en un DO $$ que verifica si la
+-- tabla existe antes de intentar crear el índice. Así no falla
+-- si alguna migración intermedia no se ejecutó.
+
+DO $$
+DECLARE
+  v_table text;
+  v_index text;
+  v_col text;
+BEGIN
+  -- (tabla, índice, columna)
+  FOR v_table, v_index, v_col IN SELECT * FROM (VALUES
+    ('order_items',         'order_items_menu_item_id_idx',     'menu_item_id'),
+    ('orders',              'orders_table_id_idx',              'table_id'),
+    ('reservations',        'reservations_table_id_idx',        'table_id'),
+    ('chat_messages',       'chat_messages_user_id_idx',        'user_id'),
+    ('role_permissions',    'role_permissions_permission_id_idx','permission_id'),
+    ('user_roles',          'user_roles_role_id_idx',           'role_id'),
+    ('order_items',         'order_items_order_id_idx',         'order_id'),
+    ('reservations',        'reservations_customer_id_idx',     'customer_id'),
+    ('menu_items',          'menu_items_category_id_idx',       'category_id'),
+    ('reservations',        'reservations_status_idx',          'status'),
+    ('reservations',        'reservations_date_idx',            'date'),
+    ('orders',              'orders_status_idx',                'status')
+  ) AS t(tab, idx, col)
+  LOOP
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public' AND table_name = v_table
+                 AND column_name = v_col) THEN
+      EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I(%I);', v_index, v_table, v_col);
+    END IF;
+  END LOOP;
+
+  -- orders_created_at_idx usa ORDER BY (desc) que requiere sintaxis especial
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'orders'
+               AND column_name = 'created_at') THEN
+    CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders(created_at DESC);
+  END IF;
+END $$;
 
 -- ============================================================
 -- 8. TRIGGERS touch_updated_at() FALTANTES
@@ -548,25 +584,56 @@ ALTER TABLE tables
 -- ============================================================
 -- 11. POLICIES DELETE FALTANTES
 -- ============================================================
+-- IMPORTANTE: Las tablas opcionales (notifications, chat_channels,
+-- chat_messages, import_jobs) pueden no existir si algunas
+-- migraciones intermedias no se ejecutaron. Postgres NO permite
+-- DROP POLICY IF EXISTS sobre una tabla que no existe (error 42P01).
+-- Por eso envolvemos cada operación en un bloque DO que primero
+-- verifica si la tabla existe.
+
 -- notifications
-DROP POLICY IF EXISTS notifications_tenant_delete ON notifications;
-CREATE POLICY notifications_tenant_delete ON notifications
-  FOR DELETE USING (organization_id = current_user_org_id() or is_current_user_super_admin());
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_schema = 'public' AND table_name = 'notifications') THEN
+    DROP POLICY IF EXISTS notifications_tenant_delete ON notifications;
+    CREATE POLICY notifications_tenant_delete ON notifications
+      FOR DELETE USING (organization_id = current_user_org_id() or is_current_user_super_admin());
+  END IF;
+END $$;
 
 -- chat_channels
-DROP POLICY IF EXISTS chat_channels_tenant_delete ON chat_channels;
-CREATE POLICY chat_channels_tenant_delete ON chat_channels
-  FOR DELETE USING (organization_id = current_user_org_id() or is_current_user_super_admin());
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_schema = 'public' AND table_name = 'chat_channels') THEN
+    DROP POLICY IF EXISTS chat_channels_tenant_delete ON chat_channels;
+    CREATE POLICY chat_channels_tenant_delete ON chat_channels
+      FOR DELETE USING (organization_id = current_user_org_id() or is_current_user_super_admin());
+  END IF;
+END $$;
 
 -- chat_messages
-DROP POLICY IF EXISTS chat_messages_tenant_delete ON chat_messages;
-CREATE POLICY chat_messages_tenant_delete ON chat_messages
-  FOR DELETE USING (organization_id = current_user_org_id() or is_current_user_super_admin());
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_schema = 'public' AND table_name = 'chat_messages') THEN
+    DROP POLICY IF EXISTS chat_messages_tenant_delete ON chat_messages;
+    CREATE POLICY chat_messages_tenant_delete ON chat_messages
+      FOR DELETE USING (organization_id = current_user_org_id() or is_current_user_super_admin());
+  END IF;
+END $$;
 
 -- import_jobs
-DROP POLICY IF EXISTS import_jobs_tenant_delete ON import_jobs;
-CREATE POLICY import_jobs_tenant_delete ON import_jobs
-  FOR DELETE USING (organization_id = current_user_org_id() or is_current_user_super_admin());
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_schema = 'public' AND table_name = 'import_jobs') THEN
+    DROP POLICY IF EXISTS import_jobs_tenant_delete ON import_jobs;
+    CREATE POLICY import_jobs_tenant_delete ON import_jobs
+      FOR DELETE USING (organization_id = current_user_org_id() or is_current_user_super_admin());
+  END IF;
+END $$;
 
 -- ============================================================
 -- 12. COMMENTS
