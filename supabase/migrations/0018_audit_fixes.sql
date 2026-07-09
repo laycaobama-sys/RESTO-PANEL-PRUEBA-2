@@ -94,6 +94,14 @@ END $$;
 -- Antes: cualquier usuario podía mover una reserva de cualquier tenant.
 -- Ahora: valida que la reserva, mesa origen y mesa destino pertenezcan
 -- a la organización del JWT actual.
+--
+-- NOTA: PostgreSQL NO permite cambiar nombres de parámetros con
+-- CREATE OR REPLACE FUNCTION. Hay que hacer DROP primero.
+-- Usamos la signatura completa (uuid, uuid, uuid) para no afectar
+-- a otras posibles versiones de la función.
+
+DROP FUNCTION IF EXISTS transfer_reservation(uuid, uuid, uuid);
+DROP FUNCTION IF EXISTS transfer_reservation(uuid, uuid);
 
 CREATE OR REPLACE FUNCTION transfer_reservation(
   p_reservation_id uuid,
@@ -199,6 +207,12 @@ ALTER TABLE order_items
 -- ============================================================
 -- Versión corregida: si una reserva pasa de COMPLETED a CANCELLED,
 -- resta 1 del contador visits_count (en lugar de solo sumar).
+--
+-- NOTA: Mismo problema que con transfer_reservation — DROP IF EXISTS
+-- primero para evitar el error 42P13 si la función existía con otra
+-- signatura. CASCADE por si había triggers asociados.
+
+DROP FUNCTION IF EXISTS update_customer_metrics() CASCADE;
 
 CREATE OR REPLACE FUNCTION update_customer_metrics()
 RETURNS trigger
@@ -245,6 +259,18 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- Recrear los 2 triggers que el DROP FUNCTION ... CASCADE borró
+-- (los había creado 0006_crm_customers.sql).
+DROP TRIGGER IF EXISTS reservations_update_customer_metrics ON reservations;
+CREATE TRIGGER reservations_update_customer_metrics
+  AFTER UPDATE ON reservations
+  FOR EACH ROW EXECUTE FUNCTION update_customer_metrics();
+
+DROP TRIGGER IF EXISTS reservations_insert_customer_metrics ON reservations;
+CREATE TRIGGER reservations_insert_customer_metrics
+  AFTER INSERT ON reservations
+  FOR EACH ROW EXECUTE FUNCTION update_customer_metrics();
 
 -- ============================================================
 -- 5. CREAR TABLA table_groups (FALTABA) + FK EN tables.group_id
