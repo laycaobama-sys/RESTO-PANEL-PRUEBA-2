@@ -225,9 +225,14 @@ async function main() {
   // ═══════════════════════════════════════════════════════
   console.log("\n━━ BUG 4: TABLE TRANSFER ━━");
 
-  // 4a. Create a reservation on a specific table
-  const sourceTable = tables.find(t => t.zone === "INTERIOR" && t.status === "AVAILABLE");
-  const targetTable = tables.find(t => t.zone === "TERRACE" && t.status === "AVAILABLE" && t.id !== sourceTable?.id);
+  // 4a. Reset tables to AVAILABLE for clean test
+  for (const t of tables.filter(t => t.status === "RESERVED")) {
+    await apiCall(`/api/tables/${t.id}`, { method: "PATCH", body: JSON.stringify({ status: "AVAILABLE" }) }, tenantCookies);
+  }
+  // Refresh table list
+  const freshTables = (await apiCall("/api/tables", {}, tenantCookies)).data || [];
+  const sourceTable = freshTables.find(t => t.zone === "INTERIOR" && t.status === "AVAILABLE");
+  const targetTable = freshTables.find(t => t.zone === "TERRACE" && t.status === "AVAILABLE" && t.id !== sourceTable?.id);
 
   if (sourceTable && targetTable) {
     const createResv = await apiCall("/api/reservations", {

@@ -132,27 +132,26 @@ export async function POST(req: Request) {
   }
 
   // Send email confirmation to the customer (if email is provided).
+  // Non-blocking: email is queued and sent asynchronously.
+  // The reservation returns immediately without waiting for email delivery.
   if (email) {
-    try {
-      const { sendEmailAndLog, emailTemplates } = await import('@/lib/email')
-      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
-      await sendEmailAndLog({
-        to: email,
-        subject: `Reserva confirmada · ${user.organizationName || user.restaurantName}`,
-        template: emailTemplates.reservationConfirmation({
-          customerName,
-          restaurantName: user.organizationName || user.restaurantName || 'RestoPanel',
-          date: new Date(date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }),
-          time: new Date(date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
-          partySize: Number(partySize),
-          zone: zone || undefined,
-          cancelUrl: `${baseUrl}/cancel-reservation?id=${reservation.id}`,
-        }),
-        organizationId: user.organizationId,
-      })
-    } catch (e) {
-      console.warn('Email send failed:', e)
-    }
+    const { sendEmailAndLog, emailTemplates } = await import('@/lib/email')
+    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
+    // Fire and forget — don't block the reservation response
+    sendEmailAndLog({
+      to: email,
+      subject: `Reserva confirmada · ${user.organizationName || user.restaurantName}`,
+      template: emailTemplates.reservationConfirmation({
+        customerName,
+        restaurantName: user.organizationName || user.restaurantName || 'RestoPanel',
+        date: new Date(date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }),
+        time: new Date(date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+        partySize: Number(partySize),
+        zone: zone || undefined,
+        cancelUrl: `${baseUrl}/cancel-reservation?id=${reservation.id}`,
+      }),
+      organizationId: user.organizationId,
+    }).catch(() => {})  // Errors are handled internally (queued for retry)
   }
 
   const table = tableId ? await db.table.findFirst(user.organizationId, { id: tableId }) : null

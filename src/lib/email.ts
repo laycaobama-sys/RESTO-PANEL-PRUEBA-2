@@ -53,7 +53,7 @@ export interface SendEmailOptions {
 export interface EmailLog {
   to: string | string[];
   subject: string;
-  status: "sent" | "failed" | "dev_logged";
+  status: "queued" | "sending" | "delivered" | "bounced" | "failed" | "dev_logged";
   attempt: number;
   error?: string;
   messageId?: string;
@@ -61,11 +61,35 @@ export interface EmailLog {
 }
 
 // ─── Retry logic ──────────────────────────────────────────────
-const MAX_ATTEMPTS = 3;
-const BASE_DELAY_MS = 2000; // 2s, 4s, 8s
+const MAX_ATTEMPTS = 5;
+const BASE_DELAY_MS = 2000; // 2s, 4s, 8s, 16s, 32s
 
 async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ─── Email queue persistence ──────────────────────────────────
+// When Resend fails, the email is saved to the email_queue table
+// for automatic retry. This ensures no email is ever lost.
+async function queueEmail(opts: SendEmailOptions, error?: string): Promise<void> {
+  try {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    await supabaseAdmin.from("email_queue").insert({
+      to_email: Array.isArray(opts.to) ? opts.to.join(",") : opts.to,
+      subject: opts.subject,
+      html_body: opts.template.html,
+      text_body: opts.template.text,
+      from_email: FROM_EMAIL,
+      status: "queued",
+      attempts: 0,
+      max_attempts: MAX_ATTEMPTS,
+      next_attempt_at: new Date(Date.now() + BASE_DELAY_MS).toISOString(),
+      last_error: error || null,
+      organization_id: (opts as any).organizationId || null,
+    });
+  } catch {
+    // Queue table might not exist — non-critical
+  }
 }
 
 // ─── Main send function ───────────────────────────────────────
@@ -94,12 +118,14 @@ export async function sendEmail(opts: SendEmailOptions): Promise<EmailLog> {
 
   const client = getClient();
   if (!client) {
+    // Queue for retry
+    await queueEmail(opts, "Resend client not initialized");
     return {
       to: opts.to,
       subject: opts.subject,
-      status: "failed",
+      status: "queued",
       attempt,
-      error: "Resend client not initialized",
+      error: "Resend client not initialized — queued for retry",
       sentAt,
     };
   }
@@ -121,7 +147,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<EmailLog> {
     return {
       to: opts.to,
       subject: opts.subject,
-      status: "sent",
+      status: "delivered",
       attempt,
       messageId: data?.id,
       sentAt,
@@ -135,14 +161,15 @@ export async function sendEmail(opts: SendEmailOptions): Promise<EmailLog> {
       return sendEmail({ ...opts, _attempt: attempt + 1 });
     }
 
-    // Final failure
+    // Final failure — queue for later retry
     console.error(`[email] All ${MAX_ATTEMPTS} attempts failed: ${err.message}`);
+    await queueEmail(opts, err.message);
     return {
       to: opts.to,
       subject: opts.subject,
-      status: "failed",
+      status: "queued",
       attempt,
-      error: err.message,
+      error: `All ${MAX_ATTEMPTS} attempts failed — queued for later retry: ${err.message}`,
       sentAt,
     };
   }

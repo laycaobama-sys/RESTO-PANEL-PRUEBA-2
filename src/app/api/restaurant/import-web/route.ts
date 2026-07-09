@@ -11,10 +11,11 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { runImportJob, getImportHistory } from "@/lib/web-import";
 
-// Rate limit: 5 imports per 10 minutes per user
+// Rate limit: sliding window — 10 imports per 10 minutes per user
+// First import never blocked. Only blocks real abuse.
 const WINDOW_MS = 10 * 60 * 1000;
-const MAX_PER_WINDOW = 5;
-const attempts = new Map<string, { count: number; firstAt: number }>();
+const MAX_PER_WINDOW = 10;
+const attempts = new Map<string, number[]>();  // timestamps array
 
 function getIp(req: Request): string {
   const xf = req.headers.get("x-forwarded-for");
@@ -24,13 +25,20 @@ function getIp(req: Request): string {
 
 function rateLimited(key: string): boolean {
   const now = Date.now();
-  const entry = attempts.get(key);
-  if (!entry || now - entry.firstAt > WINDOW_MS) {
-    attempts.set(key, { count: 1, firstAt: now });
-    return false;
+  const timestamps = attempts.get(key) || [];
+
+  // Remove timestamps outside the window
+  const recent = timestamps.filter(ts => now - ts < WINDOW_MS);
+
+  if (recent.length >= MAX_PER_WINDOW) {
+    return true;  // Rate limited
   }
-  entry.count += 1;
-  return entry.count > MAX_PER_WINDOW;
+
+  // Add current timestamp
+  recent.push(now);
+  attempts.set(key, recent);
+
+  return false;
 }
 
 function isValidUrl(url: string): boolean {
