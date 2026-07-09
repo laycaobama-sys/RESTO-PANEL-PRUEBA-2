@@ -21,7 +21,7 @@ export async function DELETE(req: Request) {
   const all = searchParams.get("all") === "true";
 
   if (all) {
-    await revokeAllUserSessions(user.id, user.jti || undefined);
+    await revokeAllUserSessions(user.id, (user as any)?.jti || '');
     return NextResponse.json({ ok: true, message: "Todas las sesiones cerradas (excepto la actual)" });
   }
 

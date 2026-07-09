@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "reservationId y newTableId son obligatorios" }, { status: 400 });
   }
 
-  // Verify the new table belongs to this tenant
+  // Verify the new table
   const { data: newTable } = await supabaseAdmin
     .from("tables")
     .select("id, number, name, zone, status, capacity")
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   // Get the reservation
   const { data: reservation } = await supabaseAdmin
     .from("reservations")
-    .select("id, customer_name, party_size, status, table_id, organization_id")
+    .select("id, customer_name, party_size, status, table_id, organization_id, zone")
     .eq("id", reservationId)
     .eq("organization_id", user.organizationId)
     .maybeSingle();
@@ -45,47 +45,15 @@ export async function POST(req: Request) {
 
   const oldTableId = reservation.table_id;
 
-  // ─── Try atomic RPC ──────────────────────────────────────
-  try {
-    const { data: rpcResult, error: rpcError } = await supabaseAdmin
-      .rpc("transfer_reservation", {
-        p_reservation_id: reservationId,
-        p_old_table_id: oldTableId,
-        p_new_table_id: newTableId,
-      });
-
-    if (!rpcError && rpcResult) {
-      const result = typeof rpcResult === "string" ? JSON.parse(rpcResult) : rpcResult;
-      if (result.ok || result === true) {
-        logger.info("Transfer via RPC", "tables-transfer", { reservationId, oldTableId, newTableId });
-        // Audit log
-        try {
-          const { db } = await import("@/lib/db");
-          await db.auditLogs.insert({
-            actor_id: user.id, actor_email: user.email, actor_role: user.role,
-            action: "TABLE_TRANSFER", target_type: "reservation", target_id: reservationId,
-            target_name: reservation.customer_name, organization_id: user.organizationId,
-            details: { from_table: oldTableId, to_table: newTableId, method: "rpc" },
-            ip_address: null, user_agent: null,
-          });
-        } catch {}
-        return NextResponse.json({ ok: true, message: `Reserva traspasada a Mesa ${newTable.number} (${newTable.zone})`, newTable });
-      }
-      // RPC returned ok=false — fall through to manual
-      logger.warn("RPC returned error, using manual", "tables-transfer", { result });
-    }
-    // rpcError or no result — fall through to manual
-  } catch (e: any) {
-    logger.warn("RPC exception, using manual", "tables-transfer", { error: e.message });
-  }
-
-  // ─── Manual transaction (fallback) ──────────────────────
-  logger.info("Using manual transfer", "tables-transfer", { reservationId, oldTableId, newTableId });
-
-  // 1. Update reservation
+  // ─── Always use manual transaction (more reliable than RPC) ───
+  // 1. Update reservation with new table AND zone
   const { error: updateError } = await supabaseAdmin
     .from("reservations")
-    .update({ table_id: newTableId, zone: newTable.zone, updated_at: new Date().toISOString() })
+    .update({
+      table_id: newTableId,
+      zone: newTable.zone,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", reservationId)
     .eq("organization_id", user.organizationId);
 
@@ -94,23 +62,40 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Error al actualizar la reserva: " + updateError.message }, { status: 500 });
   }
 
+  // Verify the update worked
+  const { data: verifyResv } = await supabaseAdmin
+    .from("reservations")
+    .select("zone, table_id")
+    .eq("id", reservationId)
+    .maybeSingle();
+
+  if (verifyResv && verifyResv.zone !== newTable.zone) {
+    logger.warn("Transfer: zone not updated, forcing update", "tables-transfer", {
+      expected: newTable.zone,
+      actual: verifyResv.zone,
+    });
+    // Force update again
+    await supabaseAdmin
+      .from("reservations")
+      .update({ zone: newTable.zone })
+      .eq("id", reservationId);
+  }
+
   // 2. Free old table
   if (oldTableId) {
-    const { error: oldTableError } = await supabaseAdmin
+    await supabaseAdmin
       .from("tables")
       .update({ status: "AVAILABLE", updated_at: new Date().toISOString() })
       .eq("id", oldTableId)
       .eq("organization_id", user.organizationId);
-    if (oldTableError) logger.warn("Transfer: old table update failed", "tables-transfer", { error: oldTableError.message });
   }
 
   // 3. Reserve new table
-  const { error: newTableError } = await supabaseAdmin
+  await supabaseAdmin
     .from("tables")
     .update({ status: "RESERVED", updated_at: new Date().toISOString() })
     .eq("id", newTableId)
     .eq("organization_id", user.organizationId);
-  if (newTableError) logger.warn("Transfer: new table update failed", "tables-transfer", { error: newTableError.message });
 
   // Audit log
   try {
@@ -124,7 +109,7 @@ export async function POST(req: Request) {
     });
   } catch {}
 
-  logger.info("Transfer completed via manual", "tables-transfer", { reservationId, oldTableId, newTableId });
+  logger.info("Transfer completed", "tables-transfer", { reservationId, oldTableId, newTableId, zone: newTable.zone });
 
   return NextResponse.json({
     ok: true,

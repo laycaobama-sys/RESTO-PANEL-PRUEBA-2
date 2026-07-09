@@ -72,8 +72,10 @@ export async function isFeatureEnabled(
           .eq("organization_id", organizationId)
           .maybeSingle();
 
-        if (sub?.subscription_plans?.name) {
-          orgPlan = sub.subscription_plans.name;
+        const planData = sub?.subscription_plans;
+        const planName = Array.isArray(planData) ? (planData[0] as any)?.name : (planData as any)?.name;
+        if (planName) {
+          orgPlan = planName;
         }
       } catch {
         // Table might not exist — use default plan
