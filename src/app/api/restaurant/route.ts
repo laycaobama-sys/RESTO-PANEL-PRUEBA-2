@@ -70,11 +70,33 @@ export async function PATCH(req: Request) {
   const updated = await db.organization.update(user.organizationId, orgPatch)
 
   if (settings) {
+    // CRITICAL FIX (mass assignment): only allow specific known
+    // settings keys. Previously, any camelCase key was converted to
+    // snake_case and spread into the upsert, allowing an attacker
+    // to overwrite `organization_id` or other internal fields.
+    const ALLOWED_SETTINGS_KEYS = new Set([
+      'mon_open', 'mon_close',
+      'tue_open', 'tue_close',
+      'wed_open', 'wed_close',
+      'thu_open', 'thu_close',
+      'fri_open', 'fri_close',
+      'sat_open', 'sat_close',
+      'sun_open', 'sun_close',
+      'tax_rate', 'service_charge',
+      'timezone', 'currency', 'country', 'language',
+      'vat_number', 'vat_rate',
+      'no_show_policy', 'reservation_rules',
+      'branding', 'hours', 'modules',
+    ])
+
     const settingsPatch: any = {}
     for (const [k, v] of Object.entries(settings)) {
       // Convert camelCase keys (monOpen) to snake_case (mon_open)
       const snake = k.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
-      settingsPatch[snake] = v
+      if (ALLOWED_SETTINGS_KEYS.has(snake)) {
+        settingsPatch[snake] = v
+      }
+      // Silently drop unknown keys — never write them to the DB.
     }
     await db.organizationSettings.upsert(user.organizationId, settingsPatch)
   }

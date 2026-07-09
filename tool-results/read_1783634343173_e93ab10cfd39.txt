@@ -1,0 +1,702 @@
+  1060→            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+  1061→          </div>
+  1062→        </div>
+  1063→
+  1064→        <div className="p-5 sm:p-6">
+  1065→          {/* Panel header */}
+  1066→          <div className="flex items-center justify-between mb-5">
+  1067→            <div className="flex items-center gap-3">
+  1068→              <div className="w-9 h-9 rounded-xl bg-[#C5A059]/15 border border-[#C5A059]/30 flex items-center justify-center text-[#C5A059]">
+  1069→                <Star className="w-4.5 h-4.5" />
+  1070→              </div>
+  1071→              <div>
+  1072→                <p className="text-sm font-semibold text-[#f5f5f0] leading-tight">Panel de Google Reviews</p>
+  1073→                <p className="text-[10px] text-neutral-500">Tu ficha · Google Business Profile</p>
+  1074→              </div>
+  1075→            </div>
+  1076→            <div className="flex items-center gap-2">
+  1077→              <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-neutral-400 px-2 py-1 rounded-md bg-white/[0.03] border border-white/[0.06]">
+  1078→                <Filter className="w-3 h-3" />
+  1079→                Filtros
+  1080→              </span>
+  1081→              <span className="inline-flex items-center gap-1 text-[10px] text-[#C5A059] px-2 py-1 rounded-md bg-[#C5A059]/10 border border-[#C5A059]/25 font-medium">
+  1082→                <AlertTriangle className="w-3 h-3" />
+  1083→                2 pendientes
+  1084→              </span>
+  1085→            </div>
+  1086→          </div>
+  1087→
+  1088→          {/* KPI row */}
+  1089→          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-5">
+  1090→            <ReviewKpi
+  1091→              label="Nota media"
+  1092→              value={mockAvg}
+  1093→              sub={`${mockCount} reseñas`}
+  1094→              accent={<Star className="w-3.5 h-3.5 fill-[#C5A059] text-[#C5A059]" />}
+  1095→              trend="+0.2"
+  1096→            />
+  1097→            <ReviewKpi
+  1098→              label="Volumen (30 días)"
+  1099→              value={`${Math.max(8, Math.round(mockCount / 4))}`}
+  1100→              sub="nuevas reseñas"
+  1101→              accent={<MessageSquare className="w-3.5 h-3.5 text-[#C5A059]" />}
+  1102→              trend="+18%"
+  1103→            />
+  1104→            <ReviewKpi
+  1105→              label="Tiempo medio respuesta"
+  1106→              value={mockResponseTime}
+  1107→              sub="objetivo: < 2h"
+  1108→              accent={<Clock className="w-3.5 h-3.5 text-[#C5A059]" />}
+  1109→              trend="-50%"
+  1110→            />
+  1111→            <ReviewKpi
+  1112→              label="Sentimiento general"
+  1113→              value={mockSentiment}
+  1114→              sub="análisis automático"
+  1115→              accent={<ThumbsUp className="w-3.5 h-3.5 text-[#C5A059]" />}
+  1116→              trend="↑"
+  1117→            />
+  1118→          </div>
+  1119→
+  1120→          {/* Reputation sparkline + distribution */}
+  1121→          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-5">
+  1122→            {/* Sparkline */}
+  1123→            <div className="lg:col-span-3 bg-white/[0.02] rounded-2xl border border-white/[0.06] p-4">
+  1124→              <div className="flex items-center justify-between mb-3">
+  1125→                <div>
+  1126→                  <p className="text-xs text-neutral-500">Evolución de reputación</p>
+  1127→                  <p className="text-sm font-semibold text-[#f5f5f0]">Últimos 6 meses</p>
+  1128→                </div>
+  1129→                <span className="text-[10px] text-green-400 font-semibold flex items-center gap-1">
+  1130→                  <TrendingUp className="w-3 h-3" />
+  1131→                  +0.5 pts
+  1132→                </span>
+  1133→              </div>
+  1134→              <div className="flex items-end gap-2 h-20">
+  1135→                {sparkData.map((v, i) => {
+  1136→                  const pct = ((v - 4) / 1) * 100; // map 4.0-5.0 to 0-100%
+  1137→                  return (
+  1138→                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
+  1139→                      <motion.div
+  1140→                        initial={{ height: 0 }}
+  1141→                        whileInView={{ height: `${Math.max(20, pct)}%` }}
+  1142→                        viewport={{ once: true }}
+  1143→                        transition={{ duration: 0.6, delay: i * 0.08 }}
+  1144→                        className="w-full bg-gradient-to-t from-[#C5A059]/40 to-[#C5A059] rounded-t-md relative group"
+  1145→                      >
+  1146→                        <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] text-[#C5A059] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+  1147→                          {v.toFixed(1)}
+  1148→                        </span>
+  1149→                      </motion.div>
+  1150→                      <span className="text-[9px] text-neutral-600">{["Ene", "Feb", "Mar", "Abr", "May", "Jun"][i]}</span>
+  1151→                    </div>
+  1152→                  );
+  1153→                })}
+  1154→              </div>
+  1155→            </div>
+  1156→
+  1157→            {/* Star distribution */}
+  1158→            <div className="lg:col-span-2 bg-white/[0.02] rounded-2xl border border-white/[0.06] p-4">
+  1159→              <p className="text-xs text-neutral-500 mb-1">Distribución por estrellas</p>
+  1160→              <p className="text-sm font-semibold text-[#f5f5f0] mb-3">{hasReal ? realCount : mockCount} reseñas</p>
+  1161→              <div className="space-y-1.5">
+  1162→                {[
+  1163→                  { star: 5, pct: 78 },
+  1164→                  { star: 4, pct: 14 },
+  1165→                  { star: 3, pct: 5 },
+  1166→                  { star: 2, pct: 2 },
+  1167→                  { star: 1, pct: 1 },
+  1168→                ].map((d) => (
+  1169→                  <div key={d.star} className="flex items-center gap-2">
+  1170→                    <span className="text-[10px] text-neutral-500 w-3 text-right">{d.star}</span>
+  1171→                    <Star className="w-2.5 h-2.5 fill-[#C5A059] text-[#C5A059]" />
+  1172→                    <div className="flex-1 h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
+  1173→                      <motion.div
+  1174→                        initial={{ width: 0 }}
+  1175→                        whileInView={{ width: `${d.pct}%` }}
+  1176→                        viewport={{ once: true }}
+  1177→                        transition={{ duration: 0.8, delay: 0.1 }}
+  1178→                        className={cn(
+  1179→                          "h-full rounded-full",
+  1180→                          d.star >= 4 ? "bg-gradient-to-r from-[#C5A059] to-[#e3c987]" : "bg-gradient-to-r from-orange-500 to-red-500"
+  1181→                        )}
+  1182→                      />
+  1183→                    </div>
+  1184→                    <span className="text-[10px] text-neutral-500 w-8 text-right">{d.pct}%</span>
+  1185→                  </div>
+  1186→                ))}
+  1187→              </div>
+  1188→            </div>
+  1189→          </div>
+  1190→
+  1191→          {/* Reviews list (3 illustrative cards inside the mockup) */}
+  1192→          <div className="bg-white/[0.02] rounded-2xl border border-white/[0.06] p-3 sm:p-4">
+  1193→            <div className="flex items-center justify-between mb-3">
+  1194→              <p className="text-xs font-semibold text-[#f5f5f0]">Reseñas recientes · vista del panel</p>
+  1195→              <span className="text-[10px] text-neutral-500">Mostrando 3 de {hasReal ? realCount : mockCount}</span>
+  1196→            </div>
+  1197→            <div className="space-y-2.5">
+  1198→              {mockReviews.map((r) => (
+  1199→                <MockReviewRow key={r.id} r={r} illustrative={!hasReal || !previewReviews.includes(r)} />
+  1200→              ))}
+  1201→            </div>
+  1202→          </div>
+  1203→
+  1204→          {/* Mockup footer note */}
+  1205→          {tableMissing && (
+  1206→            <div className="mt-3 flex items-center gap-2 text-[11px] text-[#C5A059]/80 bg-[#C5A059]/5 border border-[#C5A059]/15 rounded-lg px-3 py-2">
+  1207→              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+  1208→              <span>
+  1209→                Los datos del panel son ilustrativos hasta que apliques la migración{" "}
+  1210→                <code className="font-mono text-[10px]">0009_google_reviews.sql</code> en el SQL Editor de Supabase.
+  1211→              </span>
+  1212→            </div>
+  1213→          )}
+  1214→        </div>
+  1215→      </div>
+  1216→    </motion.div>
+  1217→  );
+  1218→}
+  1219→
+  1220→function ReviewKpi({
+  1221→  label,
+  1222→  value,
+  1223→  sub,
+  1224→  accent,
+  1225→  trend,
+  1226→}: {
+  1227→  label: string;
+  1228→  value: string;
+  1229→  sub: string;
+  1230→  accent: React.ReactNode;
+  1231→  trend: string;
+  1232→}) {
+  1233→  return (
+  1234→    <div className="bg-white/[0.02] rounded-2xl border border-white/[0.06] p-3.5">
+  1235→      <div className="flex items-center justify-between mb-1.5">
+  1236→        <span className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</span>
+  1237→        <span className="flex items-center justify-center w-5 h-5 rounded-md bg-[#C5A059]/10">{accent}</span>
+  1238→      </div>
+  1239→      <p className="text-lg sm:text-xl font-bold text-[#f5f5f0] leading-tight truncate">{value}</p>
+  1240→      <div className="flex items-center justify-between mt-1">
+  1241→        <span className="text-[10px] text-neutral-500 truncate">{sub}</span>
+  1242→        <span className="text-[10px] font-semibold text-green-400 flex-shrink-0 ml-1">{trend}</span>
+  1243→      </div>
+  1244→    </div>
+  1245→  );
+  1246→}
+  1247→
+  1248→function MockReviewRow({ r, illustrative }: { r: PublicReview; illustrative: boolean }) {
+  1249→  const isCompany = r.author_role === "COMPANY";
+  1250→  const initial = (r.author_name || r.author_company || "A").slice(0, 1).toUpperCase();
+  1251→  const responded = !!r.response_text;
+  1252→
+  1253→  return (
+  1254→    <div className="bg-white/[0.02] rounded-xl border border-white/[0.04] p-3 hover:border-[#C5A059]/20 transition-colors">
+  1255→      <div className="flex items-start gap-3">
+  1256→        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] text-[#0a0a0a] flex items-center justify-center text-xs font-bold flex-shrink-0">
+  1257→          {initial}
+  1258→        </div>
+  1259→        <div className="flex-1 min-w-0">
+  1260→          <div className="flex items-center justify-between gap-2 mb-0.5">
+  1261→            <div className="flex items-center gap-1.5 min-w-0">
+  1262→              <span className="text-xs font-semibold text-[#f5f5f0] truncate">{r.author_name}</span>
+  1263→              {isCompany && (
+  1264→                <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#004D40]/30 border border-[#004D40]/50 text-[#5fc7b8] font-medium uppercase tracking-wider flex-shrink-0">
+  1265→                  Empresa
+  1266→                </span>
+  1267→              )}
+  1268→              {illustrative && (
+  1269→                <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.05] border border-white/[0.08] text-neutral-400 font-medium uppercase tracking-wider flex-shrink-0">
+  1270→                  Ilustrativo
+  1271→                </span>
+  1272→              )}
+  1273→            </div>
+  1274→            <div className="flex items-center gap-0.5 flex-shrink-0">
+  1275→              {[1, 2, 3, 4, 5].map((s) => (
+  1276→                <Star
+  1277→                  key={s}
+  1278→                  className={cn(
+  1279→                    "w-2.5 h-2.5",
+  1280→                    s <= r.rating ? "fill-[#C5A059] text-[#C5A059]" : "fill-neutral-700 text-neutral-700"
+  1281→                  )}
+  1282→                />
+  1283→              ))}
+  1284→            </div>
+  1285→          </div>
+  1286→          {r.author_company && (
+  1287→            <p className="text-[10px] text-neutral-500 mb-0.5">{r.author_company}</p>
+  1288→          )}
+  1289→          {r.title && <p className="text-xs font-medium text-[#f5f5f0] mb-1 truncate">{r.title}</p>}
+  1290→          <p className="text-[11px] text-neutral-400 leading-relaxed line-clamp-2">{r.body}</p>
+  1291→
+  1292→          {/* Response indicator */}
+  1293→          <div className="flex items-center gap-2 mt-2">
+  1294→            {r.rating <= 3 && !responded && (
+  1295→              <span className="inline-flex items-center gap-1 text-[9px] text-red-400 font-medium">
+  1296→                <AlertTriangle className="w-2.5 h-2.5" />
+  1297→                Sin responder · prioritaria
+  1298→              </span>
+  1299→            )}
+  1300→            {responded && (
+  1301→              <span className="inline-flex items-center gap-1 text-[9px] text-green-400 font-medium">
+  1302→                <Check className="w-2.5 h-2.5" />
+  1303→                Respondida
+  1304→              </span>
+  1305→            )}
+  1306→            {!responded && r.rating > 3 && (
+  1307→              <span className="inline-flex items-center gap-1 text-[9px] text-[#C5A059] font-medium">
+  1308→                <Reply className="w-2.5 h-2.5" />
+  1309→                Responder
+  1310→              </span>
+  1311→            )}
+  1312→            <span className="text-[9px] text-neutral-600 ml-auto">
+  1313→              {new Date(r.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+  1314→            </span>
+  1315→          </div>
+  1316→
+  1317→          {/* Restaurant reply preview */}
+  1318→          {r.response_text && (
+  1319→            <div className="mt-2 pl-3 border-l-2 border-[#C5A059]/30">
+  1320→              <p className="text-[10px] text-neutral-400 leading-relaxed line-clamp-1">{r.response_text}</p>
+  1321→              <p className="text-[9px] text-neutral-600 mt-0.5">Respuesta del restaurante</p>
+  1322→            </div>
+  1323→          )}
+  1324→
+  1325→          {r.verified_metric && (
+  1326→            <span className="inline-flex items-center gap-1 mt-2 text-[9px] text-[#C5A059] font-bold bg-[#C5A059]/10 px-2 py-0.5 rounded">
+  1327→              <TrendingUp className="w-2.5 h-2.5" />
+  1328→              {r.verified_metric}
+  1329→            </span>
+  1330→          )}
+  1331→        </div>
+  1332→      </div>
+  1333→    </div>
+  1334→  );
+  1335→}
+  1336→
+  1337→// ─── Feature card ────────────────────────────────────────────
+  1338→function ReviewFeatureCard({
+  1339→  icon,
+  1340→  title,
+  1341→  desc,
+  1342→  delay,
+  1343→}: {
+  1344→  icon: React.ReactNode;
+  1345→  title: string;
+  1346→  desc: string;
+  1347→  delay: number;
+  1348→}) {
+  1349→  return (
+  1350→    <motion.div
+  1351→      initial={{ opacity: 0, y: 16 }}
+  1352→      whileInView={{ opacity: 1, y: 0 }}
+  1353→      viewport={{ once: true }}
+  1354→      transition={{ duration: 0.5, delay }}
+  1355→      className="group relative bg-white/[0.02] hover:bg-white/[0.04] rounded-2xl border border-white/[0.06] hover:border-[#C5A059]/25 p-5 transition-all duration-300"
+  1356→    >
+  1357→      <div className="w-10 h-10 rounded-xl bg-[#C5A059]/10 border border-[#C5A059]/20 flex items-center justify-center text-[#C5A059] mb-3 group-hover:scale-110 transition-transform">
+  1358→        {icon}
+  1359→      </div>
+  1360→      <h4 className="text-sm sm:text-base font-semibold text-[#f5f5f0] leading-snug mb-2">{title}</h4>
+  1361→      <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">{desc}</p>
+  1362→    </motion.div>
+  1363→  );
+  1364→}
+  1365→
+  1366→// ─── Commercial benefit block ────────────────────────────────
+  1367→function CommercialBenefitBlock() {
+  1368→  return (
+  1369→    <motion.div
+  1370→      initial={{ opacity: 0, y: 20 }}
+  1371→      whileInView={{ opacity: 1, y: 0 }}
+  1372→      viewport={{ once: true }}
+  1373→      transition={{ duration: 0.6 }}
+  1374→      className="mt-16 sm:mt-20 relative overflow-hidden rounded-3xl border border-[#C5A059]/20 bg-gradient-to-br from-[#111518] via-[#0c0f12] to-[#0a0a0a] p-6 sm:p-10"
+  1375→    >
+  1376→      {/* Glow */}
+  1377→      <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-[#C5A059]/10 blur-[80px] pointer-events-none" />
+  1378→
+  1379→      <div className="relative grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+  1380→        <div>
+  1381→          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#004D40]/20 border border-[#004D40]/40 text-[10px] font-semibold text-[#5fc7b8] uppercase tracking-wider mb-4">
+  1382→            <TrendingUp className="w-3 h-3" />
+  1383→            Beneficio comercial
+  1384→          </span>
+  1385→          <h3 className="text-2xl sm:text-3xl font-bold text-[#f5f5f0] tracking-tight leading-tight">
+  1386→            Responder reseñas mejora confianza, reputación y conversión.
+  1387→          </h3>
+  1388→          <p className="mt-4 text-sm sm:text-base text-neutral-400 leading-relaxed">
+  1389→            Un restaurante que contesta sus reseñas de Google de forma consistente transmite profesionalidad y cuidado.
+  1390→            Los próximos clientes que visiten tu ficha lo perciben: leen respuestas amables, ven que el equipo está
+  1391→            atento y se deciden a reservar. Tu imagen digital genera reservas exactamente igual que tu servicio en sala.
+  1392→          </p>
+  1393→          <p className="mt-4 text-sm sm:text-base text-neutral-400 leading-relaxed">
+  1394→            Con RestoPanel no necesitas abrir otra app ni recordar entrar en Google cada día. Las reseñas llegan a tu
+  1395→            panel de control junto con las reservas, los clientes y los turnos. Responder forma parte de tu rutina
+  1396→            operativa, no de una tarea olvidada.
+  1397→          </p>
+  1398→          <div className="mt-6 flex flex-wrap gap-2">
+  1399→            {[
+  1400→              "Más confianza en la decisión de reserva",
+  1401→              "Mejor posicionamiento local en Google",
+  1402→              "Clientes negativos recuperados",
+  1403→              "Reservas que vienen de tu ficha, no de OTAs",
+  1404→            ].map((b, i) => (
+  1405→              <span
+  1406→                key={i}
+  1407→                className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-neutral-300 bg-white/[0.04] border border-white/[0.08] rounded-full px-3 py-1.5"
+  1408→              >
+  1409→                <Check className="w-3 h-3 text-[#C5A059]" />
+  1410→                {b}
+  1411→              </span>
+  1412→            ))}
+  1413→          </div>
+  1414→        </div>
+  1415→
+  1416→        {/* Stat cards */}
+  1417→        <div className="grid grid-cols-2 gap-3">
+  1418→          <BenefitStat value="+18%" label="Conversión de ficha a reserva cuando el restaurante responde al 100% de sus reseñas" />
+  1419→          <BenefitStat value="-50%" label="Tiempo medio de respuesta al centralizar las reseñas en el panel" />
+  1420→          <BenefitStat value="4.7" label="Nota media objetivo que un restaurante puede sostener con respuesta activa" />
+  1421→          <BenefitStat value="24h" label="Ventana recomendada para responder reseñas y mejorar el SEO local" />
+  1422→        </div>
+  1423→      </div>
+  1424→    </motion.div>
+  1425→  );
+  1426→}
+  1427→
+  1428→function BenefitStat({ value, label }: { value: string; label: string }) {
+  1429→  return (
+  1430→    <motion.div
+  1431→      initial={{ opacity: 0, scale: 0.95 }}
+  1432→      whileInView={{ opacity: 1, scale: 1 }}
+  1433→      viewport={{ once: true }}
+  1434→      transition={{ duration: 0.5 }}
+  1435→      className="bg-white/[0.03] rounded-2xl border border-white/[0.06] p-4"
+  1436→    >
+  1437→      <p className="text-2xl sm:text-3xl font-bold bg-gradient-to-br from-[#C5A059] to-[#e3c987] bg-clip-text text-transparent">
+  1438→        {value}
+  1439→      </p>
+  1440→      <p className="mt-1.5 text-[11px] text-neutral-400 leading-relaxed">{label}</p>
+  1441→    </motion.div>
+  1442→  );
+  1443→}
+  1444→
+  1445→// ─── Real reviews wall (fetched from /api/public/reviews) ────
+  1446→function RealReviewsWall({
+  1447→  reviews,
+  1448→  aggregate,
+  1449→  loading,
+  1450→  tableMissing,
+  1451→  onReload,
+  1452→  pendingReview,
+  1453→}: {
+  1454→  reviews: PublicReview[];
+  1455→  aggregate: ReviewAggregate;
+  1456→  loading: boolean;
+  1457→  tableMissing: boolean;
+  1458→  onReload: () => void;
+  1459→  pendingReview?: PublicReview | null;
+  1460→}) {
+  1461→  if (loading) {
+  1462→    return (
+  1463→      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+  1464→        {[1, 2, 3, 4, 5, 6].map((i) => (
+  1465→          <div key={i} className="bg-white/[0.02] rounded-2xl border border-white/[0.06] p-5 animate-pulse">
+  1466→            <div className="flex items-center gap-3 mb-3">
+  1467→              <div className="w-9 h-9 rounded-full bg-white/[0.05]" />
+  1468→              <div className="flex-1">
+  1469→                <div className="h-3 w-20 bg-white/[0.05] rounded mb-1.5" />
+  1470→                <div className="h-2 w-12 bg-white/[0.05] rounded" />
+  1471→              </div>
+  1472→            </div>
+  1473→            <div className="h-2 w-full bg-white/[0.05] rounded mb-1.5" />
+  1474→            <div className="h-2 w-3/4 bg-white/[0.05] rounded" />
+  1475→          </div>
+  1476→        ))}
+  1477→      </div>
+  1478→    );
+  1479→  }
+  1480→
+  1481→  // Confirmation banner shown above the wall when a user just submitted
+  1482→  const pendingBanner = pendingReview && (
+  1483→    <motion.div
+  1484→      initial={{ opacity: 0, y: -10, scale: 0.98 }}
+  1485→      animate={{ opacity: 1, y: 0, scale: 1 }}
+  1486→      transition={{ duration: 0.4 }}
+  1487→      className="mb-5 relative overflow-hidden rounded-2xl border border-green-500/40 bg-gradient-to-br from-green-500/15 via-green-500/5 to-transparent p-4 sm:p-5"
+  1488→    >
+  1489→      <div className="flex items-start gap-3">
+  1490→        <div className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center flex-shrink-0">
+  1491→          <Check className="w-4 h-4" strokeWidth={3} />
+  1492→        </div>
+  1493→        <div className="flex-1 min-w-0">
+  1494→          <p className="text-sm font-semibold text-[#f5f5f0]">
+  1495→            ¡Gracias, {pendingReview.author_name}! Tu reseña se ha publicado correctamente.
+  1496→          </p>
+  1497→          <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
+  1498→            Ya está visible en la pared de reseñas de esta página. Aquí tienes una vista previa:
+  1499→          </p>
+  1500→          <div className="mt-3 bg-black/30 rounded-lg border border-white/[0.06] p-3">
+  1501→            <div className="flex items-center gap-2 mb-1">
+  1502→              <div className="flex items-center gap-0.5">
+  1503→                {[1, 2, 3, 4, 5].map((s) => (
+  1504→                  <Star
+  1505→                    key={s}
+  1506→                    className={cn(
+  1507→                      "w-3 h-3",
+  1508→                      s <= pendingReview.rating ? "fill-[#C5A059] text-[#C5A059]" : "fill-neutral-700 text-neutral-700"
+  1509→                    )}
+  1510→                  />
+  1511→                ))}
+  1512→              </div>
+  1513→              {pendingReview.title && (
+  1514→                <span className="text-xs font-medium text-[#f5f5f0] truncate">{pendingReview.title}</span>
+  1515→              )}
+  1516→              <span className="ml-auto text-[9px] px-2 py-0.5 rounded-full bg-green-500/15 border border-green-500/30 text-green-400 font-semibold uppercase tracking-wider">
+  1517→                Recién publicada
+  1518→              </span>
+  1519→            </div>
+  1520→            <p className="text-[11px] text-neutral-400 leading-relaxed line-clamp-2">{pendingReview.body}</p>
+  1521→          </div>
+  1522→        </div>
+  1523→      </div>
+  1524→    </motion.div>
+  1525→  );
+  1526→
+  1527→  if (tableMissing) {
+  1528→    return (
+  1529→      <>
+  1530→        {pendingBanner}
+  1531→        <div className="bg-white/[0.02] rounded-3xl border border-dashed border-white/[0.12] p-8 sm:p-12 text-center">
+  1532→          <div className="w-14 h-14 rounded-2xl bg-[#C5A059]/10 border border-[#C5A059]/20 flex items-center justify-center text-[#C5A059] mx-auto mb-4">
+  1533→            <Database className="w-6 h-6" />
+  1534→          </div>
+  1535→          <h4 className="text-lg sm:text-xl font-bold text-[#f5f5f0]">Activación de la base de datos de reseñas</h4>
+  1536→          <p className="mt-2 text-sm text-neutral-400 max-w-md mx-auto">
+  1537→            La pared de reseñas está lista para activarse. Para que las reseñas enviadas desde esta página se guarden y
+  1538→            publiquen automáticamente, ejecuta una única vez el archivo{" "}
+  1539→            <code className="font-mono text-xs text-[#C5A059] bg-[#C5A059]/10 px-1.5 py-0.5 rounded">
+  1540→              supabase/migrations/0009_google_reviews.sql
+  1541→            </code>{" "}
+  1542→            en el SQL Editor de Supabase. Sin este paso, las reseñas enviadas no se persisten.
+  1543→          </p>
+  1544→          <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-center">
+  1545→            <Button
+  1546→              size="lg"
+  1547→              className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-sm h-10 px-5 font-semibold"
+  1548→              onClick={onReload}
+  1549→            >
+  1550→              <Database className="w-4 h-4 mr-1.5" />
+  1551→              Reintentar carga
+  1552→            </Button>
+  1553→          </div>
+  1554→        </div>
+  1555→      </>
+  1556→    );
+  1557→  }
+  1558→
+  1559→  if (reviews.length === 0) {
+  1560→    return (
+  1561→      <>
+  1562→        {pendingBanner}
+  1563→        <div className="bg-white/[0.02] rounded-3xl border border-dashed border-white/[0.12] p-8 sm:p-12 text-center">
+  1564→          <div className="w-14 h-14 rounded-2xl bg-[#C5A059]/10 border border-[#C5A059]/20 flex items-center justify-center text-[#C5A059] mx-auto mb-4">
+  1565→            <Quote className="w-6 h-6" />
+  1566→          </div>
+  1567→          <h4 className="text-lg sm:text-xl font-bold text-[#f5f5f0]">Sé el primero en dejar tu reseña</h4>
+  1568→          <p className="mt-2 text-sm text-neutral-400 max-w-md mx-auto">
+  1569→            Todavía no hay reseñas publicadas. Si has usado RestoPanel o has visitado uno de los restaurantes que lo
+  1570→            utilizan, comparte tu experiencia. Tu reseña se publicará aquí automáticamente al enviarla.
+  1571→          </p>
+  1572→          <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-center">
+  1573→            <Button
+  1574→              size="lg"
+  1575→              className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-sm h-10 px-5 font-semibold"
+  1576→              onClick={onReload}
+  1577→            >
+  1578→              Recargar
+  1579→            </Button>
+  1580→          </div>
+  1581→        </div>
+  1582→      </>
+  1583→    );
+  1584→  }
+  1585→
+  1586→  return (
+  1587→    <>
+  1588→      {pendingBanner}
+  1589→
+  1590→      {/* Aggregate badge */}
+  1591→      {aggregate && (
+  1592→        <div className="mb-5 flex items-center gap-4 bg-white/[0.02] rounded-2xl border border-white/[0.06] p-4">
+  1593→          <div className="text-center">
+  1594→            <p className="text-3xl font-bold text-[#C5A059]">{aggregate.average.toFixed(1)}</p>
+  1595→            <div className="flex items-center gap-0.5 justify-center mt-1">
+  1596→              {[1, 2, 3, 4, 5].map((s) => (
+  1597→                <Star
+  1598→                  key={s}
+  1599→                  className={cn(
+  1600→                    "w-3 h-3",
+  1601→                    s <= Math.round(aggregate.average) ? "fill-[#C5A059] text-[#C5A059]" : "fill-neutral-700 text-neutral-700"
+  1602→                  )}
+  1603→                />
+  1604→              ))}
+  1605→            </div>
+  1606→          </div>
+  1607→          <div className="h-10 w-px bg-white/10" />
+  1608→          <div>
+  1609→            <p className="text-sm font-semibold text-[#f5f5f0]">
+  1610→              {aggregate.count} reseña{aggregate.count === 1 ? "" : "s"} verificada{aggregate.count === 1 ? "" : "s"}
+  1611→            </p>
+  1612→            <p className="text-xs text-neutral-500 mt-0.5">
+  1613→              Reseñas reales enviadas desde la landing. Publicadas automáticamente.
+  1614→            </p>
+  1615→          </div>
+  1616→        </div>
+  1617→      )}
+  1618→
+  1619→      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+  1620→        {reviews.map((r, i) => (
+  1621→          <RealReviewCard key={r.id} r={r} index={i} />
+  1622→        ))}
+  1623→      </div>
+  1624→    </>
+  1625→  );
+  1626→}
+  1627→
+  1628→function RealReviewCard({ r, index }: { r: PublicReview; index: number }) {
+  1629→  const isCompany = r.author_role === "COMPANY";
+  1630→  const initial = (r.author_name || r.author_company || "A").slice(0, 1).toUpperCase();
+  1631→  const responded = !!r.response_text;
+  1632→
+  1633→  return (
+  1634→    <motion.div
+  1635→      initial={{ opacity: 0, y: 16 }}
+  1636→      whileInView={{ opacity: 1, y: 0 }}
+  1637→      viewport={{ once: true }}
+  1638→      transition={{ duration: 0.4, delay: Math.min(index * 0.05, 0.3) }}
+  1639→      className="bg-white/[0.03] backdrop-blur-md rounded-2xl border border-white/[0.06] p-5 flex flex-col"
+  1640→    >
+  1641→      <div className="flex items-start gap-3 mb-3">
+  1642→        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] text-[#0a0a0a] flex items-center justify-center text-sm font-bold flex-shrink-0">
+  1643→          {initial}
+  1644→        </div>
+  1645→        <div className="flex-1 min-w-0">
+  1646→          <div className="flex items-center gap-1.5">
+  1647→            <p className="font-semibold text-[#f5f5f0] text-sm truncate">{r.author_name}</p>
+  1648→            {isCompany && (
+  1649→              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#004D40]/30 border border-[#004D40]/50 text-[#5fc7b8] font-medium uppercase tracking-wider flex-shrink-0">
+  1650→                Empresa
+  1651→              </span>
+  1652→            )}
+  1653→          </div>
+  1654→          {r.author_company && <p className="text-[11px] text-neutral-500 truncate">{r.author_company}</p>}
+  1655→          <p className="text-[10px] text-neutral-600 mt-0.5">
+  1656→            {new Date(r.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+  1657→          </p>
+  1658→        </div>
+  1659→        <div className="flex items-center gap-0.5 flex-shrink-0">
+  1660→          {[1, 2, 3, 4, 5].map((s) => (
+  1661→            <Star
+  1662→              key={s}
+  1663→              className={cn(
+  1664→                "w-3 h-3",
+  1665→                s <= r.rating ? "fill-[#C5A059] text-[#C5A059]" : "fill-neutral-700 text-neutral-700"
+  1666→              )}
+  1667→            />
+  1668→          ))}
+  1669→        </div>
+  1670→      </div>
+  1671→
+  1672→      {r.title && <p className="text-sm font-medium text-[#f5f5f0] mb-1.5">{r.title}</p>}
+  1673→
+  1674→      <p className="text-xs text-neutral-300 leading-relaxed flex-1">{r.body}</p>
+  1675→
+  1676→      {r.tags && r.tags.length > 0 && (
+  1677→        <div className="flex flex-wrap gap-1.5 mt-3">
+  1678→          {r.tags.map((t, i) => (
+  1679→            <span
+  1680→              key={i}
+  1681→              className="text-[9px] text-neutral-400 bg-white/[0.04] border border-white/[0.08] rounded-full px-2 py-0.5"
+  1682→            >
+  1683→              {t}
+  1684→            </span>
+  1685→          ))}
+  1686→        </div>
+  1687→      )}
+  1688→
+  1689→      {r.verified_metric && (
+  1690→        <span className="inline-flex items-center gap-1 mt-3 text-[10px] text-[#C5A059] font-bold bg-[#C5A059]/10 px-2 py-1 rounded-md w-fit">
+  1691→          <TrendingUp className="w-3 h-3" />
+  1692→          {r.verified_metric}
+  1693→        </span>
+  1694→      )}
+  1695→
+  1696→      {responded && (
+  1697→        <div className="mt-3 pt-3 border-t border-white/[0.06]">
+  1698→          <p className="text-[10px] text-[#C5A059] font-semibold uppercase tracking-wider mb-1">Respuesta del restaurante</p>
+  1699→          <p className="text-[11px] text-neutral-400 leading-relaxed">{r.response_text}</p>
+  1700→        </div>
+  1701→      )}
+  1702→
+  1703→      <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center justify-between">
+  1704→        <span className="inline-flex items-center gap-1 text-[10px] text-green-400">
+  1705→          <Check className="w-3 h-3" />
+  1706→          Verificada
+  1707→        </span>
+  1708→        <span className="text-[9px] text-neutral-600">Fuente: RestoPanel</span>
+  1709→      </div>
+  1710→    </motion.div>
+  1711→  );
+  1712→}
+  1713→
+  1714→// ─── Submit form (slide-over) ────────────────────────────────
+  1715→function ReviewSubmitForm({
+  1716→  onClose,
+  1717→  onSubmitted,
+  1718→}: {
+  1719→  onClose: () => void;
+  1720→  onSubmitted: (review: PublicReview) => void;
+  1721→}) {
+  1722→  const [role, setRole] = useState<"CLIENT" | "COMPANY">("CLIENT");
+  1723→  const [name, setName] = useState("");
+  1724→  const [company, setCompany] = useState("");
+  1725→  const [email, setEmail] = useState("");
+  1726→  const [rating, setRating] = useState(5);
+  1727→  const [title, setTitle] = useState("");
+  1728→  const [body, setBody] = useState("");
+  1729→  const [tags, setTags] = useState<string[]>([]);
+  1730→  const [submitting, setSubmitting] = useState(false);
+  1731→  const [error, setError] = useState<string | null>(null);
+  1732→  const [success, setSuccess] = useState<string | null>(null);
+  1733→
+  1734→  const toggleTag = (t: string) => {
+  1735→    setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t].slice(0, 6)));
+  1736→  };
+  1737→
+  1738→  const handleSubmit = async (e: React.FormEvent) => {
+  1739→    e.preventDefault();
+  1740→    setError(null);
+  1741→    setSuccess(null);
+  1742→
+  1743→    if (name.trim().length < 2) {
+  1744→      setError("Tu nombre debe tener al menos 2 caracteres.");
+  1745→      return;
+  1746→    }
+  1747→    if (body.trim().length < 10) {
+  1748→      setError("Tu reseña debe tener al menos 10 caracteres.");
+  1749→      return;
+  1750→    }
+  1751→
+  1752→    setSubmitting(true);
+  1753→    try {
+  1754→      const r = await fetch("/api/public/reviews", {
+  1755→        method: "POST",
+  1756→        headers: { "Content-Type": "application/json" },
+  1757→        body: JSON.stringify({
+  1758→          author_name: name,
+  1759→          author_role: role,
+
+[showing lines 1060-1759 of 2385; use offset=1760 with limit to continue reading]

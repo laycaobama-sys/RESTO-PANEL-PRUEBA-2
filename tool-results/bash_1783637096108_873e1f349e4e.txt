@@ -1,0 +1,587 @@
+Task ID: audit-10-11
+Agent: Explore (Read-Only Audit)
+Task: AUDIT (read-only) emails, WhatsApp, and web-import subsystems. Be VERY THOROUGH.
+
+Scope inspected:
+- src/lib/email.ts (476 lines)
+- src/lib/email-processor.ts (186 lines)
+- src/lib/whatsapp.ts (345 lines)
+- src/lib/web-import.ts (846 lines)
+- src/app/api/whatsapp/webhook/route.ts
+- src/app/api/whatsapp/status/route.ts
+- src/app/api/restaurant/import-web/route.ts
+- src/app/api/auth/register/route.ts (email-sending sites)
+- src/app/api/auth/forgot-password/route.ts
+- src/app/api/reservations/route.ts (email-sending sites)
+- supabase/migrations/0012_whatsapp_messages.sql
+- supabase/migrations/0013_import_jobs.sql
+- supabase/migrations/0015_transfer_rpc.sql (email_queue table)
+- scripts/apply-missing-migrations.sql
+
+Methodology: file read + targeted ripgrep across src/ for queue processors, signature-verification primitives (createHmac, timingSafeEqual), escaping primitives (escapeHtml, DOMPurify, xss), and references to "X-Hub-Signature". No files were modified.
+
+================================================================================
+# 1. EMAILS — Findings
+================================================================================
+
+## 1.1 ❌ BUG (CRITICAL) — Email queue processor is DEAD CODE (never started)
+File: src/lib/email-processor.ts:20
+Code:
+```
+export function startEmailProcessor() {
+  if (intervalHandle) return;
+  logger.info("Email queue processor started", "email-queue");
+  intervalHandle = setInterval(processEmailQueue, PROCESS_INTERVAL);
+  processEmailQueue().catch(() => {});
+}
+```
+Evidence: ripgrep across the entire project (`src/`, root) shows `startEmailProcessor` is only defined — it is NEVER imported or invoked. There is no `instrumentation.ts`, no `app/api/cron/email/route.ts`, no other caller.
+Impact: `email.ts:sendEmail` does 5 in-process retries with exponential backoff. On final failure (or when `getClient()` returns null), the email is written to `email_queue` with `status: "queued"`. Because the processor is never started, queued rows accumulate forever. Password-reset emails, welcome emails, reservation confirmations — anything that fails transiently (e.g. Resend 429/500) is silently lost from the user's perspective. `getQueueStats()` will report ever-growing `queued` counts, but nothing drains them.
+Fix:
+1. Add `src/instrumentation.ts`:
+   ```ts
+   export async function register() {
+     if (process.env.NEXT_RUNTIME === "nodejs") {
+       const { startEmailProcessor } = await import("@/lib/email-processor");
+       startEmailProcessor();
+     }
+   }
+   ```
+   (Next.js auto-detects `instrumentation.ts`; register() runs once per Node process at boot.)
+2. OR add a Vercel Cron route `app/api/cron/email-queue/route.ts` protected by a CRON_SECRET header that calls `processEmailQueue()` directly.
+3. Wire `startEmailProcessor()` into any existing boot hook (e.g. alongside Stripe webhook setup if any).
+
+## 1.2 ❌ BUG (HIGH) — `logEmailToDb` does not actually await its DB write
+File: src/lib/email.ts:440-469
+Code:
+```
+export async function logEmailToDb(log: EmailLog, organizationId?: string) {
+  try {
+    if (!supabaseAdmin) return;
+    // Best-effort — don't await in the caller
+    supabaseAdmin.from("audit_logs").insert({
+      ...
+    }).then(({ error }: any) => {
+      if (error) console.warn("[email] Failed to log to audit_logs:", error.message);
+    });
+  } catch {
+    // silent
+  }
+}
+```
+Issue: The inner `supabaseAdmin.insert(...).then(...)` is a Promise that is never awaited. The outer `async` returns immediately. `sendEmailAndLog` awaits `logEmailToDb` (`await logEmailToDb(log, opts.organizationId);`), but the await is effectively a no-op. On a serverless function that returns immediately after, the insert can be cancelled (Vercel/lambda freeze).
+Fix: Either `await` the promise inside `logEmailToDb`, or change it to fire-and-forget semantics with `void supabaseAdmin...insert()` and explicitly document it.
+
+## 1.3 ⚠️ WARN (HIGH) — Silent failure when RESEND_API_KEY is unset in production
+File: src/lib/email.ts:101-117
+Code:
+```
+// Dev mode: no API key, just log
+if (!RESEND_API_KEY) {
+  console.log(`\n📧 [EMAIL · DEV MODE] ──────────────────────`);
+  ...
+  return {
+    to: opts.to,
+    subject: opts.subject,
+    status: "dev_logged",
+    attempt,
+    sentAt,
+  };
+}
+```
+Issue: There is no NODE_ENV check. If `RESEND_API_KEY` is accidentally unset in production (misconfigured env, missing secret), all emails are silently swallowed and only logged to console. No alerting. No error. The user-facing flows (registration, password reset) appear to succeed but no email arrives. Worst case: a user can't reset password and there's no signal.
+Fix:
+```
+if (!RESEND_API_KEY) {
+  if (process.env.NODE_ENV === "production") {
+    console.error("[email] FATAL: RESEND_API_KEY not set in production — email cannot be sent");
+    await queueEmail(opts, "RESEND_API_KEY not configured");
+    return { ...opts, status: "queued", error: "RESEND_API_KEY not configured" };
+  }
+  // ... existing dev log ...
+}
+```
+
+## 1.4 ⚠️ WARN (HIGH) — No XSS / HTML-escaping in email templates (HTML injection)
+File: src/lib/email.ts:240-436 (all templates), esp. `welcome`, `passwordReset`, `emailVerification`, `reservationConfirmation`, `reservationReminder`, `staffNotification`
+Code (representative):
+```
+welcome({ name, restaurantName, loginUrl }: ...) {
+  const html = WRAPPER(`
+    <h1 ...>¡Bienvenido a RestoPanel, ${name}! 👋</h1>
+    <p ...>Tu restaurante <strong ...>${restaurantName}</strong> ya está creado...</p>
+    ...
+```
+And `BUTTON`:
+```
+const BUTTON = (text: string, href: string) => `
+  <a href="${href}" ...>${text}</a>
+`;
+```
+Issue: `name`, `customerName`, `restaurantName`, `message`, `title`, `zone`, `cancelUrl` are interpolated raw. The reservation confirmation email is fired from `/api/reservations` where `customerName` is fully unauthenticated-CRM user-controlled (anyone can POST a reservation). An attacker can submit `customerName: '<img src=x onerror=alert(1)>'`. Email clients (Gmail/Outlook) generally strip `<script>` and `onerror`, but they DO render `<a href=phishing>` and `<form>`. So phishing payloads against the restaurant's own customers are feasible. `BUTTON`'s `href` is built from `${baseUrl}/cancel-reservation?id=...` — `baseUrl` is `process.env.NEXTAUTH_URL`, so it's safe today, but `resetUrl`/`verifyUrl`/`cancelUrl` would be dangerous if any of them ever include user input. No `escapeHtml`/`DOMPurify` import anywhere in `src/` (ripgrep confirmed: 0 matches).
+Fix: Add a `escapeHtml` util:
+```
+const escapeHtml = (s: string) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[c]!);
+```
+And apply to every user-supplied field interpolated into HTML. Validate `href` with `new URL(href)` and require `http:`/`https:` protocol before interpolation.
+
+## 1.5 ⚠️ WARN (MEDIUM) — Email queue "delivered" status is unverified
+File: src/lib/email.ts:147-154
+Code:
+```
+return {
+  to: opts.to,
+  subject: opts.subject,
+  status: "delivered",   // <-- optimistic
+  attempt,
+  messageId: data?.id,
+  sentAt,
+};
+```
+Issue: Resend returns 200 + message ID when it accepts the email — this means "accepted by Resend", not "delivered to inbox". True delivery requires Resend webhooks (sent/delivered/bounced/opened) — none are wired up. The `email_queue` schema has a `bounced` status (migration 0015) but nothing ever sets it.
+Fix: Add `POST /api/email/webhook` that verifies the Resend webhook signature and updates `email_queue.status` to `delivered`/`bounced` based on `event.type`. Update `sendEmail` to return `status: "sent"` (not `"delivered"`) until the webhook confirms delivery.
+
+## 1.6 ⚠️ WARN (MEDIUM) — No dedicated email_logs table; audit_logs overload
+File: src/lib/email.ts:442-465
+Code:
+```
+// We don't have a dedicated email_logs table, so we use audit_logs
+if (!supabaseAdmin) return;
+supabaseAdmin.from("audit_logs").insert({ action: "EMAIL_SENT", ... });
+```
+Issue: Mixing email-send telemetry with security audit events (login, role changes, etc.) makes audit queries noisier and breaks RBAC separation (audit_logs is super-admin-only, but tenant admins should arguably see their own email stats). The `email_queue` table already exists and tracks everything needed; the duplicate `audit_logs` insert is redundant.
+Fix: Drop the `audit_logs` insert for successful sends. Keep `email_queue` as the single source of truth for email state. Optionally expose a tenant-scoped view of `email_queue` via a new policy.
+
+## 1.7 ⚠️ WARN (LOW) — In-process retry blocks the request thread
+File: src/lib/email.ts:155-176
+Code:
+```
+} catch (err: any) {
+  if (attempt < MAX_ATTEMPTS) {
+    const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+    console.warn(`[email] Attempt ${attempt} failed, retrying in ${delay}ms: ${err.message}`);
+    await sleep(delay);
+    return sendEmail({ ...opts, _attempt: attempt + 1 });
+  }
+  ...
+}
+```
+Issue: With 5 attempts and `BASE_DELAY_MS = 2000`, worst-case total wait = 2+4+8+16+32 = 62 seconds. `await sleep(delay)` blocks the request handler. The reservations route fires this in a `.catch(()=>{})` (fire-and-forget), so the user response is fine — but the register route does `await sendEmailAndLog(...)` twice (welcome + verification) synchronously, so a new tenant can wait 124 s before the API responds. On Vercel this hits the function timeout (10 s default, 60 s on Pro).
+Fix: Always fire-and-forget from route handlers (queue + return immediately), and let the background processor do the retries against `email_queue`. Reduce MAX_ATTEMPTS in-process to 1 (or 2), then queue for the remaining retries.
+
+## 1.8 ✅ OK — Retry math (exponential backoff, capped attempts)
+File: src/lib/email.ts:64-65, 158
+Both in-process (`email.ts`) and DB-driven (`email-processor.ts:134`) backoffs use `BASE * 2^(attempt-1)` and respect `MAX_ATTEMPTS = 5`. `email_queue.max_attempts` is set per-row. The DB processor correctly increments `attempts` and schedules `next_attempt_at`. (The only issue is the processor isn't started — see 1.1.)
+
+## 1.9 ✅ OK — Email templates cover the right surface
+Templates present: `welcome`, `passwordReset`, `emailVerification`, `reservationConfirmation`, `reservationReminder`, `staffNotification`. All have HTML + text variants. Call sites: register (welcome + verify), forgot-password (reset), reservations (confirmation). Reminder template exists but is not currently invoked anywhere (no scheduled job) — that's a feature gap, not a bug.
+
+================================================================================
+# 2. WHATSAPP — Findings
+================================================================================
+
+## 2.1 ❌ BUG (CRITICAL) — WhatsApp webhook has NO signature verification
+File: src/app/api/whatsapp/webhook/route.ts:39-78
+Code:
+```
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    console.info("[whatsapp] Webhook received:", JSON.stringify(body).substring(0, 500));
+    if (body.object) {
+      if (body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {
+        const message = body.entry[0].changes[0].value.messages[0];
+        const from = message.from;
+        const text = message.text?.body || "";
+        ...
+        // Here we would:
+        // 1. Look up the customer by phone number
+        // 2. Store the message in the CRM
+        // 3. Trigger auto-replies if configured
+      }
+      ...
+      return NextResponse.json({ ok: true });
+    }
+```
+Issue: Meta requires verifying `X-Hub-Signature-256` (HMAC-SHA256 of the raw body using `WHATSAPP_APP_SECRET`). This code does NOT verify anything. ripgrep confirms zero matches for `X-Hub-Signature`, `createHmac`, `crypto.verify`, or `timingSafeEqual` in the entire `src/`. Today the handler is a stub (just logs) so impact is limited — but the moment someone implements step "1. Look up customer... 2. Store in CRM... 3. Trigger auto-replies", any attacker can POST a spoofed message webhook and inject fake customer messages, trigger arbitrary auto-replies, and exfiltrate customer data via auto-reply content.
+Fix: Implement signature verification:
+```ts
+import crypto from "crypto";
+const APP_SECRET = process.env.WHATSAPP_APP_SECRET!;
+const raw = await req.text();
+const sig = req.headers.get("x-hub-signature-256") || "";
+const expected = "sha256=" + crypto.createHmac("sha256", APP_SECRET).update(raw).digest("hex");
+if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+  return new NextResponse("Forbidden", { status: 403 });
+}
+const body = JSON.parse(raw);
+```
+
+## 2.2 ❌ BUG (CRITICAL) — WhatsApp queue is in-memory only; lost on server restart
+File: src/lib/whatsapp.ts:120, 194-231
+Code:
+```
+const queue: QueuedMessage[] = [];
+...
+async function processQueue() {
+  if (processorRunning) return;
+  processorRunning = true;
+  try {
+    const now = Date.now();
+    const ready = queue.filter((m) => m.nextAttemptAt <= now && m.attempts < MAX_ATTEMPTS);
+    for (const msg of ready) { ... }
+  } finally {
+    processorRunning = false;
+  }
+}
+```
+Issue: `queue` is a module-level array. On any serverless cold-start, server restart, or deployment, it's wiped. The code DOES persist each message to `whatsapp_messages` table via `logMessageToDb(msg, "queued")` on enqueue — but `processQueue` only iterates the in-memory `queue`, never the DB rows. So a queued message that hasn't been processed before the process dies stays in the DB with `status="queued"` forever, and is never retried. (Same problem for `status="retrying"` rows.) The email-processor got this right (reads from DB); the whatsapp processor did not.
+Fix: Either (a) change `processQueue` to query `whatsapp_messages where status in ('queued','retrying') and next_attempt_at <= now() limit N`, mutate in DB, and skip the in-memory array entirely; or (b) on boot, rehydrate the in-memory `queue` from the DB.
+
+## 2.3 ❌ BUG (HIGH) — WhatsApp queue processor never started
+File: src/lib/whatsapp.ts:235-242
+Code:
+```
+export function startWhatsAppProcessor() {
+  if (intervalHandle) return;
+  if (!WHATSAPP_TOKEN) {
+    console.log("[whatsapp] WHATSAPP_TOKEN not set — running in dev/log mode");
+  }
+  intervalHandle = setInterval(processQueue, 10000);
+  console.log("[whatsapp] Queue processor started (10s interval)");
+}
+```
+Issue: Same as email — `startWhatsAppProcessor` is exported but never imported or invoked anywhere (ripgrep confirms only the definition matches). Even if 2.2 were fixed, no scheduler ever drains the queue.
+Fix: Add `instrumentation.ts` (same fix as 1.1) that also calls `startWhatsAppProcessor()` in the Node runtime. Note that `setInterval` does NOT survive Vercel serverless freezes — for Vercel, use Vercel Cron (`vercel.json` cron + a CRON_SECRET-protected route that calls `processQueue()`).
+
+## 2.4 ⚠️ WARN (HIGH) — Webhook verify-token has a hardcoded default
+File: src/app/api/whatsapp/webhook/route.ts:19
+Code:
+```
+const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "restopanel_verify_2026";
+```
+Issue: If the env var is unset (which is the default state in dev, and a common misconfiguration in prod), the verify token defaults to a publicly-known string. Anyone can subscribe a malicious webhook pointing at this server using the leaked default. While the POST handler is currently a stub, this would let an attacker hijack the webhook URL slot in a victim's Meta Business Manager (if they have access to it) — Meta rejects duplicate webhook URLs only by verification, so this enables persistent hijacking.
+Fix: Refuse to start the GET handler if the env var is unset:
+```
+const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
+if (!VERIFY_TOKEN) {
+  return new NextResponse("Webhook not configured", { status: 503 });
+}
+```
+Also use `crypto.timingSafeEqual` for the token compare (currently `===`).
+
+## 2.5 ⚠️ WARN (HIGH) — Templates hardcoded; no Meta-approval check or fallback
+File: src/lib/whatsapp.ts:43-104, 150-191
+Code:
+```
+reservationConfirmation: (data) => ({
+  text: `¡Hola! Tu reserva en *${data.restaurantName}* ...`,
+  template: {
+    name: "reservation_confirmation",
+    language: { code: "es" },
+    components: [{ type: "body", parameters: [...] }],
+  },
+}),
+...
+async function sendViaWhatsAppAPI(to, text, template) {
+  ...
+  if (template) {
+    body.type = "template";
+    body.template = template;
+  } else if (text) {
+    body.type = "text";
+    body.text = { body: text };
+  }
+```
+Issue: Templates must be pre-approved in Meta Business Manager. There is no check anywhere (no API call to `/message_templates`, no env-var override, no admin UI) — the code blindly sends `reservation_confirmation`/`reservation_reminder` as type=template. If those names aren't approved, Meta returns 422 with `(#132012) Template name does not exist in the translation...`. The code then retries (3×), each retry sends the same template, all fail, message is marked `failed`. There is no fallback to free-text (which is what the `text` field is for, and which works in the 24h customer-service window after the customer's first message).
+Fix: On a 4xx template error, immediately retry once with `type: "text"` using `msg.text` (the reservation confirmation flow IS customer-initiated — the customer just submitted the reservation — so the 24h window is open). Optionally cache approved template names on boot via `GET /v21.0/{phone_id}/message_templates` and only attach `template` if the name is approved.
+
+## 2.6 ⚠️ WARN (MEDIUM) — Phone-number validation is too lax
+File: src/lib/whatsapp.ts:160
+Code:
+```
+to: to.replace(/[^0-9]/g, ""),
+```
+Issue: Strips everything non-digit. Accepts `"abc12345"` → `"12345"`. No E.164 validation (length 6-15, leading country code). Reservation form submits phone as free-text. If the WhatsApp token is configured, the system will attempt to send to invalid numbers, generating 422s and burning the retry budget.
+Fix:
+```
+const normalize = (s: string) => {
+  const digits = s.replace(/[^0-9]/g, "");
+  if (digits.length < 6 || digits.length > 15) throw new Error("Invalid phone");
+  return digits;
+};
+```
+
+## 2.7 ⚠️ WARN (MEDIUM) — Webhook logs full body to console (PII)
+File: src/app/api/whatsapp/webhook/route.ts:44
+Code:
+```
+console.info("[whatsapp] Webhook received:", JSON.stringify(body).substring(0, 500));
+...
+console.info(`[whatsapp] Message from ${from}: ${text.substring(0, 100)}`);
+```
+Issue: Phone numbers + message text are PII. In production with structured logging (Vercel/Datadog/Logflare) these end up in log aggregators with weak retention controls. GDPR risk.
+Fix: Log only `message_id`, `from` SHA-256-hashed, and `timestamp`. Never log `text`.
+
+## 2.8 ✅ OK — Verify-token GET flow (when env is set)
+File: src/app/api/whatsapp/webhook/route.ts:22-36
+The `hub.mode === "subscribe" && token === VERIFY_TOKEN` then return `challenge` flow is correct per Meta's spec. Only issues are the default-token (2.4) and non-timing-safe compare.
+
+## 2.9 ✅ OK — Retry math
+File: src/lib/whatsapp.ts:121-122, 222
+`MAX_ATTEMPTS = 3`, `BASE_DELAY_MS = 5000`, exponential `BASE * 2^(attempt-1)` = 5s/10s/20s. Correctly stops at MAX_ATTEMPTS and marks `failed`.
+
+================================================================================
+# 3. WEB IMPORT — Findings
+================================================================================
+
+## 3.1 ❌ BUG (CRITICAL) — SSRF protection is bypassable via HTTP redirects
+File: src/lib/web-import.ts:169-204
+Code:
+```
+async function fetchHtml(url: string, timeoutMs = 12000): Promise<...> {
+  // SSRF check
+  if (isPrivateUrl(url)) {
+    throw new Error("URL apunta a una dirección privada o interna (no permitida)");
+  }
+  ...
+  const resp = await fetch(url, {
+    signal: controller.signal,
+    headers: {...},
+    redirect: "follow",     // <-- !!!
+  });
+  ...
+  return { html, finalUrl: resp.url || url, ... };
+}
+```
+Issue: `isPrivateUrl(url)` is only checked on the *initial* URL. `redirect: "follow"` lets fetch follow 30x redirects to ANY URL — including `http://169.254.169.254/`, `http://localhost/`, internal VPC services. The returned `finalUrl` is then passed to `parseRobots(finalUrl)` and `parseSitemap(finalUrl)`, which fetch `/robots.txt` and `/sitemap.xml` of the (potentially-internal) host. So a single attacker-controlled URL `https://evil.com/redirect?to=http://169.254.169.254/` bypasses everything.
+Fix: Set `redirect: "manual"`, then loop: for each `Location` header, run `isPrivateUrl(loc)` and `new URL(loc).hostname`-based DNS resolution check (see 3.2). Refuse to follow more than 5 redirects. Cap total redirect bytes.
+
+## 3.2 ❌ BUG (CRITICAL) — SSRF check is string-only, no DNS resolution (DNS rebinding + encoding bypass)
+File: src/lib/web-import.ts:141-166
+Code:
+```
+function isPrivateUrl(urlStr: string): boolean {
+  try {
+    const u = new URL(urlStr);
+    const host = u.hostname;
+    if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0") return true;
+    if (host === "::1" || host === "[::1]") return true;
+    if (/^10\.\d+\.\d+\.\d+$/.test(host)) return true;
+    if (/^192\.168\.\d+\.\d+$/.test(host)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host)) return true;
+    if (host === "169.254.169.254") return true;
+    if (host === "metadata.google.internal") return true;
+    if (/^169\.254\.\d+\.\d+$/.test(host)) return true;
+    return false;
+  } catch { return true; }
+}
+```
+Issue: This is hostname-string matching, NOT IP resolution. Multiple bypasses:
+- **DNS rebinding / A-record-to-internal**: Register `evil.com` with A record `127.0.0.1` (or `169.254.169.254`). The regex doesn't match `evil.com`, so it passes. `fetch()` then connects to the internal IP. This is the classic SSRF bypass.
+- **Encoded IPs**: `2130706433` (decimal for 127.0.0.1), `0x7f000001` (hex), `0177.0.0.1` (octal), `127.1` (short form) all parse to 127.0.0.1 via `URL` but bypass the regexes.
+- **IPv6-mapped IPv4**: `::ffff:127.0.0.1` and `::ffff:7f00:1` reach 127.0.0.1 but bypass `::1` check.
+- **IPv6 ULA**: `fc00::`/`fd00::` (unique-local) not blocked. `fec0::` (site-local deprecated) not blocked.
+- **Other cloud metadata**: AWS IMDSv1 at `169.254.169.254` IS blocked. But Azure `169.254.169.254/metadata/instance` (same IP, blocked). GCP `metadata.google.internal` IS blocked. Alibaba `100.100.100.200` NOT blocked. Oracle `169.254.169.254/opc/v2/` IS blocked (same IP). DigitalOcean `169.254.169.254/metadata/v1.json` IS blocked (same IP). ChinaCloud `100.100.100.200` NOT blocked.
+Fix:
+```ts
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+
+async function isPrivateResolved(hostname: string): Promise<boolean> {
+  // Resolve hostname to IPs and check each
+  try {
+    const addrs = await lookup(hostname, { all: true });
+    for (const a of addrs) {
+      const ip = a.address;
+      if (ip === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0") return true;
+      if (ip.startsWith("10.")) return true;
+      if (ip.startsWith("192.168.")) return true;
+      if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true;
+      if (ip.startsWith("169.254.")) return true;
+      if (ip.startsWith("fc") || ip.startsWith("fd")) return true;       // IPv6 ULA
+      if (ip.startsWith("fe80")) return true;                            // IPv6 link-local
+      if (ip.startsWith("::ffff:")) return isPrivateResolved(ip.slice(7)); // IPv4-mapped
+      if (ip === "100.100.100.200") return true;                         // Alibaba metadata
+    }
+    return false;
+  } catch { return true; }
+}
+```
+And call `await isPrivateResolved(new URL(url).hostname)` BEFORE `fetch()` AND on every redirect target (see 3.1).
+
+## 3.3 ❌ BUG (HIGH) — Sitemap parser fetches arbitrary attacker-controlled URLs without SSRF check
+File: src/lib/web-import.ts:215-252
+Code:
+```
+for (const smUrl of sitemapUrls) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(smUrl, {        // <-- smUrl is /sitemap.xml of baseUrl — same origin OK
+      signal: controller.signal,
+      ...
+    });
+    ...
+    const matches = xml.matchAll(/<loc>([^<]+)<\/loc>/gi);
+    for (const m of matches) {
+      const u = m[1].trim();                // <-- attacker-controlled
+      if (u.startsWith("http")) {
+        if (u.endsWith(".xml")) {
+          // Recurse into nested sitemap (1 level deep)
+          try {
+            const r2 = await fetch(u, { signal: AbortSignal.timeout(8000) });   // <-- !!! NO SSRF CHECK ON `u` !!!
+            const xml2 = await r2.text();
+            ...
+          } catch {}
+        } else {
+          urls.push(u);
+        }
+      }
+    }
+```
+Issue: The user submits `https://evil.com/` (attacker-controlled restaurant URL). `parseSitemap` fetches `https://evil.com/sitemap.xml` (same origin, OK). That sitemap contains `<loc>http://169.254.169.254/.xml</loc>`. The code then fetches that internal metadata URL directly via `fetch(u)` — `isPrivateUrl` is NEVER called on `u`. This is a direct, unauthenticated-to-the-target SSRF vector (only the submitter needs to be a logged-in tenant admin, which is trivial).
+Also: `parseRobots(finalUrl)` (line 263) calls `fetch(robotsUrl, ...)` on `finalUrl`, which after a redirect (see 3.1) can be an internal URL.
+Fix: Wrap ALL `fetch()` calls in this module (sitemap, robots, nested sitemap, sub-pages) with the same `fetchHtml()` helper that does SSRF checks. Specifically, replace the bare `fetch(u, ...)` in the nested sitemap block with `await fetchHtml(u, 8000)` — but note that fetchHtml requires `text/html` content-type, so add a `fetchRaw(url, timeoutMs)` variant that does SSRF+timeout but allows any content-type for sitemap/robots XML.
+
+## 3.4 ⚠️ WARN (HIGH) — `import_html_cache` table has no eviction / size cap
+File: src/lib/web-import.ts:126-136; migration 0013:50-58
+Code:
+```
+async function setCachedHtml(url: string, html: string, statusCode: number): Promise<void> {
+  try {
+    await supabaseAdmin.from("import_html_cache").upsert({
+      url, html, status_code: statusCode,
+      fetched_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    });
+  } catch {}
+}
+```
+Migration:
+```
+create table if not exists import_html_cache (
+  url         text primary key,
+  html        text not null,
+  status_code int,
+  fetched_at  timestamptz not null default now(),
+  expires_at  timestamptz not null default (now() + interval '24 hours')
+);
+```
+Issue: HTML is truncated at 2 MB per fetch (`email.ts:198`). 10 imports per 10 minutes per user (rate limit), 1440 minutes/day = 1440 imports/day per user. With multiple tenants, the table grows unbounded. `expires_at` is set but nothing DELETES expired rows. No TTL job, no row-size guard. A single malicious tenant can fill DB storage with 2 MB × 1440 = 2.88 GB/day.
+Fix: Add a daily cron job: `DELETE FROM import_html_cache WHERE expires_at < now()`. Also cap `html` column with `CHECK (octet_length(html) < 2100000)` and consider storing in S3/R2 instead of DB.
+
+## 3.5 ⚠️ WARN (MEDIUM) — No protection against long-running orphaned jobs
+File: src/lib/web-import.ts:622-633, 824-832
+Code:
+```
+const { data: jobRow, error: jobError } = await supabaseAdmin
+  .from("import_jobs")
+  .insert({ organization_id, url, status: "running", progress: 0, progress_label: "Iniciando...", started_at: new Date().toISOString() })
+  .select().single();
+...
+} catch (error: any) {
+  await updateJob({ status: "failed", error: error.message, completed_at: new Date().toISOString(), ... });
+  throw error;
+}
+```
+Issue: If the process dies mid-import (serverless timeout, OOM kill, deploy mid-flight), the `catch` never runs and the row stays `status="running"` forever. The UI shows a perpetually-running job. No reaper. Same problem on the GET history endpoint — no filter for stale `running` rows.
+Fix: Add a cron route that marks any `import_jobs.status="running"` with `started_at < now() - interval '15 minutes'` as `failed` with `error="Timed out"`. Also add a `UNIQUE(url, organization_id)` partial index on `status in ('queued','running')` to prevent two concurrent imports of the same URL by the same tenant.
+
+## 3.6 ⚠️ WARN (MEDIUM) — Rate limiter is in-memory and per-process
+File: src/app/api/restaurant/import-web/route.ts:14-42
+Code:
+```
+const WINDOW_MS = 10 * 60 * 1000;
+const MAX_PER_WINDOW = 10;
+const attempts = new Map<string, number[]>();  // timestamps array
+...
+function rateLimited(key: string): boolean {
+  const now = Date.now();
+  const timestamps = attempts.get(key) || [];
+  const recent = timestamps.filter(ts => now - ts < WINDOW_MS);
+  if (recent.length >= MAX_PER_WINDOW) return true;
+  recent.push(now);
+  attempts.set(key, recent);
+  return false;
+}
+```
+Issue: In-memory `Map` is per-process. On Vercel serverless (multiple concurrent instances), each instance has its own map, so the effective limit becomes `MAX_PER_WINDOW × instance_count`. An attacker cycling across instances gets 10× the limit. The forgot-password route has the same issue (`attempts` Map per process). The codebase's own `src/lib/rate-limit.ts` has the same design with a comment "For production with multiple instances, use Redis instead."
+Fix: Move to Upstash Redis (REST API, edge-compatible):
+```
+import { Redis } from "@upstash/redis";
+const redis = Redis.fromEnv();
+const key = `import:${user.id}:${ip}`;
+const count = await redis.incr(key);
+if (count === 1) await redis.expire(key, 600);
+if (count > 10) return NextResponse.json({ error: "too_many_requests" }, { status: 429 });
+```
+
+## 3.7 ⚠️ WARN (MEDIUM) — Regex-based HTML parsers are fragile
+File: src/lib/web-import.ts:307-336 (microdata), 287-305 (JSON-LD), 456-480 (heuristic)
+Code (representative):
+```
+const itemscopeRegex = /<[^>]+itemscope[^>]*>([\s\S]*?)<\/(?:div|section|article|li)>/gi;
+...
+const nameMatch = block.match(/itemprop=["']name["'][^>]*>([^<]+)</i);
+```
+Issue: Pure regex parsing of HTML is brittle. Comment in code admits "This is a simplified regex-based parser — a full DOM parser would be more robust but we avoid external dependencies." Failure modes:
+- Nested `<div itemscope>...<div itemscope>...</div>...</div>` — the non-greedy `([\s\S]*?)` matches up to the FIRST `</div>`, missing the outer scope's data.
+- Self-closing tags `<div itemprop="name" />` — not matched.
+- HTML entities (`&amp;`, `&#x2019;`) — not decoded.
+- Attributes with `>` inside quoted values: `<div data-x="a>b" itemprop="name">` — broken.
+- JSON-LD with `<script>` containing `</script>` inside a string literal — the regex stops early.
+A real restaurant site (SquareSpace, Wix, WordPress Menu plugins) typically produces well-formed JSON-LD, but the heuristic fallback (line 457+) matches arbitrary `<h2>`, `<strong>`, `<li>` text near prices — this picks up navigation items, footer links, and headings that happen to be near a price string (e.g., near "Reserva: 5€").
+Fix: Use `linkedom` (server-side DOM, no jsdom bloat) or `cheerio` (already a dep transitively via shadcn? confirm with `package.json`). Parse once, query with selectors. For JSON-LD, use `JSON.parse` (already done) but wrap each `<script>` extraction in a stateful parser that respects `</script>` only at the correct nesting.
+
+## 3.8 ⚠️ WARN (LOW) — Microdata parser regex captures wrong closing tag
+File: src/lib/web-import.ts:314
+Code:
+```
+const itemscopeRegex = /<[^>]+itemscope[^>]*>([\s\S]*?)<\/(?:div|section|article|li)>/gi;
+```
+Issue: If an itemscope opens on a `<span>`, `<ul>`, `<tr>`, etc., the regex looks for `</div>`, `</section>`, `</article>`, or `</li>` — but the actual closing tag may be `</span>` etc. The block then either captures too much (until the next `</div>`) or too little. This silently drops valid menu items.
+Fix: Use a DOM parser (see 3.7) — this entire regex-based microdata parser should be replaced.
+
+## 3.9 ✅ OK — No RCE / path traversal surface
+File: src/lib/web-import.ts (full file)
+ripgrep confirms zero usage of `fs`, `child_process`, `exec`, `spawn`, `writeFile`, or any shell-escape primitive anywhere in `web-import.ts`. The only side-effecting writes are:
+1. `import_jobs` table — INSERT/UPDATE via supabaseAdmin (parameterized, no SQL injection).
+2. `import_html_cache` table — UPSERT via supabaseAdmin (parameterized).
+3. `menu_items` table — INSERT via supabaseAdmin (parameterized).
+4. `audit_logs` table — INSERT via `db.auditLogs.insert` (parameterized).
+5. Network: outbound `fetch()` calls.
+No file-system writes, no shell commands. The `applyNew` flag writes only to `menu_items` with hardcoded column names — no path component is taken from user input. No RCE/path-traversal risk in this module.
+
+## 3.10 ✅ OK — Timeout on fetches
+File: src/lib/web-import.ts:169, 218, 235, 240, 263
+All `fetch()` calls have either `AbortController` with explicit `setTimeout(..., timeoutMs)` (main fetch: 12 s; sitemap: 8 s; nested sitemap: 8 s) or `AbortSignal.timeout(ms)` (robots: 5 s; sub-pages: 8 s). HTML capped at 2 MB. No unbounded fetch.
+
+## 3.11 ✅ OK — Import jobs tracked in DB with full status
+File: src/lib/web-import.ts:612-833, migration 0013
+`import_jobs` table has `status` (queued/running/completed/failed/cancelled), `progress`, `progress_label`, `pages_crawled`, `items_detected`, `items_imported`, `result` (jsonb with full preview), `error`, `started_at`, `completed_at`, `created_at`, `updated_at`. RLS policies enforce tenant isolation + super-admin access. The job lifecycle is correctly maintained (only failure is the orphaned-job case in 3.5).
+
+================================================================================
+# Summary
+================================================================================
+
+Counts:
+- ❌ BUG: 7 (1 in emails, 3 in whatsapp, 3 in web-import)
+- ⚠️ WARN: 11 (5 in emails, 4 in whatsapp, 4 in web-import — some overlap)
+- ✅ OK: 6
+
+Top 5 priorities (by impact × likelihood):
+1. CRITICAL — Web-import SSRF bypass via redirect (3.1) + DNS-rebinding (3.2) + sitemap-fetch SSRF (3.3). All three combine to make the web-import endpoint an open SSRF proxy for any authenticated tenant. Patch together.
+2. CRITICAL — WhatsApp webhook has no signature verification (2.1). Currently a stub, but a footgun for the next dev who implements message handling.
+3. CRITICAL — Both email queue (1.1) and WhatsApp queue (2.2, 2.3) processors are never started. Queues silently accumulate. User-visible: lost password resets, lost reservation confirmations.
+4. HIGH — Email templates have no HTML escaping (1.4). Reservation confirmations are sent to untrusted customer-supplied emails with attacker-controlled `customerName` interpolated raw.
+5. HIGH — WhatsApp templates have no fallback if not Meta-approved (2.5). All WhatsApp sends fail silently in any environment where templates aren't pre-approved.
+
+This was a READ-ONLY audit. No source files were modified. Recommended next task: `audit-10-11-fix` to patch the 7 CRITICAL/HIGH items in priority order — items 1, 2, 3 above are unblockers for production; 4 and 5 are user-visible correctness bugs.
+
+---
+Task ID: audit-5-6-14
+Agent: explore (Read-only audit)

@@ -149,7 +149,11 @@ export async function POST(req: Request) {
       restaurantId: organization.id,
       organizationId: organization.id,
       restaurantSlug: organization.slug,
-      verifyToken,
+      // CRITICAL FIX: do NOT return verifyToken in the response.
+      // Previously, anyone could register with a throwaway email and
+      // immediately self-verify without ever opening the email. The
+      // verification token is sent ONLY via email now.
+      message: 'Cuenta creada. Revisa tu email para verificar tu cuenta.',
     })
   } catch (e) {
     console.error('Register error', e)

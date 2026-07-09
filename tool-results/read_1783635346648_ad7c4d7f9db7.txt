@@ -1,0 +1,748 @@
+     1→"use client";
+     2→
+     3→import { useState, useMemo } from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { api } from "@/lib/api";
+     6→import { formatDateTime, formatTime } from "@/lib/format";
+     7→import { SectionHeader, EmptyState } from "@/components/shared/SectionHeader";
+     8→import {
+     9→  ReservationStatusBadge,
+    10→  ZONE_LABEL,
+    11→  ZONE_COLOR,
+    12→  SHIFT_LABEL,
+    13→} from "@/components/shared/StatusBadge";
+    14→import {
+    15→  Plus,
+    16→  CalendarCheck,
+    17→  Loader2,
+    18→  Pencil,
+    19→  Trash2,
+    20→  Phone,
+    21→  Users,
+    22→  Clock,
+    23→  Calendar,
+    24→  Filter,
+    25→  Check,
+    26→  X,
+    27→  UserCheck,
+    28→  UserX,
+    29→} from "lucide-react";
+    30→import { Button } from "@/components/ui/button";
+    31→import { Input } from "@/components/ui/input";
+    32→import { Label } from "@/components/ui/label";
+    33→import { Textarea } from "@/components/ui/textarea";
+    34→import {
+    35→  Dialog,
+    36→  DialogContent,
+    37→  DialogHeader,
+    38→  DialogTitle,
+    39→  DialogFooter,
+    40→} from "@/components/ui/dialog";
+    41→import {
+    42→  Select,
+    43→  SelectContent,
+    44→  SelectItem,
+    45→  SelectTrigger,
+    46→  SelectValue,
+    47→} from "@/components/ui/select";
+    48→import {
+    49→  AlertDialog,
+    50→  AlertDialogAction,
+    51→  AlertDialogCancel,
+    52→  AlertDialogContent,
+    53→  AlertDialogDescription,
+    54→  AlertDialogFooter,
+    55→  AlertDialogHeader,
+    56→  AlertDialogTitle,
+    57→} from "@/components/ui/alert-dialog";
+    58→import { toast } from "sonner";
+    59→import { cn } from "@/lib/utils";
+    60→
+    61→interface Table {
+    62→  id: string;
+    63→  number: string;
+    64→  name?: string | null;
+    65→  capacity: number;
+    66→  zone: string;
+    67→}
+    68→interface Reservation {
+    69→  id: string;
+    70→  customerName: string;
+    71→  phone: string;
+    72→  email?: string | null;
+    73→  partySize: number;
+    74→  date: string;
+    75→  status: string;
+    76→  shift: string;
+    77→  zone?: string | null;
+    78→  source?: string | null;
+    79→  notes?: string | null;
+    80→  table?: { id: string; number: string; name?: string | null; zone: string } | null;
+    81→}
+    82→
+    83→const STATUS = [
+    84→  { id: "PENDING", label: "Pendiente" },
+    85→  { id: "CONFIRMED", label: "Confirmada" },
+    86→  { id: "SEATED", label: "Sentados" },
+    87→  { id: "COMPLETED", label: "Completada" },
+    88→  { id: "CANCELLED", label: "Cancelada" },
+    89→  { id: "NO_SHOW", label: "No show" },
+    90→];
+    91→
+    92→const SHIFTS = [
+    93→  { id: "ALL", label: "Todo el día" },
+    94→  { id: "LUNCH", label: "Comida" },
+    95→  { id: "DINNER", label: "Cena" },
+    96→];
+    97→
+    98→const ZONES = [
+    99→  { id: "ALL", label: "Todas las zonas" },
+   100→  { id: "INTERIOR", label: "Interior" },
+   101→  { id: "TERRACE", label: "Terraza" },
+   102→  { id: "BAR", label: "Barra" },
+   103→  { id: "VIP", label: "VIP" },
+   104→];
+   105→
+   106→function todayISO() {
+   107→  const d = new Date();
+   108→  const tzOffset = d.getTimezoneOffset() * 60000;
+   109→  return new Date(d.getTime() - tzOffset).toISOString().slice(0, 10);
+   110→}
+   111→
+   112→export function ReservationsSection() {
+   113→  const qc = useQueryClient();
+   114→  const [filterStatus, setFilterStatus] = useState("ALL");
+   115→  const [filterShift, setFilterShift] = useState("ALL");
+   116→  const [filterZone, setFilterZone] = useState("ALL");
+   117→  const [filterDate, setFilterDate] = useState(todayISO());
+   118→  const [dialog, setDialog] = useState<{ open: boolean; reservation?: Reservation }>({ open: false });
+   119→  const [deleteId, setDeleteId] = useState<string | null>(null);
+   120→
+   121→  const { data: reservations = [], isLoading } = useQuery<Reservation[]>({
+   122→    queryKey: ["reservations", filterDate],
+   123→    queryFn: () => {
+   124→      const qs = new URLSearchParams({
+   125→        ...(filterDate ? { date: filterDate } : {}),
+   126→      }).toString();
+   127→      return api(`/api/reservations?${qs}`);
+   128→    },
+   129→  });
+   130→  const { data: tables = [] } = useQuery<Table[]>({
+   131→    queryKey: ["tables"],
+   132→    queryFn: () => api("/api/tables"),
+   133→  });
+   134→
+   135→  // Apply client-side filters (shift, status, zone) on top of date filter.
+   136→  const filtered = useMemo(() => {
+   137→    return reservations
+   138→      .filter((r) => filterStatus === "ALL" || r.status === filterStatus)
+   139→      .filter((r) => filterShift === "ALL" || r.shift === filterShift)
+   140→      .filter((r) => filterZone === "ALL" || r.zone === filterZone)
+   141→      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+   142→  }, [reservations, filterStatus, filterShift, filterZone]);
+   143→
+   144→  const groupedByHour = useMemo(() => {
+   145→    const groups = new Map<string, Reservation[]>();
+   146→    for (const r of filtered) {
+   147→      const d = new Date(r.date);
+   148→      const hour = d.getHours();
+   149→      const key = `${hour.toString().padStart(2, "0")}:00`;
+   150→      if (!groups.has(key)) groups.set(key, []);
+   151→      groups.get(key)!.push(r);
+   152→    }
+   153→    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+   154→  }, [filtered]);
+   155→
+   156→  const today = new Date();
+   157→  today.setHours(0, 0, 0, 0);
+   158→  const todayList = filtered;
+   159→  const summary = {
+   160→    total: filtered.length,
+   161→    pending: filtered.filter((r) => r.status === "PENDING").length,
+   162→    confirmed: filtered.filter((r) => r.status === "CONFIRMED").length,
+   163→    seated: filtered.filter((r) => r.status === "SEATED").length,
+   164→    cancelled: filtered.filter((r) => r.status === "CANCELLED" || r.status === "NO_SHOW").length,
+   165→    pax: filtered
+   166→      .filter((r) => r.status !== "CANCELLED" && r.status !== "NO_SHOW")
+   167→      .reduce((s, r) => s + r.partySize, 0),
+   168→  };
+   169→
+   170→  const updateStatus = useMutation({
+   171→    mutationFn: ({ id, status }: { id: string; status: string }) =>
+   172→      api(`/api/reservations/${id}`, {
+   173→        method: "PATCH",
+   174→        body: JSON.stringify({ status }),
+   175→      }),
+   176→    onSuccess: () => {
+   177→      qc.invalidateQueries({ queryKey: ["reservations"] });
+   178→      qc.invalidateQueries({ queryKey: ["tables"] });
+   179→    },
+   180→    onError: (e: any) => toast.error(e.message),
+   181→  });
+   182→
+   183→  const delMutation = useMutation({
+   184→    mutationFn: (id: string) => api(`/api/reservations/${id}`, { method: "DELETE" }),
+   185→    onSuccess: () => {
+   186→      toast.success("Reserva eliminada");
+   187→      qc.invalidateQueries({ queryKey: ["reservations"] });
+   188→      setDeleteId(null);
+   189→    },
+   190→  });
+   191→
+   192→  return (
+   193→    <div>
+   194→      <SectionHeader
+   195→        title="Reservas"
+   196→        subtitle="Gestión de reservas por turno, zona y estado"
+   197→        actions={
+   198→          <Button
+   199→            className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
+   200→            onClick={() => setDialog({ open: true })}
+   201→          >
+   202→            <Plus className="w-4 h-4 mr-1.5" />
+   203→            Nueva reserva
+   204→          </Button>
+   205→        }
+   206→      />
+   207→
+   208→      {/* Summary cards */}
+   209→      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3 mb-5">
+   210→        <SummaryCard label="Total" value={summary.total} cls="bg-[#111518] border" />
+   211→        <SummaryCard label="Pendientes" value={summary.pending} cls="bg-yellow-50 text-yellow-700 border border-yellow-100" />
+   212→        <SummaryCard label="Confirmadas" value={summary.confirmed} cls="bg-green-50 text-green-700 border border-green-100" />
+   213→        <SummaryCard label="Sentados" value={summary.seated} cls="bg-blue-50 text-blue-700 border border-blue-100" />
+   214→        <SummaryCard label="Cancelados" value={summary.cancelled} cls="bg-red-50 text-red-700 border border-red-100" />
+   215→        <SummaryCard label="Comensales" value={summary.pax} cls="bg-[#C5A05910] text-[#C5A059] border border-[#C5A05920]" />
+   216→      </div>
+   217→
+   218→      {/* Filters bar */}
+   219→      <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-3 mb-4 flex flex-wrap items-center gap-2">
+   220→        <div className="flex items-center gap-1.5 text-sm text-neutral-500 px-2">
+   221→          <Filter className="w-4 h-4" />
+   222→          <span className="hidden sm:inline">Filtros:</span>
+   223→        </div>
+   224→        <div className="flex items-center gap-1.5">
+   225→          <Calendar className="w-4 h-4 text-neutral-400" />
+   226→          <Input
+   227→            type="date"
+   228→            value={filterDate}
+   229→            onChange={(e) => setFilterDate(e.target.value)}
+   230→            className="h-8 w-auto border-white/[0.06] text-sm"
+   231→          />
+   232→        </div>
+   233→        <Select value={filterShift} onValueChange={setFilterShift}>
+   234→          <SelectTrigger className="h-8 w-auto text-sm border-white/[0.06]">
+   235→            <SelectValue />
+   236→          </SelectTrigger>
+   237→          <SelectContent>
+   238→            {SHIFTS.map((s) => (
+   239→              <SelectItem key={s.id} value={s.id}>
+   240→                {s.label}
+   241→              </SelectItem>
+   242→            ))}
+   243→          </SelectContent>
+   244→        </Select>
+   245→        <Select value={filterZone} onValueChange={setFilterZone}>
+   246→          <SelectTrigger className="h-8 w-auto text-sm border-white/[0.06]">
+   247→            <SelectValue />
+   248→          </SelectTrigger>
+   249→          <SelectContent>
+   250→            {ZONES.map((z) => (
+   251→              <SelectItem key={z.id} value={z.id}>
+   252→                {z.label}
+   253→              </SelectItem>
+   254→            ))}
+   255→          </SelectContent>
+   256→        </Select>
+   257→        <Select value={filterStatus} onValueChange={setFilterStatus}>
+   258→          <SelectTrigger className="h-8 w-auto text-sm border-white/[0.06]">
+   259→            <SelectValue />
+   260→          </SelectTrigger>
+   261→          <SelectContent>
+   262→            <SelectItem value="ALL">Todos los estados</SelectItem>
+   263→            {STATUS.map((s) => (
+   264→              <SelectItem key={s.id} value={s.id}>
+   265→                {s.label}
+   266→              </SelectItem>
+   267→            ))}
+   268→          </SelectContent>
+   269→        </Select>
+   270→        <Button
+   271→          variant="ghost"
+   272→          size="sm"
+   273→          className="h-8 ml-auto text-xs"
+   274→          onClick={() => {
+   275→            setFilterStatus("ALL");
+   276→            setFilterShift("ALL");
+   277→            setFilterZone("ALL");
+   278→            setFilterDate(todayISO());
+   279→          }}
+   280→        >
+   281→          Limpiar
+   282→        </Button>
+   283→      </div>
+   284→
+   285→      {/* Reservations grouped by hour */}
+   286→      {isLoading ? (
+   287→        <div className="py-20 flex items-center justify-center text-neutral-400">
+   288→          <Loader2 className="w-5 h-5 animate-spin" />
+   289→        </div>
+   290→      ) : filtered.length === 0 ? (
+   291→        <div className="bg-[#111518] rounded-2xl border border-white/[0.06]">
+   292→          <EmptyState
+   293→            icon={<CalendarCheck className="w-6 h-6" />}
+   294→            title="No hay reservas para los filtros seleccionados"
+   295→            description="Cambia los filtros o crea una nueva reserva con el botón de arriba."
+   296→          />
+   297→        </div>
+   298→      ) : (
+   299→        <div className="space-y-4">
+   300→          {groupedByHour.map(([hour, items]) => (
+   301→            <div key={hour}>
+   302→              <div className="flex items-center gap-2 mb-2 px-1">
+   303→                <Clock className="w-4 h-4 text-[#C5A059]" />
+   304→                <h3 className="font-semibold text-[#f5f5f0] text-sm">{hour}</h3>
+   305→                <span className="text-xs text-neutral-500">
+   306→                  {items.length} reserva{items.length !== 1 ? "s" : ""} ·{" "}
+   307→                  {items
+   308→                    .filter((r) => r.status !== "CANCELLED" && r.status !== "NO_SHOW")
+   309→                    .reduce((s, r) => s + r.partySize, 0)}{" "}
+   310→                  comensales
+   311→                </span>
+   312→                <div className="flex-1 h-px bg-[#ececed] ml-2" />
+   313→              </div>
+   314→              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+   315→                {items.map((r) => (
+   316→                  <ReservationCard
+   317→                    key={r.id}
+   318→                    reservation={r}
+   319→                    onEdit={() => setDialog({ open: true, reservation: r })}
+   320→                    onDelete={() => setDeleteId(r.id)}
+   321→                    onConfirm={() =>
+   322→                      updateStatus.mutate({ id: r.id, status: "CONFIRMED" })
+   323→                    }
+   324→                    onSeat={() =>
+   325→                      updateStatus.mutate({ id: r.id, status: "SEATED" })
+   326→                    }
+   327→                    onComplete={() =>
+   328→                      updateStatus.mutate({ id: r.id, status: "COMPLETED" })
+   329→                    }
+   330→                    onCancel={() =>
+   331→                      updateStatus.mutate({ id: r.id, status: "CANCELLED" })
+   332→                    }
+   333→                    onNoShow={() =>
+   334→                      updateStatus.mutate({ id: r.id, status: "NO_SHOW" })
+   335→                    }
+   336→                  />
+   337→                ))}
+   338→              </div>
+   339→            </div>
+   340→          ))}
+   341→        </div>
+   342→      )}
+   343→
+   344→      <ReservationDialog
+   345→        key={dialog.reservation?.id || "new"}
+   346→        open={dialog.open}
+   347→        reservation={dialog.reservation}
+   348→        tables={tables}
+   349→        defaultDate={filterDate}
+   350→        onClose={() => setDialog({ open: false })}
+   351→        onSaved={() => {
+   352→          qc.invalidateQueries({ queryKey: ["reservations"] });
+   353→          setDialog({ open: false });
+   354→        }}
+   355→      />
+   356→
+   357→      <AlertDialog
+   358→        open={!!deleteId}
+   359→        onOpenChange={(v) => !v && setDeleteId(null)}
+   360→      >
+   361→        <AlertDialogContent>
+   362→          <AlertDialogHeader>
+   363→            <AlertDialogTitle>¿Eliminar reserva?</AlertDialogTitle>
+   364→            <AlertDialogDescription>
+   365→              Esta acción no se puede deshacer.
+   366→            </AlertDialogDescription>
+   367→          </AlertDialogHeader>
+   368→          <AlertDialogFooter>
+   369→            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+   370→            <AlertDialogAction
+   371→              className="bg-red-600 hover:bg-red-700 text-white"
+   372→              onClick={() => deleteId && delMutation.mutate(deleteId)}
+   373→              disabled={delMutation.isPending}
+   374→            >
+   375→              {delMutation.isPending ? (
+   376→                <Loader2 className="w-4 h-4 animate-spin" />
+   377→              ) : (
+   378→                "Eliminar"
+   379→              )}
+   380→            </AlertDialogAction>
+   381→          </AlertDialogFooter>
+   382→        </AlertDialogContent>
+   383→      </AlertDialog>
+   384→    </div>
+   385→  );
+   386→}
+   387→
+   388→function SummaryCard({
+   389→  label,
+   390→  value,
+   391→  cls,
+   392→}: {
+   393→  label: string;
+   394→  value: number;
+   395→  cls: string;
+   396→}) {
+   397→  return (
+   398→    <div className={cn("rounded-xl p-2.5 sm:p-3 border text-center", cls)}>
+   399→      <p className="text-xl sm:text-2xl font-bold">{value}</p>
+   400→      <p className="text-[10px] sm:text-xs opacity-80">{label}</p>
+   401→    </div>
+   402→  );
+   403→}
+   404→
+   405→function ReservationCard({
+   406→  reservation: r,
+   407→  onEdit,
+   408→  onDelete,
+   409→  onConfirm,
+   410→  onSeat,
+   411→  onComplete,
+   412→  onCancel,
+   413→  onNoShow,
+   414→}: {
+   415→  reservation: Reservation;
+   416→  onEdit: () => void;
+   417→  onDelete: () => void;
+   418→  onConfirm: () => void;
+   419→  onSeat: () => void;
+   420→  onComplete: () => void;
+   421→  onCancel: () => void;
+   422→  onNoShow: () => void;
+   423→}) {
+   424→  return (
+   425→    <div className="bg-[#111518] rounded-xl border border-white/[0.06] p-3 hover:shadow-sm transition-shadow">
+   426→      <div className="flex items-start gap-3">
+   427→        {/* Time + pax column */}
+   428→        <div className="flex flex-col items-center justify-center min-w-16 pr-3 border-r border-white/[0.06]">
+   429→          <p className="text-lg font-bold text-[#f5f5f0]">
+   430→            {formatTime(r.date)}
+   431→          </p>
+   432→          <div className="flex items-center gap-0.5 text-xs text-neutral-500 mt-0.5">
+   433→            <Users className="w-3 h-3" />
+   434→            {r.partySize}
+   435→          </div>
+   436→        </div>
+   437→
+   438→        {/* Customer info */}
+   439→        <div className="flex-1 min-w-0">
+   440→          <div className="flex items-start justify-between gap-2">
+   441→            <div className="min-w-0">
+   442→              <p className="font-semibold text-[#f5f5f0] text-sm truncate">
+   443→                {r.customerName}
+   444→              </p>
+   445→              <p className="text-xs text-neutral-500 flex items-center gap-1 mt-0.5">
+   446→                <Phone className="w-3 h-3" />
+   447→                {r.phone}
+   448→              </p>
+   449→            </div>
+   450→            <ReservationStatusBadge status={r.status} />
+   451→          </div>
+   452→          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+   453→            {r.zone && (
+   454→              <span
+   455→                className={cn(
+   456→                  "text-[10px] font-medium px-2 py-0.5 rounded-full border",
+   457→                  ZONE_COLOR[r.zone] || "bg-[#1a1f24] text-neutral-400"
+   458→                )}
+   459→              >
+   460→                {ZONE_LABEL[r.zone] || r.zone}
+   461→              </span>
+   462→            )}
+   463→            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#1a1f24] text-neutral-400">
+   464→              {SHIFT_LABEL[r.shift] || r.shift}
+   465→            </span>
+   466→            {r.table && (
+   467→              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#1a1f24] text-neutral-400">
+   468→                Mesa {r.table.number}
+   469→              </span>
+   470→            )}
+   471→            {r.source && r.source !== "PHONE" && (
+   472→              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+   473→                {r.source === "ONLINE" ? "Online" : "Walk-in"}
+   474→              </span>
+   475→            )}
+   476→          </div>
+   477→          {r.notes && (
+   478→            <p className="text-xs text-neutral-500 mt-1.5 line-clamp-2 italic">
+   479→              "{r.notes}"
+   480→            </p>
+   481→          )}
+   482→        </div>
+   483→      </div>
+   484→
+   485→      {/* Actions */}
+   486→      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-white/[0.06]">
+   487→        {r.status === "PENDING" && (
+   488→          <Button
+   489→            size="sm"
+   490→            variant="outline"
+   491→            className="h-7 text-xs text-green-700 border-green-200 hover:bg-green-50"
+   492→            onClick={onConfirm}
+   493→          >
+   494→            <Check className="w-3 h-3 mr-1" />
+   495→            Confirmar
+   496→          </Button>
+   497→        )}
+   498→        {r.status === "CONFIRMED" && (
+   499→          <Button
+   500→            size="sm"
+   501→            variant="outline"
+   502→            className="h-7 text-xs text-blue-700 border-blue-200 hover:bg-blue-50"
+   503→            onClick={onSeat}
+   504→          >
+   505→            <UserCheck className="w-3 h-3 mr-1" />
+   506→            Sentar
+   507→          </Button>
+   508→        )}
+   509→        {r.status === "SEATED" && (
+   510→          <Button
+   511→            size="sm"
+   512→            variant="outline"
+   513→            className="h-7 text-xs text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+   514→            onClick={onComplete}
+   515→          >
+   516→            <Check className="w-3 h-3 mr-1" />
+   517→            Completar
+   518→          </Button>
+   519→        )}
+   520→        {(r.status === "PENDING" || r.status === "CONFIRMED") && (
+   521→          <>
+   522→            <Button
+   523→              size="sm"
+   524→              variant="outline"
+   525→              className="h-7 text-xs text-red-700 border-red-200 hover:bg-red-50"
+   526→              onClick={onCancel}
+   527→            >
+   528→              <X className="w-3 h-3 mr-1" />
+   529→              Cancelar
+   530→            </Button>
+   531→            {r.status === "CONFIRMED" && (
+   532→              <Button
+   533→                size="sm"
+   534→                variant="ghost"
+   535→                className="h-7 text-xs text-neutral-500"
+   536→                onClick={onNoShow}
+   537→              >
+   538→                <UserX className="w-3 h-3 mr-1" />
+   539→                No show
+   540→              </Button>
+   541→            )}
+   542→          </>
+   543→        )}
+   544→        <div className="flex-1" />
+   545→        <Button
+   546→          size="sm"
+   547→          variant="ghost"
+   548→          className="h-7 w-7 p-0 text-neutral-500 hover:text-[#C5A059]"
+   549→          onClick={onEdit}
+   550→        >
+   551→          <Pencil className="w-3.5 h-3.5" />
+   552→        </Button>
+   553→        <Button
+   554→          size="sm"
+   555→          variant="ghost"
+   556→          className="h-7 w-7 p-0 text-neutral-500 hover:text-red-600 hover:bg-red-50"
+   557→          onClick={onDelete}
+   558→        >
+   559→          <Trash2 className="w-3.5 h-3.5" />
+   560→        </Button>
+   561→      </div>
+   562→    </div>
+   563→  );
+   564→}
+   565→
+   566→function ReservationDialog({
+   567→  open,
+   568→  reservation,
+   569→  tables,
+   570→  defaultDate,
+   571→  onClose,
+   572→  onSaved,
+   573→}: {
+   574→  open: boolean;
+   575→  reservation?: Reservation;
+   576→  tables: Table[];
+   577→  defaultDate: string;
+   578→  onClose: () => void;
+   579→  onSaved: () => void;
+   580→}) {
+   581→  const defaultDt = reservation
+   582→    ? new Date(reservation.date)
+   583→    : (() => {
+   584→        const d = new Date(defaultDate || todayISO());
+   585→        d.setHours(20, 0, 0, 0);
+   586→        return d;
+   587→      })();
+   588→  const localISO = (d: Date) => {
+   589→    const tzOffset = d.getTimezoneOffset() * 60000;
+   590→    return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
+   591→  };
+   592→
+   593→  const [customerName, setCustomerName] = useState(reservation?.customerName || "");
+   594→  const [phone, setPhone] = useState(reservation?.phone || "");
+   595→  const [email, setEmail] = useState(reservation?.email || "");
+   596→  const [partySize, setPartySize] = useState(reservation?.partySize?.toString() || "2");
+   597→  const [date, setDate] = useState(localISO(defaultDt));
+   598→  const [shift, setShift] = useState(reservation?.shift || "DINNER");
+   599→  const [zone, setZone] = useState(reservation?.zone || "INTERIOR");
+   600→  const [tableId, setTableId] = useState(reservation?.table?.id || "none");
+   601→  const [status, setStatus] = useState(reservation?.status || "PENDING");
+   602→  const [notes, setNotes] = useState(reservation?.notes || "");
+   603→  const [saving, setSaving] = useState(false);
+   604→
+   605→  async function handleSave() {
+   606→    if (!customerName.trim()) return toast.error("Nombre obligatorio");
+   607→    if (!phone.trim()) return toast.error("Teléfono obligatorio");
+   608→    setSaving(true);
+   609→    try {
+   610→      const payload = {
+   611→        customerName: customerName.trim(),
+   612→        phone: phone.trim(),
+   613→        email: email.trim() || null,
+   614→        partySize: Number(partySize),
+   615→        date: new Date(date).toISOString(),
+   616→        shift,
+   617→        zone,
+   618→        tableId: tableId === "none" ? null : tableId,
+   619→        status,
+   620→        notes: notes.trim() || null,
+   621→      };
+   622→      if (reservation) {
+   623→        await api(`/api/reservations/${reservation.id}`, {
+   624→          method: "PATCH",
+   625→          body: JSON.stringify(payload),
+   626→        });
+   627→        toast.success("Reserva actualizada");
+   628→      } else {
+   629→        await api("/api/reservations", {
+   630→          method: "POST",
+   631→          body: JSON.stringify(payload),
+   632→        });
+   633→        toast.success("Reserva creada");
+   634→      }
+   635→      onSaved();
+   636→    } catch (e: any) {
+   637→      toast.error(e.message);
+   638→    } finally {
+   639→      setSaving(false);
+   640→    }
+   641→  }
+   642→
+   643→  return (
+   644→    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+   645→      <DialogContent className="max-w-xl">
+   646→        <DialogHeader>
+   647→          <DialogTitle>
+   648→            {reservation ? "Editar reserva" : "Nueva reserva"}
+   649→          </DialogTitle>
+   650→        </DialogHeader>
+   651→        <div className="grid grid-cols-2 gap-3 py-2">
+   652→          <div className="space-y-1.5">
+   653→            <Label className="text-xs">Nombre *</Label>
+   654→            <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="María García" />
+   655→          </div>
+   656→          <div className="space-y-1.5">
+   657→            <Label className="text-xs">Teléfono *</Label>
+   658→            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+34 600 000 000" />
+   659→          </div>
+   660→          <div className="space-y-1.5">
+   661→            <Label className="text-xs">Email</Label>
+   662→            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="cliente@email.com" />
+   663→          </div>
+   664→          <div className="space-y-1.5">
+   665→            <Label className="text-xs">Nº de personas</Label>
+   666→            <Input type="number" min={1} value={partySize} onChange={(e) => setPartySize(e.target.value)} />
+   667→          </div>
+   668→          <div className="space-y-1.5">
+   669→            <Label className="text-xs">Fecha y hora</Label>
+   670→            <Input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
+   671→          </div>
+   672→          <div className="space-y-1.5">
+   673→            <Label className="text-xs">Turno</Label>
+   674→            <Select value={shift} onValueChange={setShift}>
+   675→              <SelectTrigger>
+   676→                <SelectValue />
+   677→              </SelectTrigger>
+   678→              <SelectContent>
+   679→                <SelectItem value="LUNCH">Comida</SelectItem>
+   680→                <SelectItem value="DINNER">Cena</SelectItem>
+   681→              </SelectContent>
+   682→            </Select>
+   683→          </div>
+   684→          <div className="space-y-1.5">
+   685→            <Label className="text-xs">Zona</Label>
+   686→            <Select value={zone} onValueChange={setZone}>
+   687→              <SelectTrigger>
+   688→                <SelectValue />
+   689→              </SelectTrigger>
+   690→              <SelectContent>
+   691→                <SelectItem value="INTERIOR">Interior</SelectItem>
+   692→                <SelectItem value="TERRACE">Terraza</SelectItem>
+   693→                <SelectItem value="BAR">Barra</SelectItem>
+   694→                <SelectItem value="VIP">VIP</SelectItem>
+   695→              </SelectContent>
+   696→            </Select>
+   697→          </div>
+   698→          <div className="space-y-1.5">
+   699→            <Label className="text-xs">Mesa</Label>
+   700→            <Select value={tableId} onValueChange={setTableId}>
+   701→              <SelectTrigger>
+   702→                <SelectValue />
+   703→              </SelectTrigger>
+   704→              <SelectContent>
+   705→                <SelectItem value="none">Sin asignar</SelectItem>
+   706→                {tables.map((t) => (
+   707→                  <SelectItem key={t.id} value={t.id}>
+   708→                    {t.name || `Mesa ${t.number}`} ({t.capacity} pax)
+   709→                  </SelectItem>
+   710→                ))}
+   711→              </SelectContent>
+   712→            </Select>
+   713→          </div>
+   714→          <div className="space-y-1.5">
+   715→            <Label className="text-xs">Estado</Label>
+   716→            <Select value={status} onValueChange={setStatus}>
+   717→              <SelectTrigger>
+   718→                <SelectValue />
+   719→              </SelectTrigger>
+   720→              <SelectContent>
+   721→                {STATUS.map((s) => (
+   722→                  <SelectItem key={s.id} value={s.id}>
+   723→                    {s.label}
+   724→                  </SelectItem>
+   725→                ))}
+   726→              </SelectContent>
+   727→            </Select>
+   728→          </div>
+   729→          <div className="col-span-2 space-y-1.5">
+   730→            <Label className="text-xs">Notas</Label>
+   731→            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Alergias, cumpleaños, preferencias..." rows={2} />
+   732→          </div>
+   733→        </div>
+   734→        <DialogFooter>
+   735→          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+   736→          <Button
+   737→            className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
+   738→            onClick={handleSave}
+   739→            disabled={saving}
+   740→          >
+   741→            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : reservation ? "Guardar" : "Crear reserva"}
+   742→          </Button>
+   743→        </DialogFooter>
+   744→      </DialogContent>
+   745→    </Dialog>
+   746→  );
+   747→}
+   748→

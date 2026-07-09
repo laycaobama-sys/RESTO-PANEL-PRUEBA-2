@@ -128,6 +128,16 @@ export async function POST(req: Request) {
         const orgId = sub.metadata?.organization_id
 
         if (orgId) {
+          // CRITICAL FIX: clear plan_id AND subscription_id, and
+          // downgrade to 'starter' plan so feature flags reflect
+          // the cancellation immediately. Previously, plan_id was
+          // left intact → getOrgPlan() still returned the old plan.
+          const { data: starterPlan } = await supabaseAdmin
+            .from('subscription_plans')
+            .select('id')
+            .eq('name', 'starter')
+            .single()
+
           await supabaseAdmin
             .from('organization_subscriptions')
             .update({
@@ -135,6 +145,8 @@ export async function POST(req: Request) {
               canceled_at: new Date().toISOString(),
               cancel_at_period_end: false,
               stripe_subscription_id: null,
+              // Downgrade to starter so the user loses premium features
+              ...(starterPlan?.id ? { plan_id: starterPlan.id } : {}),
             })
             .eq('organization_id', orgId)
 

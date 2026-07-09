@@ -61,6 +61,23 @@ export async function revokeSession(jti: string): Promise<void> {
   } catch {}
 }
 
+/**
+ * Revoke a session by JTI AND user_id — use this instead of
+ * revokeSession() whenever the caller is a regular user (not a
+ * super-admin). Prevents IDOR: without the user_id filter, any
+ * authenticated user could revoke any other user's session by
+ * passing that user's jti.
+ */
+export async function revokeSessionByJtiAndUser(jti: string, userId: string): Promise<void> {
+  try {
+    await supabaseAdmin
+      .from("user_sessions")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("token_jti", jti)
+      .eq("user_id", userId);
+  } catch {}
+}
+
 export async function revokeAllUserSessions(userId: string, exceptJti?: string): Promise<void> {
   try {
     let query = supabaseAdmin

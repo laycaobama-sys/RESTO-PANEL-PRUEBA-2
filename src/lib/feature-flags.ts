@@ -63,12 +63,13 @@ export async function isFeatureEnabled(
       // Table doesn't exist yet — use defaults
       Object.entries(DEFAULT_FLAGS).forEach(([k, v]) => flags.set(k, v));
     } else {
-      // Get org's subscription plan
+      // Get org's subscription plan AND status
       let orgPlan = "professional"; // default
+      let orgStatus = "trial"; // default
       try {
         const { data: sub } = await supabaseAdmin
           .from("organization_subscriptions")
-          .select("subscription_plans!inner(name)")
+          .select("status, subscription_plans!inner(name)")
           .eq("organization_id", organizationId)
           .maybeSingle();
 
@@ -77,11 +78,21 @@ export async function isFeatureEnabled(
         if (planName) {
           orgPlan = planName;
         }
+        if (sub?.status) {
+          orgStatus = sub.status;
+        }
       } catch {
         // Table might not exist — use default plan
       }
 
-      const orgPlanLevel = PLAN_HIERARCHY[orgPlan] || 2;
+      // CRITICAL FIX: if the subscription is canceled or past_due,
+      // downgrade to starter immediately. Previously, a canceled user
+      // retained all premium features forever because the status was
+      // never checked.
+      const EFFECTIVE_PLAN = (orgStatus === 'canceled' || orgStatus === 'past_due')
+        ? 'starter'
+        : orgPlan;
+      const orgPlanLevel = PLAN_HIERARCHY[EFFECTIVE_PLAN] || 2;
 
       for (const flag of flagDefs) {
         if (!flag.plan_required) {
@@ -182,35 +193,34 @@ export async function incrementUsage(
     const now = new Date();
     const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-    await supabaseAdmin
-      .from("organization_usage")
-      .upsert(
-        {
-          organization_id: organizationId,
-          metric,
-          period,
-          count: 1,
-          updated_at: now.toISOString(),
-        },
-        { onConflict: "organization_id,metric,period" }
-      );
+    // CRITICAL FIX: use atomic PL/pgSQL RPC instead of read-modify-write.
+    // The RPC does INSERT ... ON CONFLICT DO UPDATE SET count = count + 1
+    // which is fully atomic and race-condition-free.
+    // If the RPC doesn't exist (migration 0019 not applied), we fall
+    // back to a best-effort upsert (which has a small race window but
+    // is acceptable for usage tracking).
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const { error } = await supabaseAdmin.rpc("increment_usage", {
+      p_organization_id: organizationId,
+      p_metric: metric,
+      p_period: period,
+    });
 
-    // Increment count
-    const { data: existing } = await supabaseAdmin
-      .from("organization_usage")
-      .select("count")
-      .eq("organization_id", organizationId)
-      .eq("metric", metric)
-      .eq("period", period)
-      .maybeSingle();
-
-    if (existing) {
+    if (error) {
+      // RPC doesn't exist (migration 0019 not applied) — fall back
+      // to best-effort upsert. Non-critical.
       await supabaseAdmin
         .from("organization_usage")
-        .update({ count: existing.count + 1, updated_at: now.toISOString() })
-        .eq("organization_id", organizationId)
-        .eq("metric", metric)
-        .eq("period", period);
+        .upsert(
+          {
+            organization_id: organizationId,
+            metric,
+            period,
+            count: 1,
+            updated_at: now.toISOString(),
+          },
+          { onConflict: "organization_id,metric,period" }
+        );
     }
   } catch {
     // Non-critical

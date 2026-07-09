@@ -58,6 +58,17 @@ export const authOptions: NextAuthOptions = {
           return null
         }
 
+        // Email verification gate: in production, users with unverified
+        // emails cannot log in. This is controlled by REQUIRE_EMAIL_VERIFICATION
+        // env var (defaults to true in production, false in development).
+        // Super admins bypass this check (they're created via env var).
+        const requireVerification = process.env.REQUIRE_EMAIL_VERIFICATION === 'true'
+          || process.env.NODE_ENV === 'production'
+        if (requireVerification && !user.email_verified && !user.is_super_admin) {
+          recordFailedLogin(email)
+          throw new Error('Tu email no está verificado. Revisa tu correo y haz clic en el enlace de verificación.')
+        }
+
         const ok = await verifyPassword(credentials.password, user.password_hash)
         if (!ok) {
           const result = recordFailedLogin(email)

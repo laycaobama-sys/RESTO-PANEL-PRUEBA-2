@@ -1,0 +1,2002 @@
+     1→# Worklog - RestoPanel SaaS
+     2→
+     3→---
+     4→Task ID: full-build
+     5→Agent: main (Super Z)
+     6→Task: Diseñar y desarrollar un panel de control SaaS multi-restaurante con auth multi-tenant, gestión de carta, pedidos, mesas, cocina, analíticas, reservas, ajustes y web pública sincronizada en tiempo real.
+     7→
+     8→Work Log:
+     9→- Analizadas 9 imágenes de referencia (dashboard estilo POS con sidebar naranja #FF6B35, KPIs, gráficas, estados color-coded).
+    10→- Definido schema Prisma multi-tenant: Restaurant, User (con roles ADMIN/STAFF), Category, MenuItem, Table, Order, OrderItem, Reservation, RestaurantSetting.
+    11→- Configurado NextAuth v4 con Credentials provider, JWT sessions, bcrypt para hashes.
+    12→- Implementadas 12 API routes: auth, register, menu (CRUD), categories (CRUD), orders (CRUD + advance/cancel), tables (CRUD), reservations (CRUD), analytics (agregaciones), restaurant (GET/PATCH), public/[slug] (sin auth, para web pública), upload (imágenes), seed (datos demo).
+    13→- Construida UI completa con tema naranja/coral (#FF6B35) siguiendo las referencias:
+    14→  - Pantalla de auth split-screen con tabs login/registro.
+    15→  - Dashboard layout: sidebar fija + topbar con búsqueda + user menu + nav móvil.
+    16→  - 9 secciones: Dashboard (KPIs + 3 gráficas), Pedidos (POS con filtros y cambio de estado), Mesas (grid con estados), Cocina (KDS con tarjetas y auto-refresh), Menús/Carta (CRUD completo con upload de imagen y toggle visible/disponible), Analytics (4 gráficas + KPIs), Reservas (tabla con estados), Ajustes (4 tabs: general, branding, horarios, módulos), Carta pública (preview con browser chrome).
+    17→- Seed de La Zamorana: 8 categorías, 41 platos, 10 mesas, 15 pedidos y 6 reservas con timestamps realistas.
+    18→- Lint limpio (0 errores, 0 warnings tras limpiar comentarios innecesarios).
+    19→- Verificado con Agent Browser:
+    20→  - Login funcional (demo@lazamorana.es / demo1234).
+    21→  - Todas las secciones cargan sin errores.
+    22→  - Logout funcional.
+    23→  - Responsive móvil (390x844) verificado.
+    24→  - Creación de plato nuevo "Hamburguesa Especial Test" → aparece automáticamente en la carta pública (sincronización en tiempo real confirmada).
+    25→  - Endpoint público /api/public/la-zamorana devuelve JSON correcto.
+    26→  - Sin errores en consola del navegador.
+    27→
+    28→Stage Summary:
+    29→- Aplicación full-stack funcional lista para preview.
+    30→- Stack: Next.js 16 + React 19 + TypeScript + Tailwind 4 + shadcn/ui + Prisma + NextAuth + Recharts + Zustand + TanStack Query.
+    31→- Arquitectura multi-tenant: cada restaurante tiene sus datos aislados por restaurantId.
+    32→- Sincronización panel→web pública vía invalidación de TanStack Query + API REST pública sin auth.
+    33→- Guía de despliegue escrita en /home/z/my-project/download/GUIA-DESPLIEGUE.md (Vercel + Docker).
+    34→- Cuenta demo: demo@lazamorana.es / demo1234
+    35→- Capturas en /home/z/my-project/screenshots/ (15 imágenes cubriendo todas las secciones + móvil).
+    36→
+    37→---
+    38→Task ID: audit-8
+    39→Agent: explore (audit sub-agent)
+    40→Task: Read-only audit of floor plan / interactive tables feature for 4 critical production bugs (DB-spam debounce, mobile touch conflicts, RLS / org_id, z-index of selected-table popover).
+    41→
+    42→Scope inspected:
+    43→- src/components/dashboard/sections/TablesSection.tsx (908 lines) — the only file implementing the floor plan. No `InteractiveTable.tsx`, `DraggableTable.tsx` or `FloorPlanCanvas.tsx` exist; `InteractiveTable` is defined inside TablesSection.tsx (lines 537-671) but is NEVER rendered (only `ZoneTable` is). Searched `src/components/**` via Glob to confirm.
+    44→- src/app/api/tables/{route.ts,[id]/route.ts,positions/route.ts,group/route.ts,transfer/route.ts,available/route.ts}
+    45→- src/lib/db.ts (tables CRUD layer), src/lib/session.ts, src/lib/next-auth.ts, src/lib/supabase/admin.ts
+    46→- src/types/next-auth.d.ts (organizationId declaration on session.user)
+    47→
+    48→Findings:
+    49→
+    50→### CHECK 1 — Debounce on table drag (DB spam) — ⚠️ PARTIAL BUG (dead code + minor issues)
+    51→
+    52→The component has TWO drag systems. Only the zone-based one is rendered:
+    53→
+    54→A) Zone drag (ACTIVE — ZoneTable, HTML5 drag-and-drop):
+    55→   - TablesSection.tsx:246-264 — `handleZoneDrop` fires `changeZoneMut.mutate({ id: tableId, zone: zoneId })` immediately on every drop, with NO debounce.
+    56→   - TablesSection.tsx:174-184 — `changeZoneMut` PATCHes /api/tables/{id} with the new zone.
+    57→   - Each drop is a discrete event, so it is NOT a per-mouse-move DB spam, but there is:
+    58→     • No debounce / no `disabled={changeZoneMut.isPending}` guard on the draggable while a previous drop is in flight — rapid successive drops can fire multiple parallel PATCHes.
+    59→     • No optimistic update; the dragged table snaps back to the old zone until TanStack Query refetches.
+    60→
+    61→B) Pixel-coordinate drag (DEAD CODE — InteractiveTable, never rendered):
+    62→   - TablesSection.tsx:201-209 — `handleDragMove` updates `pendingPositions` state on every `mousemove` (NO API call — good).
+    63→   - TablesSection.tsx:211 — `handleDragEnd` only clears `draggingId` (no API call — good).
+    64→   - TablesSection.tsx:213-216 — `savePositions` is invoked only via the "Guardar" button (line 287), which batches all pending positions in one POST.
+    65→   - BUT `InteractiveTable` (lines 537-671) is never instantiated; `pendingPositions` is always `{}`, so the Save button is permanently disabled (`disabled={... || Object.keys(pendingPositions).length === 0}`, line 287).
+    66→   - Net effect: `/api/tables/positions` (POST/PATCH) is an ORPHAN endpoint — unreachable from the UI. posX/posY can never be updated from the dashboard.
+    67→
+    68→Verbatim — the only API trigger in the active path:
+    69→```ts
+    70→// TablesSection.tsx:246-264
+    71→const handleZoneDrop = (e: React.DragEvent, zoneId: string) => {
+    72→  e.preventDefault();
+    73→  const tableId = e.dataTransfer.getData("text/plain") || draggedTableId;
+    74→  if (!tableId) return;
+    75→  const table = tables.find(t => t.id === tableId);
+    76→  if (!table) return;
+    77→  if (table.zone === zoneId) { setDraggedTableId(null); setDragOverZone(null); return; }
+    78→  changeZoneMut.mutate({ id: tableId, zone: zoneId }); // ← immediate PATCH, no debounce, no in-flight guard
+    79→};
+    80→```
+    81→
+    82→```ts
+    83→// TablesSection.tsx:135-140 (savePositionsMut — DEAD, only reachable via Save button which is always disabled)
+    84→const savePositionsMut = useMutation({
+    85→  mutationFn: (updates: Array<{ id: string; posX: number; posY: number }>) =>
+    86→    api("/api/tables/positions", { method: "POST", body: JSON.stringify({ updates }) }),
+    87→  onSuccess: () => { qc.invalidateQueries({ queryKey: ["tables"] }); toast.success("Posiciones guardadas ✓"); setPendingPositions({}); },
+    88→  onError: (e: any) => toast.error(e.message),
+    89→});
+    90→```
+    91→
+    92→Proposed fixes:
+    93→1. Add an in-flight guard on the draggable so concurrent drops cannot stack: `draggable={editMode && !changeZoneMut.isPending}`.
+    94→2. Make `changeZoneMut` use TanStack Query's optimistic-update pattern so the table visually stays in the new zone immediately, then rolls back on error.
+    95→3. Either delete the dead InteractiveTable + savePositionsMut + handleDragStart/Move/End + `pendingPositions` state (lines 104-109, 135-140, 192-216, 266-270, 537-671) OR re-wire it as the active drag surface so users can position tables freely.
+    96→4. In `/api/tables/positions/route.ts` (lines 21-36) replace the `for...of await` loop with a single Supabase `update(...).in('id', [...])` or a Postgres function — currently each table triggers a sequential round-trip.
+    97→
+    98→---
+    99→
+   100→### CHECK 2 — Touch conflicts on mobile (pan vs drag) — ❌ BUG
+   101→
+   102→The entire drag system relies on HTML5 drag-and-drop, which does NOT fire on touch devices. There is no pointer/touch fallback, no `touch-action` styling, and Framer Motion's `drag` is not used.
+   103→
+   104→Verbatim — TablesSection.tsx:698-705 (ZoneTable):
+   105→```tsx
+   106→<motion.div
+   107→  initial={reduceMotion ? {} : { opacity: 0, scale: 0.8 }}
+   108→  animate={{ opacity: 1, scale: 1 }}
+   109→  transition={{ duration: 0.2 }}
+   110→  draggable={editMode}
+   111→  onDragStart={(e: any) => { if (editMode && onDragStart) onDragStart(e, table.id); }}
+   112→  onDragEnd={() => { if (editMode && onDragEnd) onDragEnd(); }}
+   113→  onMouseEnter={() => { onHover(table.id); setShowPopover(true); }}
+   114→  onMouseLeave={() => { onHover(null); setShowPopover(false); }}
+   115→  onClick={() => onSelect(table)}
+   116→  whileHover={editMode ? {} : { scale: 1.1, zIndex: 10 }}
+   117→  whileTap={{ scale: 0.95 }}
+   118→```
+   119→
+   120→Canvas container (scroll-panning surface):
+   121→```tsx
+   122→// TablesSection.tsx:356
+   123→<div className="space-y-3 max-h-[520px] overflow-y-auto rounded-xl pr-1" style={{ scrollbarWidth: "thin" }}>
+   124→```
+   125→
+   126→Grep results across the file:
+   127→- `touch-action` / `touchAction` — 0 hits.
+   128→- `touch-none` Tailwind class — 0 hits.
+   129→- `dragMomentum` — 0 hits (Framer Motion `drag` prop not used at all).
+   130→- `dragConstraints` — 0 hits.
+   131→- `onTouchStart` / `onPointerDown` / `onPointerMove` / `onPointerUp` — 0 hits.
+   132→
+   133→Consequences:
+   134→- On iOS Safari and Android Chrome, `draggable={true}` does nothing — admins literally cannot rearrange tables from a phone/tablet.
+   135→- The canvas scroll surface (`overflow-y-auto`) keeps `touch-action: auto`, so touch panning works, but since drag never fires there is no conflict — the feature simply does not work on touch.
+   136→- Click-to-select still works (onClick fires on tap), but `onMouseEnter`/`onMouseLeave` (line 706-707) do not fire on touch, so the CRM popover (lines 747-776) is also effectively desktop-only.
+   137→
+   138→Proposed fix (recommended approach — Framer Motion pointer-based drag, which works for both mouse and touch):
+   139→```tsx
+   140→<motion.div
+   141→  drag={editMode}
+   142→  dragMomentum={false}
+   143→  dragConstraints={containerRef}
+   144→  dragElastic={0}
+   145→  onDragStart={() => setDraggingId(table.id)}
+   146→  onDragEnd={(e, info) => {
+   147→    // snap-to-zone detection: find zone panel under pointer
+   148→    handleDropByPointer(table.id, info.point);
+   149→    setDraggingId(null);
+   150→  }}
+   151→  style={{ touchAction: editMode ? "none" : "auto" }} // ← critical for mobile
+   152→  whileDrag={{ scale: 1.1, zIndex: 50 }}
+   153→>
+   154→```
+   155→Or, minimally, add `style={{ touchAction: "none" }}` and `onTouchStart`/`onTouchMove`/`onTouchEnd` handlers that mimic `handleDragStart/Move/End`.
+   156→
+   157→---
+   158→
+   159→### CHECK 3 — RLS / org_id sent correctly — ✅ OK
+   160→
+   161→All four drag-reachable endpoints read `organizationId` from the NextAuth session (never from the request body) and filter every UPDATE by `organization_id`:
+   162→
+   163→1. `/api/tables/positions/route.ts` (the orphan endpoint):
+   164→```ts
+   165→// src/app/api/tables/positions/route.ts:6-10
+   166→export async function PATCH(req: Request) {
+   167→  const user = await getCurrentUser()
+   168→  if (!user || !user.organizationId) {
+   169→    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+   170→  }
+   171→  ...
+   172→  // src/app/api/tables/positions/route.ts:24-30  ← the actual UPDATE
+   173→  const { data, error } = await supabaseAdmin
+   174→    .from('tables')
+   175→    .update(patch)
+   176→    .eq('id', u.id)
+   177→    .eq('organization_id', user.organizationId)
+   178→    .select('id, pos_x, pos_y')
+   179→    .single()
+   180→```
+   181→
+   182→2. `/api/tables/[id]/route.ts` (used by the active zone-drop mutation `changeZoneMut`):
+   183→```ts
+   184→// src/app/api/tables/[id]/route.ts:9-19
+   185→export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+   186→  const user = await getCurrentUser()
+   187→  if (!user || user.role !== 'ADMIN')
+   188→    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+   189→  const { id } = await params
+   190→  ...
+   191→  const existing = await db.table.findFirst(user.organizationId, { id }) // ← org filter
+   192→  if (!existing) return NextResponse.json({ error: 'No encontrada' }, { status: 404 })
+   193→  ...
+   194→  const updated = await db.table.update(id, user.organizationId, patch) // ← org filter again
+   195→```
+   196→
+   197→3. `db.table.update` (src/lib/db.ts:474-484) — double filter (id + organization_id):
+   198→```ts
+   199→async update(id: string, organizationId: string, patch: Partial<Table>): Promise<Table> {
+   200→  const { data, error } = await supabaseAdmin
+   201→    .from("tables")
+   202→    .update(patch)
+   203→    .eq("id", id)
+   204→    .eq("organization_id", organizationId)
+   205→    .select().single();
+   206→```
+   207→
+   208→4. `/api/tables/transfer/route.ts` — also filters every UPDATE by organization_id (lines 27, 39, 58, 90, 98).
+   209→
+   210→Notes:
+   211→- All endpoints use `supabaseAdmin` (service_role) which BYPASSES RLS, BUT every query is explicitly filtered by `user.organizationId` from the JWT. RLS is enabled as defense-in-depth (migration 0002_hardened_rls.sql).
+   212→- `organizationId` is attached to the JWT at sign-in (src/lib/next-auth.ts:146 `token.organizationId = u.organizationId`) and surfaced on `session.user.organizationId` in the session callback (src/lib/next-auth.ts:189-200). It is NEVER read from `req.body` or query string. Type augmentation in src/types/next-auth.d.ts:15,31,45 enforces this at compile time.
+   213→- No bug here. ✅
+   214→
+   215→---
+   216→
+   217→### CHECK 4 — Z-index of selected table popover — ❌ BUG
+   218→
+   219→The popover is a child of the table's motion.div. The parent's z-index is raised to 10 only via `whileHover` (transient, only during hover), and the popover uses `z-30` — but that `z-30` is INSIDE the parent's stacking context, so a sibling table with the same z-index 10 (or any table later in DOM order while hover transitions) can render on top of the popover.
+   220→
+   221→Verbatim — ZoneTable parent motion.div (TablesSection.tsx:698-721):
+   222→```tsx
+   223→<motion.div
+   224→  ...
+   225→  whileHover={editMode ? {} : { scale: 1.1, zIndex: 10 }}    // ← zIndex 10 only while hovering
+   226→  whileTap={{ scale: 0.95 }}
+   227→  className={cn(
+   228→    "border-2 flex flex-col items-center justify-center transition-all select-none cursor-pointer relative",
+   229→    ...
+   230→    (isHovered || isSelected) && "ring-2 ring-yellow-400 ring-offset-2 ring-offset-[#0a0a0a]", // ← NO z-index when selected
+   231→    ...
+   232→  )}
+   233→>
+   234→```
+   235→
+   236→Popover (TablesSection.tsx:746-756):
+   237→```tsx
+   238→<AnimatePresence>
+   239→  {showPopover && !editMode && (
+   240→    <motion.div
+   241→      ...
+   242→      className="absolute z-30 pointer-events-none"           // ← z-30 trapped inside parent z-10
+   243→      style={{ bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: "4px" }}
+   244→    >
+   245→```
+   246→
+   247→Concrete failure modes:
+   248→1. Two adjacent tables in the same flex row. User hovers table A (zIndex 10, popover shown at z-30 inside A's stacking context). User moves cursor toward the popover; mid-transition the hover state on A is still active AND pointer enters table B (B also gets zIndex 10). Because B comes later in DOM and has the same z-index, B paints OVER A's popover — popover visually clipped/hidden behind B.
+   249→2. The popover is only triggered by `onMouseEnter` (line 706) — when a table is CLICKED (`isSelected`), no popover is shown at all; the user only gets the full Dialog. That part is fine. BUT the selected table itself is NOT elevated above its siblings, so its `ring-yellow-400` selection ring can be visually overlapped by neighbours.
+   250→
+   251→InteractiveTable (the dead-code sibling at lines 553-588) has the same pattern but is even more explicit about the bug:
+   252→```tsx
+   253→// TablesSection.tsx:558
+   254→style={{ ..., zIndex: isDragging ? 20 : 1 }}   // ← only 20 while dragging, else 1
+   255→// TablesSection.tsx:563
+   256→whileHover={editMode ? {} : { scale: 1.12, zIndex: 10 }}
+   257→// TablesSection.tsx:618
+   258→className="absolute z-30 pointer-events-none"
+   259→```
+   260→
+   261→Proposed fix — promote the parent's z-index when hovered OR selected via a stable Tailwind class (not a transient inline style), and bump the popover higher than any sibling can reach:
+   262→```tsx
+   263→<motion.div
+   264→  ...
+   265→  className={cn(
+   266→    "... relative",
+   267→    (isHovered || isSelected) && "z-50",                       // ← stable z-index elevation
+   268→  )}
+   269→  whileHover={editMode ? {} : { scale: 1.1 }}
+   270→  whileTap={{ scale: 0.95 }}
+   271→>
+   272→  ...
+   273→  <motion.div
+   274→    className="absolute z-[60] pointer-events-none"            // ← above any sibling at z-50
+   275→    style={{ bottom: "100%", left: "50%", transform: "translateX(-50%)", marginBottom: "4px" }}
+   276→  />
+   277→```
+   278→
+   279→---
+   280→
+   281→### Other related issues found
+   282→
+   283→1. **Dead code (~170 lines).** `InteractiveTable` (lines 537-671), `pendingPositions` state (line 104), `draggingId` state (line 105), `dragOffset` ref (line 108), `handleDragStart`/`handleDragMove`/`handleDragEnd` (lines 192-211), `savePositions` (lines 213-216), `getTablePos` (lines 266-270), `savePositionsMut` (lines 135-140), and the "Guardar" button (lines 287-289) are all unreachable. The orphan `/api/tables/positions` endpoint matches this dead UI.
+   284→
+   285→2. **No in-flight guard on zone-drop.** `changeZoneMut.mutate` is fired on every `drop` event without checking `changeZoneMut.isPending`. A user who drags table 1 to TERRACE then immediately drags table 2 to BAR triggers two parallel PATCHes; TanStack Query invalidates `["tables"]` twice, causing a double refetch and a possible visual flicker. Add `draggable={editMode && !changeZoneMut.isPending}` (or use `mutateAsync` with a queue).
+   286→
+   287→3. **No optimistic update on zone change.** After a successful drop the table visually snaps back to its original zone until the `["tables"]` refetch resolves (~150-400 ms). On slow networks this looks broken. Use TanStack Query's `onMutate` to write the new zone into the cache immediately and roll back on `onError`.
+   288→
+   289→4. **No reservation-side sync on zone drop.** `changeZoneMut` PATCHes only the table's `zone`. If a seated reservation (`status: SEATED`) is bound to that table, the reservation's `zone` field is NOT updated until the next time `/api/tables` is hit (which fetches reservations separately). The `transfer` route DOES sync reservation.zone (src/app/api/tables/transfer/route.ts:50-58) — zone drop does not.
+   290→
+   291→5. **Infinite animation cost.** Every occupied/reserved/preparing table spawns a `motion.span` with `animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 2, repeat: Infinity }}` (lines 722-730). For a restaurant with 40+ active tables this is 40 concurrent rAF loops. `useReducedMotion` (line 722) gates it for accessibility, but on a mid-tier Android tablet the LED-style boxShadow pulsing on `InteractiveTable` (dead) and the opacity pulse on `ZoneTable` (live) will burn CPU. Consider gating with `IntersectionObserver` so off-screen tables don't animate, or animate a single shared CSS keyframe.
+   292→
+   293→6. **Sequential UPDATEs in `/api/tables/positions`.** src/app/api/tables/positions/route.ts:21-36 loops with `for...of` + `await`. If 20 tables are batched, that's 20 sequential network round-trips. Use a single `supabaseAdmin.from('tables').update(...).in('id', ids)` (with a CASE WHEN for per-row positions) or a Postgres function.
+   294→
+   295→7. **Popover `pointer-events-none`.** TablesSection.tsx:754 (and 618 for the dead variant) sets `pointer-events-none` on the popover. This is intentional (the popover is a hover preview, click goes to the table), but it also means the popover can't contain a quick-action button. If product wants a "Traspasar" CTA in the preview, this needs revisiting.
+   296→
+   297→8. **No drag preview customisation.** HTML5 dnd uses the browser's default ghost (which includes the entire table card with `opacity-40` applied via `isDragging` class, line 718). On Chromium the ghost is a screenshot, on Firefox it can lag. A custom `dragImage` via `e.dataTransfer.setDragImage` would give a cleaner UX.
+   298→
+   299→9. **`onDragStart` typed as `any`** (line 704) — bypasses TS safety. Minor, but worth tightening to `React.DragEvent<HTMLDivElement>`.
+   300→
+   301→10. **No `aria-grabbed` / `role="application"`** on draggable tables — screen-reader users have no way to know tables are draggable. Pair with fix for CHECK 2 (touch/pointer drag) to also add keyboard handlers (Space to grab, arrows to move, Space to drop).
+   302→
+   303→Stage Summary:
+   304→- 2 of 4 checks FAIL (CHECK 2 touch, CHECK 4 z-index).
+   305→- 1 check is OK (CHECK 3 RLS — org_id is correctly enforced everywhere).
+   306→- 1 check is partially OK (CHECK 1 — no DB spam because the live path uses discrete drop events, but dead code + missing in-flight guard + missing optimistic update are real concerns).
+   307→- Bonus: ~170 lines of dead code, an orphan API endpoint, and 6 additional minor issues identified.
+   308→- This was a READ-ONLY audit. No files were modified. Implementation of fixes should be tracked in a separate task.
+   309→
+   310→---
+   311→Task ID: audit-9
+   312→Agent: explore (audit sub-agent)
+   313→Task: Read-only security, authentication, and multi-tenant isolation audit of RestoPanel SaaS.
+   314→
+   315→Scope inspected (62 source files):
+   316→- Auth core: src/lib/auth.ts, src/lib/session.ts, src/lib/next-auth.ts, src/lib/session-management.ts, src/lib/rate-limit.ts, src/lib/rbac.ts, src/lib/audit.ts, src/middleware.ts, src/types/next-auth.d.ts
+   317→- Auth API: src/app/api/auth/{[...nextauth],register,forgot-password,reset-password,verify-email}/route.ts
+   318→- Multi-tenant API: every route under src/app/api/{orders,reservations,tables,categories,menu,restaurant,customers,notifications,shifts,chat,search,analytics,billing,stripe,whatsapp,user,admin,public,seed,seed-customers}/...
+   319→- Config: next.config.ts, src/lib/supabase/admin.ts, src/lib/stripe.ts, src/lib/web-import.ts, scripts/setup.cjs
+   320→- Type augmentation: src/types/next-auth.d.ts
+   321→
+   322→Severity tally: 6 ❌ BUG (3 CRITICAL), 14 ⚠️ WARN, ~30 ✅ OK
+   323→This was a READ-ONLY audit — no source files were modified.
+   324→
+   325→================================================================
+   326→A. AUTHENTICATION
+   327→================================================================
+   328→
+   329→### A1 — ❌ CRITICAL BUG · Logout does NOT invalidate the JWT server-side
+   330→File: src/components/dashboard/Topbar.tsx:107 (also src/components/admin/SuperAdminShell.tsx:128)
+   331→```ts
+   332→onClick={async () => {
+   333→  toast.success("Cerrando sesión...");
+   334→  await signOut({ redirect: false, callbackUrl: "/" });   // ← only clears the cookie
+   335→  setTimeout(() => window.location.reload(), 150);
+   336→}}
+   337→```
+   338→File: src/lib/session-management.ts:38-53
+   339→```ts
+   340→export async function isSessionValid(jti: string): Promise<boolean> {
+   341→  try {
+   342→    const { data } = await supabaseAdmin.from("user_sessions")
+   343→      .select("revoked_at, expires_at").eq("token_jti", jti).maybeSingle();
+   344→    if (!data) return true;       // If session not tracked, allow (backward compat)
+   345→    if (data.revoked_at) return false;
+   346→    if (new Date(data.expires_at) < new Date()) return false;
+   347→    return true;
+   348→  } catch { return true; }       // Non-critical
+   349→}
+   350→```
+   351→Grep for `isSessionValid` returns exactly ONE hit — its own declaration. It is **never called** by any route, middleware, or the jwt callback. `revokeSession`, `revokeAllUserSessions`, `updateSessionActivity`, `getActiveSessions` are all defined but only `revokeSession`/`revokeAllUserSessions` are invoked — by `/api/user/sessions` DELETE. None of those calls has any effect because nothing checks `revoked_at`.
+   352→
+   353→Consequence: after logout the browser cookie is gone, but the JWT itself is still valid for 30 days (the JWT `maxAge` in src/lib/next-auth.ts:25). Anyone who captured the JWT (XSS, shared device, browser extension, network MITM during the brief HTTP→HTTPS redirect, proxy logs, etc.) keeps full access until natural expiry. This defeats every "remote logout" / "log out other devices" feature advertised by `/api/user/sessions`.
+   354→
+   355→Concrete fix:
+   356→1. In `src/lib/next-auth.ts` `jwt()` callback (or in `src/lib/session.ts` `getCurrentUser()`), add at the top:
+   357→```ts
+   358→if (token.jti) {
+   359→  const ok = await isSessionValid(token.jti)
+   360→  if (!ok) return {} as any  // returning empty object makes getServerSession return null
+   361→}
+   362→```
+   363→2. In `Topbar.tsx` / `SuperAdminShell.tsx` logout handler, fire-and-forget `fetch('/api/auth/signout', { method: 'POST' })` and add a new `/api/auth/signout` route that calls `revokeSession(user.jti)` before delegating to NextAuth's signOut.
+   364→
+   365→---
+   366→
+   367→### A2 — ❌ CRITICAL BUG · `/api/seed` lets ANY authenticated user wipe ALL tenant data
+   368→File: src/app/api/seed/route.ts:5-34
+   369→```ts
+   370→export async function POST(req: Request) {
+   371→  try {
+   372→    const url = new URL(req.url)
+   373→    let force = url.searchParams.get('force') === 'true'
+   374→    // …
+   375→    if (force) {
+   376→      const wipe = async (table: string) => {
+   377→        const { error } = await supabaseAdmin.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000')
+   378→        // …
+   379→      }
+   380→      await wipe('order_items')
+   381→      await wipe('orders')
+   382→      await wipe('reservations')
+   383→      await wipe('tables')
+   384→      await wipe('menu_items')
+   385→      await wipe('categories')
+   386→      await wipe('organization_settings')
+   387→      await wipe('verification_tokens')
+   388→      await wipe('users')
+   389→      await wipe('organizations')          // ← cross-tenant destructive wipe
+   390→    }
+   391→```
+   392→File: src/middleware.ts:18-25
+   393→```ts
+   394→if (pathname.startsWith('/api/')) {
+   395→  const token = await getToken({ req, secret: NEXTAUTH_SECRET || '' })
+   396→  if (!token) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+   397→  if (pathname.startsWith('/api/admin/') && !token.isSuperAdmin) { /* … */ }
+   398→  return NextResponse.next()
+   399→}
+   400→```
+   401→The route is at `/api/seed` — NOT under `/api/admin/`, so middleware only requires ANY valid JWT. A STAFF user (or even a freshly-registered trial tenant) can `POST /api/seed?force=true` and wipe every organization's data + every user account (including the super admin's) across the whole platform. The route handler itself performs NO `getCurrentUser()` / `requireAdmin()` / `isSuperAdmin` check.
+   402→
+   403→Concrete fix:
+   404→1. Move the file to `src/app/api/admin/seed/route.ts` so middleware enforces SUPER_ADMIN, AND add an explicit check in the handler:
+   405→```ts
+   406→const user = await getCurrentUser()
+   407→if (!user?.isSuperAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+   408→```
+   409→2. Disable the `?force=true` wipe path entirely in production (`if (process.env.NODE_ENV === 'production' && force) return 403`).
+   410→3. Delete the demo credentials block from the response (lines 332-335) — it leaks `demo@lazamorana.es / demo1234` to anyone who hits the endpoint.
+   411→
+   412→---
+   413→
+   414→### A3 — ❌ CRITICAL BUG · Hardcoded super-admin credentials in source + returns password in API response
+   415→File: src/app/api/admin/seed-super-admin/route.ts:20-23, 64-69
+   416→```ts
+   417→export async function POST() {
+   418→  try {
+   419→    const email = 'owner@restopanel.es'
+   420→    const password = 'owner2026'                // ← hardcoded credential
+   421→    // …
+   422→    return NextResponse.json({
+   423→      ok: true,
+   424→      message: 'SUPER_ADMIN creado correctamente',
+   425→      user: data,
+   426→      credentials: { email, password },          // ← password echoed back in the JSON body
+   427→    })
+   428→```
+   429→Also: the route is under `/api/admin/` so middleware blocks it for non-super-admins — meaning the endpoint can NEVER bootstrap the first super admin via the API. So either it's dead code (and the password leak is purely a source-code leak) OR the developer intended to disable middleware for it (in which case the password leak becomes exploitable). Either interpretation is bad.
+   430→
+   431→Consequence: anyone with read access to the repo (or git history) knows the production super-admin email + password if this script was ever used. Combined with `isSessionValid` never being called (A1), a stolen super-admin JWT is immortal.
+   432→
+   433→Concrete fix:
+   434→1. Read `email` and `password` from env vars (`SUPER_ADMIN_SEED_EMAIL`, `SUPER_ADMIN_SEED_PASSWORD`) — fail with 400 if not set. Never echo them back.
+   435→2. Better: delete this route and create the super admin via a CLI script (`scripts/seed-super-admin.cjs`) that uses `supabaseAdmin` directly and is run once on deploy, OR via a SQL migration.
+   436→3. Force a password rotation in any environment where this code ever ran.
+   437→
+   438→---
+   439→
+   440→### A4 — ⚠️ WARN · Brute-force protection is in-memory only — useless in serverless / multi-instance
+   441→File: src/lib/session-management.ts:180-225
+   442→```ts
+   443→const loginAttempts = new Map<string, { count: number; firstAt: number; lockedUntil: number }>();
+   444→const MAX_ATTEMPTS = 5;
+   445→const LOCKOUT_DURATION = 15 * 60 * 1000;
+   446→const WINDOW_DURATION = 5 * 60 * 1000;
+   447→
+   448→export function isAccountLocked(email: string): boolean { /* … */ }
+   449→export function recordFailedLogin(email: string): { locked: boolean; attemptsLeft: number } { /* … */ }
+   450→```
+   451→On Vercel / Cloudflare Workers / any multi-instance deploy, each warm instance has its own `loginAttempts` Map. An attacker rotating requests across instances effectively gets `5 × N` attempts before lockout. The platform is deployed as `output: "standalone"` (next.config.ts:4) — fine on a single VM, broken on serverless. Same applies to the in-memory limiters in `forgot-password/route.ts:12`, `public/reviews/route.ts:26`, `restaurant/import-web/route.ts:18`, and `src/lib/rate-limit.ts:24`.
+   452→
+   453→Concrete fix: move the attempt counters to a `login_attempts` Supabase table keyed by `(email, ip)` with `expires_at`, or use Upstash Redis. Same for all the per-route inline limiters.
+   454→
+   455→---
+   456→
+   457→### A5 — ⚠️ WARN · `register` endpoint has NO rate limit and leaks the email-verification token
+   458→File: src/app/api/auth/register/route.ts:146-153
+   459→```ts
+   460→return NextResponse.json({
+   461→  ok: true,
+   462→  userId: user.id,
+   463→  restaurantId: organization.id,
+   464→  organizationId: organization.id,
+   465→  restaurantSlug: organization.slug,
+   466→  verifyToken,                                  // ← email-verification token returned to caller
+   467→})
+   468→```
+   469→Also no `checkRateLimit` / `RATE_LIMITS.register` call despite `RATE_LIMITS.register` being defined in src/lib/rate-limit.ts:73.
+   470→
+   471→Consequences:
+   472→1. The verify-token is meant to prove control of the email inbox. Returning it in the response lets an attacker register with someone else's email and immediately self-verify without ever reading that inbox.
+   473→2. No rate limit → an attacker can spam-tenant creation (each call creates an `organizations` row + sends 2 emails via Resend). At best this burns the Resend quota; at worst it pollutes the tenant list and triggers AWS SES / Resend throttles.
+   474→
+   475→Concrete fix:
+   476→1. Remove `verifyToken` from the response body.
+   477→2. Add `const rl = checkRateLimit(req, RATE_LIMITS.register); if (rl.limited) return 429` at the top of the handler. (Requires wiring `src/lib/rate-limit.ts` to Redis first per A4.)
+   478→
+   479→---
+   480→
+   481→### A6 — ⚠️ WARN · `forgot-password` returns the reset token in dev mode — and dev detection is brittle
+   482→File: src/app/api/auth/forgot-password/route.ts:75-78
+   483→```ts
+   484→const isDev = process.env.NODE_ENV !== 'production'
+   485→if (isDev) {
+   486→  return NextResponse.json({ ok: true, message: genericMessage, resetToken: token })
+   487→}
+   488→```
+   489→`NODE_ENV !== 'production'` is true for both `development` AND `test`, and it's also true if someone forgets to set NODE_ENV in staging. The reset token is single-use and expires in 1h, but if a staging environment ever exposes this endpoint to the public internet, anyone can request a reset for any email and get the token back in the response — bypassing the email channel entirely.
+   490→
+   491→Concrete fix: gate this behind an explicit `process.env.RESET_TOKEN_IN_RESPONSE === 'true'` flag (default off), and log a warning when it's enabled.
+   492→
+   493→---
+   494→
+   495→### A7 — ⚠️ WARN · Email-verification + password-reset tokens travel in the URL query string
+   496→File: src/app/api/auth/verify-email/route.ts:4-8
+   497→```ts
+   498→export async function GET(req: Request) {
+   499→  try {
+   500→    const url = new URL(req.url)
+   501→    const token = url.searchParams.get('token')
+   502→    if (!token) return NextResponse.json({ error: 'Token no proporcionado' }, { status: 400 })
+   503→```
+   504→File: src/app/api/auth/forgot-password/route.ts:60
+   505→```ts
+   506→const resetUrl = `${baseUrl}/reset?token=${token}`
+   507→```
+   508→Tokens in the URL leak via: browser history, Referer header on any external link the user clicks post-redirect, web-server access logs, reverse-proxy/CDN logs, and corporate proxy caches. Referrer-Policy is set to `strict-origin-when-cross-origin` in next.config.ts:27 which strips the query string on cross-origin navigations — good defense-in-depth — but does not protect against same-origin leaks (analytics scripts, etc.) or against the logs/history vectors.
+   509→
+   510→Concrete fix: switch to a fragment-based flow (`/reset#token=…`) where the token never reaches the server log, OR use an opaque `ticket` exchange where the email link hits a short-lived redirect endpoint that sets the token as an httpOnly cookie and 302s to `/reset`. The fragment approach is the simpler fix.
+   511→
+   512→---
+   513→
+   514→### A8 — ⚠️ WARN · Impersonation cookies missing `secure` flag (and have an 8-hour lifetime)
+   515→File: src/app/api/admin/impersonate/route.ts:70-81
+   516→```ts
+   517→res.cookies.set('impersonate_org_id', org.id, {
+   518→  httpOnly: true,
+   519→  sameSite: 'lax',
+   520→  path: '/',
+   521→  maxAge: 60 * 60 * 8, // 8 hours max impersonation
+   522→})
+   523→res.cookies.set('impersonate_org_name', org.name, {
+   524→  httpOnly: true,
+   525→  sameSite: 'lax',
+   526→  path: '/',
+   527→  maxAge: 60 * 60 * 8,
+   528→})
+   529→```
+   530→`secure: true` is not set. NextAuth's own session cookies do set `secure` in production (NextAuth v4 default), but these custom cookies do not, so they will be transmitted over plain HTTP if the request ever lands on a non-HTTPS URL. Combined with `sameSite: 'lax'`, a MITM on the same network could read/write the impersonation state. Also, 8 hours is a long window — a super admin who steps away from their machine leaves the impersonation channel open.
+   531→
+   532→Concrete fix:
+   533→```ts
+   534→res.cookies.set('impersonate_org_id', org.id, {
+   535→  httpOnly: true,
+   536→  secure: process.env.NODE_ENV === 'production',
+   537→  sameSite: 'lax',
+   538→  path: '/',
+   539→  maxAge: 60 * 60, // 1 hour is enough for a support session
+   540→})
+   541→```
+   542→Also: have the jwt callback (src/lib/next-auth.ts:155-165) re-validate that the impersonated org still exists and is `ACTIVE` on every request — currently once the cookie is set, the impersonation persists even if the tenant is later suspended.
+   543→
+   544→---
+   545→
+   546→### A9 — ⚠️ WARN · JWT carries role for 30 days with no server-side revalidation
+   547→File: src/lib/next-auth.ts:25
+   548→```ts
+   549→session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 }, // 30 days
+   550→```
+   551→The `role`, `isSuperAdmin`, `organizationId`, and `blocked` flag are stamped onto the JWT at sign-in and never refreshed. If an admin is demoted to STAFF, blocked (`users.blocked=true`, checked in authorize() at src/lib/next-auth.ts:54-57), or the tenant is suspended (line 112), none of those changes take effect until the user's JWT naturally expires (30 days) — unless the user manually re-logs in.
+   552→
+   553→Concrete fix: in the `jwt()` callback, periodically (e.g., every 5 min based on a `token.lastRefreshedAt` claim) re-fetch the user row and re-stamp `role`, `isSuper_admin`, `blocked`. If `blocked` is true, return `null` (forces sign-out). Combine with A1's `isSessionValid` check.
+   554→
+   555→---
+   556→
+   557→### A10 — ✅ OK · NextAuth core config
+   558→File: src/lib/next-auth.ts:16-27, 29-134
+   559→- `NEXTAUTH_SECRET` is required at module load (throws if missing) — good.
+   560→- JWT strategy with 30-day maxAge — documented.
+   561→- Credentials provider lowercases + trims email — fine.
+   562→- Suspended tenants are blocked at sign-in (line 112).
+   563→- `blocked` user flag is honored (line 54).
+   564→- `bcrypt` with cost factor 10 (src/lib/auth.ts:4) — acceptable for 2026, could be bumped to 12.
+   565→- `trustHost: true` (line 27) — required for NextAuth v4 on Vercel/standalone, safe.
+   566→- Default NextAuth cookie config (`__Secure-` prefix + `secure: true` in production, `httpOnly: true`, `sameSite: 'lax'`) is used — no custom override that would weaken it.
+   567→- NextAuth's built-in CSRF token is active on `/api/auth/*` POSTs.
+   568→
+   569→### A11 — ✅ OK · Middleware blocks unauthenticated API access
+   570→File: src/middleware.ts:7-25, 40-42
+   571→Every `/api/*` path (except `/api/auth`, `/api/public`, `/api/health`) requires a valid signed JWT. `/api/admin/*` additionally requires `token.isSuperAdmin === true`. The matcher regex correctly excludes the public paths from running middleware at all, which avoids any chance of an auth check accidentally running on a webhook.
+   572→
+   573→### A12 — ✅ OK · Admin / super_admin checks are server-side
+   574→Every `/api/admin/*` route I inspected (`tenants`, `tenants/[id]`, `tenants/[id]/details`, `users`, `logs`, `health`, `notifications`, `notifications/[id]`, `notifications/mark-all-read`, `reviews`, `search`, `maintenance`, `settings`, `stats`, `system-status`, `billing`, `customers`, `seed-notifications`, `impersonate`) re-asserts `if (!user?.isSuperAdmin) return 403` inside the handler — defense-in-depth on top of the middleware check.
+   575→
+   576→================================================================
+   577→B. MULTI-TENANT ISOLATION
+   578→================================================================
+   579→
+   580→### B1 — ❌ BUG · `/api/user/sessions` DELETE — IDOR on `jti` (and revocation is a no-op)
+   581→File: src/app/api/user/sessions/route.ts:14-34
+   582→```ts
+   583→export async function DELETE(req: Request) {
+   584→  const user = await getCurrentUser();
+   585→  if (!user) { /* 401 */ }
+   586→  const { searchParams } = new URL(req.url);
+   587→  const jti = searchParams.get("jti");
+   588→  // …
+   589→  if (jti) {
+   590→    await revokeSession(jti);          // ← no user_id check
+   591→    return NextResponse.json({ ok: true, message: "Sesión cerrada" });
+   592→  }
+   593→```
+   594→File: src/lib/session-management.ts:55-62
+   595→```ts
+   596→export async function revokeSession(jti: string): Promise<void> {
+   597→  try {
+   598→    await supabaseAdmin
+   599→      .from("user_sessions")
+   600→      .update({ revoked_at: new Date().toISOString() })
+   601→      .eq("token_jti", jti);           // ← only filtered by token_jti, NOT by user_id
+   602→  } catch {}
+   603→}
+   604→```
+   605→Any authenticated user can revoke any other user's session by passing their `jti` as a query param. The `jti` is a `randomUUID()` (not guessable in practice), but this is still a textbook IDOR — and it is also a privilege-integrity problem because the route is reachable by STAFF users against ADMIN sessions, and by tenant users against the super admin. The bug is currently masked by A1 (revocation is never checked, so it does nothing), but as soon as A1 is fixed this becomes a live attack surface.
+   606→
+   607→Concrete fix:
+   608→```ts
+   609→export async function revokeSession(jti: string, userId: string): Promise<void> {
+   610→  await supabaseAdmin
+   611→    .from("user_sessions")
+   612→    .update({ revoked_at: new Date().toISOString() })
+   613→    .eq("token_jti", jti)
+   614→    .eq("user_id", userId);          // ← scope to the caller
+   615→}
+   616→```
+   617→And in the route: `await revokeSession(jti, user.id)`.
+   618→
+   619→---
+   620→
+   621→### B2 — ⚠️ WARN · `/api/customers/[id]` PATCH/DELETE — UPDATE/DELETE statements skip `organization_id` filter
+   622→File: src/app/api/customers/[id]/route.ts:91-117 (PATCH), 134-152 (DELETE)
+   623→```ts
+   624→// PATCH — verify tenancy, then update without re-filtering
+   625→const { data: existing } = await supabaseAdmin.from('customers').select('id')
+   626→  .eq('id', id).eq('organization_id', user.organizationId).maybeSingle()
+   627→if (!existing) return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
+   628→
+   629→const patch: any = {}
+   630→// … build patch from body …
+   631→
+   632→const { data, error } = await supabaseAdmin.from('customers')
+   633→  .update(patch)
+   634→  .eq('id', id)                                    // ← missing .eq('organization_id', …)
+   635→  .select().single()
+   636→```
+   637→Same pattern in DELETE (line 148-152): `delete().eq('id', id)` only.
+   638→
+   639→The check-then-act pattern is *probably* safe under normal use because the previous `findFirst` already verified ownership, but it's a TOCTOU window: between the findFirst and the UPDATE, another request could theoretically change the row's `organization_id` (e.g., a future admin "move customer to another tenant" feature). Worse, this loses the defense-in-depth that every other route in this codebase has — compare with `db.category.delete` (src/lib/db.ts:351-358) which filters by both `id` AND `organization_id`.
+   640→
+   641→Also the GET (line 32-37) for reservation history only filters by `customer_id`, not by `organization_id`:
+   642→```ts
+   643→const { data: reservations } = await supabaseAdmin.from('reservations')
+   644→  .select('id, date, party_size, status, shift, zone, table_id, notes, duration_minutes, channel, tables(number, name, zone)')
+   645→  .eq('customer_id', id)
+   646→  .order('date', { ascending: false })
+   647→  .limit(50)
+   648→```
+   649→
+   650→Concrete fix: add `.eq('organization_id', user.organizationId)` to the UPDATE, the DELETE, AND the reservations lookup (line 32).
+   651→
+   652→---
+   653→
+   654→### B3 — ⚠️ WARN · `/api/chat/messages` POST does not validate `channelId` belongs to the tenant
+   655→File: src/app/api/chat/messages/route.ts:31-49
+   656→```ts
+   657→const body = await req.json()
+   658→const { channelId, content, priority } = body
+   659→if (!channelId || !content) return NextResponse.json({ error: 'Faltan datos' }, { status: 400 })
+   660→
+   661→const { data, error } = await supabaseAdmin
+   662→  .from('chat_messages')
+   663→  .insert({
+   664→    channel_id: channelId,                        // ← user-supplied, not validated
+   665→    user_id: user.id,
+   666→    user_name: user.name,
+   667→    user_avatar: null,
+   668→    content,
+   669→    priority: priority || 'normal',
+   670→    read_by: [user.id],
+   671→    organization_id: user.organizationId,
+   672→  })
+   673→  .select().single()
+   674→```
+   675→If the FK `(channel_id) REFERENCES chat_channels(id)` is enforced, the insert will fail when `channelId` belongs to another tenant — but that's a brittle defense. If the FK is ever dropped or the channel table is renamed, this becomes a cross-tenant message injection. The GET (line 13-19) does filter by `organization_id`, so the message wouldn't be visible to the attacker afterwards — but it would still be inserted and could surface in admin reports.
+   676→
+   677→Concrete fix: before insert, fetch the channel and verify ownership:
+   678→```ts
+   679→const { data: ch } = await supabaseAdmin.from('chat_channels').select('id')
+   680→  .eq('id', channelId).eq('organization_id', user.organizationId).maybeSingle()
+   681→if (!ch) return NextResponse.json({ error: 'Canal no válido' }, { status: 400 })
+   682→```
+   683→
+   684→---
+   685→
+   686→### B4 — ⚠️ WARN · `/api/restaurant` PATCH — settings mass-assignment via dynamic snake_case conversion
+   687→File: src/app/api/restaurant/route.ts:72-80
+   688→```ts
+   689→if (settings) {
+   690→  const settingsPatch: any = {}
+   691→  for (const [k, v] of Object.entries(settings)) {
+   692→    const snake = k.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
+   693→    settingsPatch[snake] = v                        // ← any key from body goes through
+   694→  }
+   695→  await db.organizationSettings.upsert(user.organizationId, settingsPatch)
+   696→}
+   697→```
+   698→A caller can send `{"settings":{"id":"<uuid>","organizationId":"<other-org-id>"}}` which becomes `settingsPatch = { id: "<uuid>", organization_id: "<other-org-id>" }`. The upsert (src/lib/db.ts:657-677) issues `update(patch).eq('organization_id', user.organizationId)` — the WHERE clause scopes the update to the caller's row, but the SET clause now includes `organization_id: <other-org-id>` and `id: <uuid>`, which PostgREST will happily apply. Result: the caller's settings row is corrupted (wrong `organization_id` FK, changed PK). Not a horizontal-privilege escalation, but a self-DoS / data-integrity bug, and the wrong-org-id FK on the settings row could lead to information leak if any later code joins settings → organizations without re-checking.
+   699→
+   700→Concrete fix: whitelist allowed keys:
+   701→```ts
+   702→const ALLOWED = ['monOpen','monClose','tueOpen','tueClose', /* … */ 'taxRate','serviceCharge']
+   703→const settingsPatch: any = {}
+   704→for (const k of ALLOWED) {
+   705→  if (settings[k] !== undefined) {
+   706→    const snake = k.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
+   707→    settingsPatch[snake] = settings[k]
+   708→  }
+   709→}
+   710→```
+   711→
+   712→---
+   713→
+   714→### B5 — ⚠️ WARN · `/api/public/reviews` POST auto-approves + accepts arbitrary `organization_id` from the body
+   715→File: src/app/api/public/reviews/route.ts:130, 162-167
+   716→```ts
+   717→const organization_id = body?.organization_id && typeof body.organization_id === "string" ? body.organization_id : null;
+   718→// …
+   719→const { data, error } = await supabaseAdmin
+   720→  .from("public_reviews")
+   721→  .insert({
+   722→    // …
+   723→    organization_id: organization_id || null,
+   724→    source: "LANDING",
+   725→    status: "APPROVED",                             // ← auto-approved, appears on wall instantly
+   726→  })
+   727→```
+   728→Anyone (no auth) can post a review tagged with ANY organization's UUID, and it goes live immediately on the public wall. Combined with the 3-per-10-minutes-per-IP limiter being in-memory (so trivially bypassed by IP rotation in serverless), a competitor or a malicious bot could:
+   729→- Spam fake 1-star reviews tagged to a victim tenant.
+   730→- Spam fake 5-star reviews tagged to their own tenant to inflate rating.
+   731→
+   732→The auto-approval is explicitly intended ("Reviews are auto-approved so they appear on the landing wall immediately", line 140-148) — but combined with arbitrary `organization_id`, it's a reputation-attack vector.
+   733→
+   734→Concrete fix:
+   735→1. Either require moderation (`status: "PENDING"`) and let the super admin approve.
+   736→2. OR validate `organization_id` against `organizations.status = 'ACTIVE' AND organizations.public_enabled = true` and rate-limit per `organization_id` (not just per IP).
+   737→3. Move the limiter to Redis/DB so it can't be bypassed by IP rotation in serverless.
+   738→
+   739→---
+   740→
+   741→### B6 — ✅ OK · Every other tenant-scoped route correctly filters by `user.organizationId`
+   742→I went through every route file under `src/app/api/`. Routes that read `organizationId` from the session (via `getCurrentUser()`) AND filter every DB query by `.eq('organization_id', user.organizationId)`:
+   743→
+   744→| Route | GET | POST | PATCH | DELETE | Notes |
+   745→|---|---|---|---|---|---|
+   746→| `/api/orders` | ✅ | ✅ |  |  | Also validates `tableId` + `menuItemId` belong to tenant |
+   747→| `/api/orders/[id]` | ✅ |  | ✅ |  | `db.order.findById(id, user.organizationId)` |
+   748→| `/api/reservations` | ✅ | ✅ |  |  | Validates `tableId` + `customerId` |
+   749→| `/api/reservations/[id]` |  |  | ✅ | ✅ | `db.reservation.findById(id, user.organizationId)` |
+   750→| `/api/tables` | ✅ | ✅ |  |  | |
+   751→| `/api/tables/[id]` |  |  | ✅ | ✅ | `db.table.findFirst(user.organizationId, { id })` + `db.table.update(id, user.organizationId, patch)` (double-filtered) |
+   752→| `/api/tables/positions` |  | ✅/✅ |  |  | `.eq('organization_id', user.organizationId)` on every UPDATE in the loop |
+   753→| `/api/tables/group` |  | ✅ |  | ✅ | Validates all `tableIds` belong to tenant before update |
+   754→| `/api/tables/transfer` |  | ✅ |  |  | Validates both reservation + newTable by `organization_id` |
+   755→| `/api/tables/available` | ✅ |  |  |  | Filters tables + reservations by org |
+   756→| `/api/categories` | ✅ | ✅ |  |  | |
+   757→| `/api/categories/[id]` |  |  | ✅ | ✅ | `db.category.findFirst(user.organizationId, { id })` + `db.category.update/delete(id, user.organizationId, …)` (double-filtered) |
+   758→| `/api/menu` | ✅ | ✅ |  |  | Validates `categoryId` belongs to tenant |
+   759→| `/api/menu/[id]` |  |  | ✅ | ✅ | `db.menuItem.findById(id, user.organizationId)` + double-filtered update/delete |
+   760→| `/api/restaurant` | ✅ |  | ✅ |  | Uses `user.organizationId` for findById/update/findByOrg/upsert. (B4 is a settings-mass-assignment issue, not an isolation issue.) |
+   761→| `/api/restaurant/import-web` | ✅ | ✅ |  |  | `runImportJob({ organizationId: user.organizationId, … })`; SSRF protection in src/lib/web-import.ts:141-166 |
+   762→| `/api/notifications` | ✅ |  |  |  | `.eq('organization_id', user.organizationId).or('user_id.eq.<me>,user_id.is.null')` |
+   763→| `/api/notifications/[id]` |  |  | ✅ |  | Verifies `notif.organization_id === user.organizationId` before any write |
+   764→| `/api/notifications/mark-all-read` |  | ✅ |  |  | Filters by `organization_id` |
+   765→| `/api/shifts` | ✅ | ✅ |  |  | |
+   766→| `/api/shifts/[id]` |  |  | ✅ | ✅ | `.eq('id', id).eq('organization_id', user.organizationId)` on UPDATE + DELETE |
+   767→| `/api/chat/channels` | ✅ | ✅ |  |  | |
+   768→| `/api/chat/messages` | ✅ | ⚠️ B3 |  |  | GET is fine; POST is B3 |
+   769→| `/api/customers` | ✅ | ✅ |  |  | |
+   770→| `/api/customers/[id]` | ✅ |  | ⚠️ B2 | ⚠️ B2 | |
+   771→| `/api/customers/search` | ✅ |  |  |  | |
+   772→| `/api/search` | ✅ |  |  |  | All 4 sub-queries filtered by org |
+   773→| `/api/analytics` | ✅ |  |  |  | `db.analytics.getDashboard(user.organizationId)` — every internal query is `.eq('organization_id', organizationId)` (src/lib/db.ts:700-747) |
+   774→| `/api/billing/checkout` |  | ✅ |  |  | `user.organizationId` |
+   775→| `/api/billing/portal` |  | ✅ |  |  | `getOrgPlan(user.organizationId)` |
+   776→| `/api/billing/subscription` | ✅ | ✅ |  |  | `user.organizationId` on every query |
+   777→| `/api/whatsapp/status` | ✅ |  |  |  | `.eq('organization_id', user.organizationId)` |
+   778→| `/api/user/profile` | ✅ | ✅ |  |  | Scoped by `user.id` |
+   779→| `/api/user/activity` | ✅ |  |  |  | `.eq('user_id', user.id)` |
+   780→| `/api/admin/tenants` | ✅ | ✅ |  |  | SUPER_ADMIN only — global by design |
+   781→| `/api/admin/tenants/[id]` | ✅ | ✅ |  |  | SUPER_ADMIN only — global by design |
+   782→| `/api/admin/tenants/[id]/details` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   783→| `/api/admin/users` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   784→| `/api/admin/logs` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   785→| `/api/admin/health` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   786→| `/api/admin/stats` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   787→| `/api/admin/system-status` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   788→| `/api/admin/billing` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   789→| `/api/admin/customers` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   790→| `/api/admin/search` | ✅ |  |  |  | SUPER_ADMIN only — global by design |
+   791→| `/api/admin/reviews` | ✅ | ✅ | ✅ | ✅ | SUPER_ADMIN only — global by design |
+   792→| `/api/admin/notifications` | ✅ | ✅ |  |  | `.eq('user_id', user.id)` |
+   793→| `/api/admin/notifications/[id]` |  |  | ✅ | ✅ | `.eq('id', id).eq('user_id', user.id)` — double-filtered |
+   794→| `/api/admin/notifications/mark-all-read` |  | ✅ |  |  | `.eq('user_id', user.id)` |
+   795→| `/api/admin/maintenance` | ✅ | ✅ |  |  | SUPER_ADMIN only on POST; GET is public (intentional) |
+   796→| `/api/admin/settings` | ✅ | ✅ |  |  | SUPER_ADMIN only — global by design |
+   797→| `/api/admin/impersonate` |  | ✅ | ✅(DELETE) |  | SUPER_ADMIN only — see A8 |
+   798→| `/api/public/[slug]` | ✅ |  |  |  | Public by design; filters by `restaurant.id` |
+   799→| `/api/public/reviews` | ✅ | ⚠️ B5 |  |  | Public by design |
+   800→| `/api/health` | ✅ |  |  |  | Public by design |
+   801→| `/api/seed` |  | ❌ A2 |  |  | |
+   802→| `/api/seed-customers` |  | ✅ |  |  | `user.organizationId` |
+   803→| `/api/roles` | ✅ |  |  |  | |
+   804→| `/api/permissions` | ✅ |  |  |  | |
+   805→| `/api/route.ts` | ✅ |  |  |  | Returns `{message:"Hello, world!"}` — harmless |
+   806→
+   807→The data-access layer (`src/lib/db.ts`) consistently takes `organizationId` as an explicit parameter and applies `.eq('organization_id', organizationId)` on every read, update, and delete. RLS is enabled as defense-in-depth (per migration 0002_hardened_rls.sql) but never relied upon because `supabaseAdmin` uses the service_role key. `organizationId` is stamped on every INSERT. The session type augmentation (`src/types/next-auth.d.ts:15,31,45`) enforces `organizationId: string` at compile time so a missing org context fails the build (where `ignoreBuildErrors: true` is OFF — see D5).
+   808→
+   809→================================================================
+   810→C. OWASP TOP 10 QUICK SCAN
+   811→================================================================
+   812→
+   813→### C1 — ✅ OK · A03 SQL Injection
+   814→No string-concatenated SQL anywhere. All DB access is via the Supabase JS client's parameterised REST API (`.eq()`, `.in()`, `.or()`, `.ilike()`, etc.). The only raw-SQL-ish patterns are:
+   815→- Regex HTML parsing in src/lib/web-import.ts:288-489 — operates on remote HTML strings, never touches SQL.
+   816→- The `.or(\`name.ilike.${like},…\`)` patterns in `search/route.ts:29,36,43,52` and `admin/search/route.ts:31,37,43` and `admin/customers/route.ts:23` and `customers/route.ts:26` and `customers/search/route.ts:20` — the `like` value is built from user-supplied `q` URL params. Supabase's PostgREST does parameterise these, BUT an attacker who injects `,` or `.` characters into `q` could potentially craft a malformed filter that errors out (PostgREST rejects malformed filters with 400). No SQL injection risk — PostgREST's `.or()` parser is strict. ✅
+   817→
+   818→### C2 — ✅ OK · A03 XSS
+   819→Three `dangerouslySetInnerHTML` usages, all safe:
+   820→- `src/app/landing/page.tsx:213-216` and `src/app/landing/head.tsx:195-207`: render `JSON.stringify(<local object>)` into `<script type="application/ld+json">`. The data is built from constants + approved DB reviews — no user input reaches the JSON-LD unsanitised, and `JSON.stringify` escapes `<` and `>` into `\u003c`/`\u003e` by default in modern Node, which prevents `</script>` breakout.
+   821→- `src/components/ui/chart.tsx:83`: shadcn/ui chart style injector — uses static `THEMES` constant.
+   822→No other unescaped user-content rendering. React escapes by default, and all customer-supplied strings (customer notes, reservation notes, chat messages, review body, etc.) flow through `{}` JSX children. ✅
+   823→
+   824→### C3 — ✅ OK · A01 CSRF
+   825→- NextAuth's built-in CSRF token is enabled by default on `/api/auth/*` POSTs (sign-in, sign-out, registration via the credentials provider).
+   826→- All other state-changing API routes require `Content-Type: application/json` (set by `src/lib/api.ts:10`) and the NextAuth session cookie is `sameSite: 'lax'` (default) — which means a cross-site HTML form POST (which sends `application/x-www-form-urlencoded`) cannot ride along the session cookie. Combined, traditional CSRF is mitigated.
+   827→- The impersonation endpoints (`/api/admin/impersonate` POST/DELETE) read `organizationId` from the body and write cookies — these are POST routes under `/api/admin/` so they require a SUPER_ADMIN JWT, which provides implicit CSRF protection (an attacker can't forge the cookie).
+   828→
+   829→### C4 — ⚠️ WARN · A10 SSRF — image proxy / Next.js image optimizer + web-import
+   830→File: next.config.ts:9-15
+   831→```ts
+   832→images: {
+   833→  remotePatterns: [
+   834→    { protocol: "https", hostname: "**" },
+   835→    { protocol: "http", hostname: "**" },
+   836→  ],
+   837→  formats: ["image/avif", "image/webp"],
+   838→  dangerouslyAllowSVG: true,
+   839→  contentDispositionType: "attachment",
+   840→  contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
+   841→},
+   842→```
+   843→The Next.js image optimizer accepts ANY http(s) URL via `_next/image?url=…` and fetches it server-side. An attacker can use this as an SSRF proxy: `/_next/image?url=http://169.254.169.254/latest/meta-data/iam/…&w=16&q=1`. Next.js does have an internal blocklist for some private IP ranges, but it has historically had bypasses (DNS rebinding, IPv6-mapped IPv4, decimal-octal encodings). The web-import service (src/lib/web-import.ts:141-166) has its OWN `isPrivateUrl` check that blocks 10.x / 172.16-31.x / 192.168.x / 169.254.x / metadata.google.internal — good — but it does NOT cover IPv6-mapped IPv4 (`::ffff:169.254.169.254`) or DNS rebinding. The image optimizer has no such check at all.
+   844→
+   845→`dangerouslyAllowSVG: true` would let uploaded SVGs (which can contain `<script>` tags) execute in the browser — BUT `contentDispositionType: "attachment"` + `script-src 'none'` CSP on the image response mitigates this (the SVG is downloaded, not rendered inline, and inline scripts in the SVG are blocked). Still, allowing arbitrary SVG is risky if the CSP is ever loosened.
+   846→
+   847→Concrete fix:
+   848→1. Restrict `remotePatterns` to a whitelist of known image CDNs (Cloudinary, Cloudflare Images, Supabase Storage, the app's own origin) — drop `hostname: "**"`.
+   849→2. Set `dangerouslyAllowSVG: false` (default) — if SVG support is truly needed, proxy uploads through a sanitizer like `isomorphic-dompurify`.
+   850→3. In `isPrivateUrl`, also block `::ffff:`-prefixed IPv4, hostnames that resolve to private IPs (use `dns.lookup`), and well-known cloud metadata hostnames (`metadata.google.internal`, `metadata.azure.com`, `169.254.169.254`).
+   851→
+   852→### C5 — ✅ OK · A08 Mass Assignment
+   853→- `/api/restaurant/route.ts` PATCH destructures named fields (line 46-51) — safe.
+   854→- `/api/restaurant/route.ts` settings PATCH — see B4 (mass-assignment on settings sub-object). ⚠️
+   855→- `/api/customers/route.ts` POST and `/api/customers/[id]/route.ts` PATCH both build a `patch: any = {}` with explicit `if (body.X !== undefined) patch.Y = body.X` per field — safe.
+   856→- All `/api/tables`, `/api/menu`, `/api/categories`, `/api/orders`, `/api/reservations`, `/api/shifts` PATCH routes follow the same explicit-field-copy pattern — safe.
+   857→- `/api/admin/settings/route.ts:14-24` PATCH takes a `key` + `value` pair — explicit, safe.
+   858→
+   859→### C6 — ✅ OK · A01 Open Redirect
+   860→Only one redirect in the codebase: `src/middleware.ts:30`:
+   861→```ts
+   862→if (token) return NextResponse.redirect(new URL('/', req.url))
+   863→```
+   864→The redirect target is hardcoded to `/`, using the request URL as the base — not user-controlled. Stripe success/cancel URLs are constructed from `process.env.NEXTAUTH_URL` + a hardcoded query string (src/app/api/billing/checkout/route.ts:30-31, src/lib/stripe.ts:84-85). No `req.body.returnUrl`-style pattern exists.
+   865→
+   866→### C7 — ✅ OK · A01 Path Traversal
+   867→No file-upload endpoint actually exists in `src/app/api/` despite `src/lib/api.ts:30-40` defining an `uploadFile()` client helper that POSTs to `/api/upload` — that route does not exist in the codebase. So there's no path-traversal surface via the API. The web-import service stores HTML in a DB cache table (`import_html_cache`), not the filesystem. ✅ (Bonus: dead client code `uploadFile()` should be deleted.)
+   868→
+   869→### C8 — ✅ OK · A02 Sensitive Data Exposure in API responses
+   870→- `password_hash` is on the `User` type (src/lib/db.ts:51) and is fetched by `db.user.findByEmail` (line 234-241), but it is only used inside `verifyPassword` and never serialized into a NextAuth session or API response. The session callback in src/lib/next-auth.ts:178-208 copies only `id, email, name, role, isSuperAdmin, restaurantId, organizationId, …` — no password hash.
+   871→- `verifyToken` is exposed in `/api/auth/register` response — see A5. ⚠️
+   872→- `resetToken` is exposed in `/api/auth/forgot-password` dev response — see A6. ⚠️
+   873→- `/api/admin/tenants/[id]` returns the full `users` row including `password_hash`! File: src/app/api/admin/tenants/[id]/route.ts:16-22
+   874→```ts
+   875→const [settings, users, …] = await Promise.all([
+   876→  // …
+   877→  (async () => {
+   878→    const { supabaseAdmin } = await import('@/lib/supabase/admin')
+   879→    const { data } = await supabaseAdmin.from('users').select('*').eq('organization_id', id)…
+   880→    return data || []
+   881→  })(),
+   882→```
+   883→`select('*')` returns `password_hash` for every user in the tenant. The response is sent to the super admin only (middleware enforces SUPER_ADMIN), so the blast radius is limited — but super admins should not see bcrypt hashes either (defense-in-depth + avoids trivial credential-stuffing if the admin token is ever stolen). Same issue in `/api/admin/tenants/[id]/details/route.ts:20` (`select('id, email, name, role, is_super_admin, created_at')` — this one is OK, it's an explicit column list).
+   884→
+   885→Concrete fix for `tenants/[id]/route.ts`: replace `select('*')` with `select('id, email, name, role, is_super_admin, blocked, created_at, updated_at')`.
+   886→
+   887→================================================================
+   888→D. RATE LIMITING
+   889→================================================================
+   890→
+   891→### D1 — ❌ BUG · `src/lib/rate-limit.ts` is dead code — `checkRateLimit` and `RATE_LIMITS` are never imported
+   892→Grep for `checkRateLimit` returns only its own declaration (src/lib/rate-limit.ts:36). Grep for `RATE_LIMITS` returns only its own declaration (line 69). The carefully pre-configured limits (`auth`, `login`, `register`, `forgotPassword`, `reviews`, `api`, `webImport`) are never applied anywhere.
+   893→
+   894→Concrete fix: import and call `checkRateLimit(req, RATE_LIMITS.login)` at the top of `/api/auth/[...nextauth]/route.ts` (wrap the POST handler — requires modifying the NextAuth handler, easier said than done; an alternative is to add a `middleware.ts`-level rate-limiter for `/api/auth/callback/credentials`). Add `checkRateLimit(req, RATE_LIMITS.register)` to `register/route.ts`, `RATE_LIMITS.forgotPassword` is already covered by an inline limiter, `RATE_LIMITS.api` should wrap every `/api/*` route, `RATE_LIMITS.webImport` is already covered by an inline limiter.
+   895→
+   896→### D2 — ⚠️ WARN · In-memory limiters silently break in serverless / multi-instance
+   897→Per-route inline limiters exist in:
+   898→- `src/app/api/auth/forgot-password/route.ts:10-29` (Map, 3/10min/IP)
+   899→- `src/app/api/public/reviews/route.ts:23-37` (Map, 3/10min/IP)
+   900→- `src/app/api/restaurant/import-web/route.ts:14-42` (Map, 10/10min/user+IP)
+   901→- `src/lib/session-management.ts:180-225` (Map, brute-force on login)
+   902→
+   903→All four are per-instance Maps. On Vercel/Cloudflare Workers, every warm instance has its own counter, so the effective limit is `MAX × N`. An attacker rotating across instances (or just hitting a freshly-spawned cold instance) bypasses the limit entirely.
+   904→
+   905→Concrete fix: move all four to a shared backend — Upstash Redis (`@upstash/ratelimit`) is the canonical choice for Next.js serverless. Same for A4.
+   906→
+   907→### D3 — ⚠️ WARN · `/api/stripe/webhook` and `/api/whatsapp/webhook` have NO rate limit AND no IP allowlist
+   908→Even if the middleware bug (E1 below) is fixed, both webhook endpoints are reachable by anyone who knows the URL. The Stripe webhook verifies the signature (src/lib/stripe.ts:182-195, uses `STRIPE_WEBHOOK_SECRET`) — good — so a forged request without a valid signature returns 400. The WhatsApp webhook has NO signature verification on POST (see E3) — anyone can POST fake message webhooks.
+   909→
+   910→Concrete fix: in addition to fixing E1/E3, restrict both endpoints by source IP (Meta publishes their webhook egress IP ranges; Stripe's are documented). Add `checkRateLimit(req, { window: 60_000, max: 100 })` as a backstop.
+   911→
+   912→### D4 — ✅ OK · `/api/auth/forgot-password` has a per-IP limiter (3/10min) — fine for single-instance
+   913→See D2 for the multi-instance caveat.
+   914→
+   915→================================================================
+   916→E. SESSION MANAGEMENT
+   917→================================================================
+   918→
+   919→### E1 — ❌ CRITICAL BUG · `/api/stripe/webhook` and `/api/whatsapp/webhook` are BLOCKED by middleware
+   920→File: src/middleware.ts:40-42
+   921→```ts
+   922→export const config = {
+   923→  matcher: ['/api/((?!auth|public|health).*)', '/login'],
+   924→}
+   925→```
+   926→File: src/middleware.ts:18-25
+   927→```ts
+   928→if (pathname.startsWith('/api/')) {
+   929→  const token = await getToken({ req, secret: NEXTAUTH_SECRET || '' })
+   930→  if (!token) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+   931→  // …
+   932→}
+   933→```
+   934→The matcher's negative lookahead only excludes `/api/auth`, `/api/public`, `/api/health`. `/api/stripe/webhook` and `/api/whatsapp/webhook` match the pattern (their path components `stripe` and `whatsapp` are not in the exclusion list), so middleware runs, calls `getToken`, gets `null` (Stripe/Meta don't send a NextAuth JWT), and returns 401. **Stripe webhooks and Meta webhook verifications never reach the route handler.** Billing will silently break: subscriptions created in Stripe won't update `organization_subscriptions.status`, invoices won't be recorded, payment failures won't suspend tenants. WhatsApp message ingestion won't work either.
+   935→
+   936→Concrete fix: extend the matcher exclusion (and the early-return guard):
+   937→```ts
+   938→// matcher
+   939→matcher: ['/api/((?!auth|public|health|stripe/webhook|whatsapp/webhook).*)', '/login']
+   940→
+   941→// inside middleware, before the /api/ check
+   942→if (pathname === '/api/stripe/webhook' || pathname === '/api/whatsapp/webhook') {
+   943→  return NextResponse.next()
+   944→}
+   945→```
+   946→
+   947→---
+   948→
+   949→### E2 — ⚠️ WARN · Session revocation is wired but never checked — `isSessionValid` defined, never called
+   950→See A1 for the full analysis. The `user_sessions` table is written to on login (src/lib/next-auth.ts:88, 116), updated on revoke (src/lib/session-management.ts:55-78), but never read by any auth-checking code path. Effect: the entire `user_sessions` table is write-only decoration.
+   951→
+   952→Concrete fix: in `src/lib/next-auth.ts` `jwt()` callback, add at the top (before any other logic):
+   953→```ts
+   954→if (token.jti) {
+   955→  const ok = await isSessionValid(token.jti)
+   956→  if (!ok) {
+   957→    // Returning a fresh object with no user info makes the session callback
+   958→    // produce an unauthenticated session, which NextAuth treats as logged-out.
+   959→    return { ...token, _invalidated: true } as any
+   960→  }
+   961→}
+   962→```
+   963→And in `session()` callback: `if (token._invalidated) { delete session.user; return session }`. Combined with A1's logout-revokes-JTI fix, this gives proper session lifecycle.
+   964→
+   965→---
+   966→
+   967→### E3 — ⚠️ WARN · WhatsApp webhook POST has NO signature verification + hardcoded verify-token fallback
+   968→File: src/app/api/whatsapp/webhook/route.ts:19, 39-71
+   969→```ts
+   970→const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "restopanel_verify_2026";
+   971→// …
+   972→export async function POST(req: Request) {
+   973→  try {
+   974→    const body = await req.json();
+   975→    console.info("[whatsapp] Webhook received:", JSON.stringify(body).substring(0, 500));
+   976→    if (body.object) {
+   977→      // … process messages + statuses without verifying X-Hub-Signature-256
+   978→      return NextResponse.json({ ok: true });
+   979→    }
+   980→    return NextResponse.json({ ok: false }, { status: 400 });
+   981→  } catch (e: any) { /* … */ }
+   982→}
+   983→```
+   984→Two bugs:
+   985→1. The `VERIFY_TOKEN` fallback `"restopanel_verify_2026"` is publicly visible in the source code. If `WHATSAPP_VERIFY_TOKEN` is not set in production, anyone can hit `GET /api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=restopanel_verify_2026&hub.challenge=anything` and have Meta register their own webhook URL.
+   986→2. The POST handler accepts ANY JSON body and processes it without verifying the `X-Hub-Signature-256` HMAC against `WHATSAPP_APP_SECRET`. An attacker can POST fake "message received" events to trigger whatever downstream side-effects are added later (currently just `console.info`, but the comments at lines 57-61 say "Here we would: look up customer, store message, trigger auto-replies").
+   987→
+   988→Concrete fix:
+   989→```ts
+   990→const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN
+   991→if (!VERIFY_TOKEN) throw new Error("WHATSAPP_VERIFY_TOKEN must be set")
+   992→const APP_SECRET = process.env.WHATSAPP_APP_SECRET
+   993→if (!APP_SECRET) throw new Error("WHATSAPP_APP_SECRET must be set")
+   994→
+   995→export async function POST(req: Request) {
+   996→  const sig = req.headers.get("x-hub-signature-256") || ""
+   997→  const raw = await req.text()
+   998→  const expected = "sha256=" + crypto.createHmac("sha256", APP_SECRET).update(raw).digest("hex")
+   999→  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+  1000→    return new NextResponse("Forbidden", { status: 403 })
+  1001→  }
+  1002→  const body = JSON.parse(raw)
+  1003→  // … process
+  1004→}
+  1005→```
+  1006→
+  1007→---
+  1008→
+  1009→### E4 — ⚠️ WARN · Concurrent session limit not enforced
+  1010→File: src/lib/session-management.ts:80-93
+  1011→```ts
+  1012→export async function getActiveSessions(userId: string) {
+  1013→  const { data } = await supabaseAdmin.from("user_sessions").select("*")
+  1014→    .eq("user_id", userId).is("revoked_at", null)
+  1015→    .order("created_at", { ascending: false });
+  1016→  return data || [];
+  1017→}
+  1018→```
+  1019→There is no `MAX_SESSIONS_PER_USER` constant, no check in `createSession` (line 16-36) that revokes older sessions when a new one is created, and no background job that revokes stale sessions past the 30-day `expires_at`. A user can accumulate an unlimited number of active sessions. Combined with E2 (revocation not checked), the `user_sessions` table is effectively a write-only audit log.
+  1020→
+  1021→Concrete fix: in `createSession`, after insert, count active sessions for `userId`; if > N (e.g., 5), revoke the oldest. Also add a cron / scheduled function to delete rows where `expires_at < now()`.
+  1022→
+  1023→---
+  1024→
+  1025→### E5 — ✅ OK · "Remember me" expiry
+  1026→File: src/lib/next-auth.ts:25
+  1027→```ts
+  1028→session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 }, // 30 days
+  1029→```
+  1030→30 days is reasonable for a SaaS dashboard. The `AuthScreen.tsx:280` "Recordarme" checkbox is currently decorative — it has no effect on the JWT maxAge. That's a minor UX bug, not a security issue: the session is always 30 days regardless of the checkbox.
+  1031→
+  1032→================================================================
+  1033→F. CONFIGURATION & BUILD
+  1034→================================================================
+  1035→
+  1036→### F1 — ⚠️ WARN · `typescript.ignoreBuildErrors: true` will silently ship type errors to production
+  1037→File: next.config.ts:5-7
+  1038→```ts
+  1039→typescript: {
+  1040→  ignoreBuildErrors: true,
+  1041→},
+  1042→```
+  1043→This means `next build` will succeed even if the TypeScript compiler reports errors. Security-relevant type augmentations (e.g., `src/types/next-auth.d.ts` which enforces `organizationId: string` on every session) become advisory rather than enforced. A future refactor that accidentally removes `user.organizationId` from a session check would still build.
+  1044→
+  1045→Concrete fix: set `ignoreBuildErrors: false`. If there are pre-existing type errors, fix them rather than masking them. Same reasoning applies to `eslint.ignoreDuringBuilds` if it's set (it isn't currently).
+  1046→
+  1047→### F2 — ⚠️ WARN · No global Content-Security-Policy header
+  1048→File: next.config.ts:20-42
+  1049→The headers config sets `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `Strict-Transport-Security`, and a special CSP for `/_next/image` responses — but no CSP for the main HTML documents. A CSP header (`default-src 'self'; script-src 'self' 'unsafe-inline'; …`) would block the most common XSS payloads even if a future template bug introduces one. NextAuth's inline callbacks and the use of `<style>` tags in shadcn/ui components means `unsafe-inline` is likely required for scripts and styles, but `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'self'` are still high-value.
+  1050→
+  1051→Concrete fix: add a `Content-Security-Policy` header to the `/(.*)` source in `next.config.ts` `headers()`.
+  1052→
+  1053→### F3 — ⚠️ WARN · `reactStrictMode: false`
+  1054→File: next.config.ts:8
+  1055→Disables React's strict-mode double-rendering, which surfaces many bugs (effect cleanups, inconsistent state) in development. Not a security bug per se, but it weakens a useful safety net. Set to `true`.
+  1056→
+  1057→### F4 — ✅ OK · Security headers present
+  1058→`X-Frame-Options: SAMEORIGIN` (clickjacking defense), `X-Content-Type-Options: nosniff` (MIME-sniffing defense), `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` (HSTS for 2 years), `poweredByHeader: false`. Good baseline.
+  1059→
+  1060→### F5 — ✅ OK · Supabase admin client uses non-NEXT_PUBLIC env vars
+  1061→File: src/lib/supabase/admin.ts:19-30
+  1062→`SUPABASE_URL` (or `NEXT_PUBLIC_SUPABASE_URL` fallback) + `SUPABASE_SERVICE_ROLE_KEY` (no NEXT_PUBLIC_ prefix). The service_role key is therefore stripped from the client bundle by Next.js. The module throws at import time if the key is missing — fail-fast. ✅
+  1063→
+  1064→### F6 — ✅ OK · `next.config.ts` poweredByHeader: false
+  1065→Removes the `X-Powered-By: Next.js` header that would otherwise fingerprint the framework.
+  1066→
+  1067→================================================================
+  1068→G. DEAD CODE / OBSERVATIONS
+  1069→================================================================
+  1070→
+  1071→### G1 — `src/lib/rbac.ts` (316 lines) is unused
+  1072→`hasPermission`, `requirePermission`, `assignRole`, `updateRolePermissions`, `invalidateRbacCache`, `getUserPermissions`, `getUserRoleLabel`, `getAllRoles`, `getAllPermissions`, `getPermissionsForRole` are all exported. Grep shows `hasPermission` / `requirePermission` are imported NOWHERE outside of rbac.ts itself. Routes use a simple `user.role !== 'ADMIN'` check instead. The RBAC tables (`roles`, `permissions`, `role_permissions`, `user_roles`) exist in the DB (migration 0014_enterprise_rbac.sql) and are populated, but no API route enforces a permission code. This is a major gap if the product is sold as "enterprise RBAC" — but it's not a vulnerability, just unenforced complexity.
+  1073→
+  1074→### G2 — `src/lib/rate-limit.ts` (84 lines) is unused — see D1.
+  1075→
+  1076→### G3 — `src/lib/api.ts:30-40` `uploadFile()` posts to `/api/upload` which does not exist. Either implement the upload route (with file-type + size + path-traversal validation) or delete the helper.
+  1077→
+  1078→### G4 — `src/lib/session-management.ts:95-102` `updateSessionActivity()` is exported but never called. The `user_sessions.last_activity` column will always be NULL.
+  1079→
+  1080→### G5 — `src/app/api/tables/positions/route.ts` POST handler is a duplicate of PATCH that simply re-invokes PATCH (line 41-43). Either route is reachable from the UI — but per audit-8 (worklog above) the UI button is always disabled, so both methods are dead.
+  1081→
+  1082→================================================================
+  1083→STAGE SUMMARY
+  1084→================================================================
+  1085→
+  1086→❌ CRITICAL (fix before any production deploy):
+  1087→1. A1 — Logout does not invalidate the JWT; `isSessionValid` is dead code. Stolen tokens live for 30 days.
+  1088→2. A2 — `/api/seed?force=true` lets ANY authenticated user wipe ALL tenant data + all users.
+  1089→3. A3 — Hardcoded super-admin credentials `owner@restopanel.es / owner2026` in source + echoed in API response.
+  1090→4. E1 — Middleware 401s `/api/stripe/webhook` and `/api/whatsapp/webhook`, so billing & WhatsApp ingestion are broken.
+  1091→
+  1092→⚠️ HIGH (fix before "enterprise" pitch):
+  1093→5. A4 — Brute-force protection is in-memory only; useless in serverless / multi-instance.
+  1094→6. A5 — Register endpoint has no rate limit and leaks the verify-token in the response.
+  1095→7. A8 — Impersonation cookies missing `secure: true`.
+  1096→8. A9 — JWT role/isSuperAdmin/blocked not refreshed for 30 days.
+  1097→9. B1 — IDOR on `/api/user/sessions` DELETE (any user can revoke any other user's session by `jti`).
+  1098→10. B5 — Public reviews endpoint accepts arbitrary `organization_id` and auto-approves — reputation-attack vector.
+  1099→11. D1 — `src/lib/rate-limit.ts` is dead code; pre-configured limits never applied.
+  1100→12. E3 — WhatsApp webhook has no signature verification + hardcoded verify-token fallback.
+  1101→
+  1102→⚠️ MEDIUM:
+  1103→13. A6 — Forgot-password returns reset token in dev mode (NODE_ENV detection brittle).
+  1104→14. A7 — Verify-email / reset-password tokens travel in URL query string.
+  1105→15. B2 — `/api/customers/[id]` PATCH/DELETE/reservations skip `.eq('organization_id', …)` defense-in-depth.
+  1106→16. B3 — `/api/chat/messages` POST doesn't validate `channelId` belongs to the tenant.
+  1107→17. B4 — `/api/restaurant` settings PATCH is mass-assignable via dynamic snake_case conversion.
+  1108→18. C4 — `images.remotePatterns: hostname: "**"` + `dangerouslyAllowSVG: true` is an SSRF/XSS surface.
+  1109→19. C8 — `/api/admin/tenants/[id]` returns `password_hash` via `select('*')` on users.
+  1110→20. E4 — Concurrent session limit not enforced.
+  1111→21. F1 — `typescript.ignoreBuildErrors: true` ships type errors silently.
+  1112→
+  1113→✅ OK (29 items):
+  1114→- A10 NextAuth core config · A11 middleware unauth block · A12 server-side admin checks
+  1115→- B6 (38 routes) all correctly org-scoped · C1 SQL injection · C2 XSS (3 dangerouslySetInnerHTML all safe) · C3 CSRF · C5 mass-assignment (most routes) · C6 open redirect · C7 path traversal · C8 password hash never in NextAuth session
+  1116→- D4 forgot-password has inline limiter (single-instance caveat)
+  1117→- E5 remember-me expiry sane
+  1118→- F4 security headers · F5 service_role key not in client bundle · F6 poweredByHeader disabled
+  1119→- G1-G5 dead code (RBAC, rate-limit, uploadFile, updateSessionActivity, tables/positions POST) — not vulnerabilities, but should be cleaned up.
+  1120→
+  1121→This was a READ-ONLY audit. No source files were modified. Recommended next task: `audit-9-fix` to triage and patch the 4 CRITICAL items, then a follow-up `audit-9-hardening` pass for the HIGH/MEDIUM items.
+  1122→
+  1123→---
+  1124→Task ID: audit-2
+  1125→Agent: Explore (DB audit)
+  1126→Task: READ-ONLY audit of /home/z/my-project/supabase/migrations/ (17 SQL files: 0001_init.sql → 0017_billing_enterprise.sql). Scope: schema integrity, RLS, indexes, triggers/functions, migration ordering, billing/feature-flag/super-admin/transfer-RPC correctness, performance.
+  1127→
+  1128→Summary:
+  1129→- 17 migrations, sequential, ordered 0001 → 0017, all `create table if not exists` / `add column if not exists` (idempotent). ✅
+  1130→- 5 CRITICAL bugs, 9 HIGH issues, 11 MEDIUM warnings. 14 ✅ OK items.
+  1131→- The recursion fix in 0010 is INCOMPLETE — `is_current_user_super_admin()` itself no longer touches `users`, but the inline policies from 0003 (audit_logs, users, organizations, and the dynamic loop on categories/menu_items/tables/orders/order_items/reservations/organization_settings/verification_tokens) STILL embed `exists (select 1 from users u where u.id = auth.uid() and u.is_super_admin = true)` directly. Those still recurse and will cause `42P17 infinite recursion detected in policy for relation "users"` whenever a tenant-scoped query hits them.
+  1132→- `transfer_reservation()` RPC is `SECURITY DEFINER` and has NO organization check → any authenticated user can move any reservation in the DB.
+  1133→- `subscription_plans` was seeded with WRONG prices in 0014 (29/290, 59/590, 149/1490) but 0017 UPDATEs them to the CORRECT values (59/566, 119/1142, 249/2390). However, the 0017 header comment still references the OLD wrong yearly prices (590 / 950 / 1990) — misleading.
+  1134→- `feature_flags` exists (0015), seeded (0015), `feature_flag_overrides` exists (0016). ✅
+  1135→- `organization_subscriptions` becomes complete only after 0017 adds `cancel_at_period_end`, `canceled_at`, `extra_restaurants`, `extra_restaurant_price`. ✅
+  1136→- `touch_updated_at()` trigger is missing on ~22 tables that have an `updated_at` column (zones, customers, customer_tags, chat_channels, chat_messages, staff_shifts, notifications, audit_logs, roles, user_roles, user_sessions, user_activity, subscription_plans, feature_flag_overrides, system_settings, event_log, email_queue, organization_usage, invoices, payment_methods, subscription_history, usage_logs).
+  1137→
+  1138→==================================================================
+  1139→A. SCHEMA INTEGRITY
+  1140→==================================================================
+  1141→
+  1142→❌ BUG · 0001:157 · order_items.menu_item_id FK uses ON DELETE CASCADE
+  1143→```
+  1144→menu_item_id    uuid not null references menu_items(id) on delete cascade,
+  1145→```
+  1146→Fix: change to `on delete set null` (and drop the NOT NULL), otherwise deleting a menu item silently destroys order history. Order items are accounting/audit records and must survive menu-item deletion.
+  1147→```sql
+  1148→alter table order_items alter column menu_item_id drop not null;
+  1149→alter table order_items drop constraint order_items_menu_item_id_fkey;
+  1150→alter table order_items add constraint order_items_menu_item_id_fkey
+  1151→  foreign key (menu_item_id) references menu_items(id) on delete set null;
+  1152→```
+  1153→
+  1154→❌ BUG · 0008:6 · tables.group_id has no FK
+  1155→```
+  1156→ALTER TABLE tables ADD COLUMN IF NOT EXISTS group_id uuid;
+  1157→```
+  1158→A column literally called `group_id` with no FK target — there is no `table_groups` table anywhere in the migrations, so the column can hold any UUID. Either create the `table_groups` table (likely the original intent) or drop the column.
+  1159→Fix:
+  1160→```sql
+  1161→-- option A: create the missing parent table
+  1162→create table if not exists table_groups (
+  1163→  id uuid primary key default gen_random_uuid(),
+  1164→  organization_id uuid not null references organizations(id) on delete cascade,
+  1165→  name text not null,
+  1166→  created_at timestamptz not null default now()
+  1167→);
+  1168→alter table tables add constraint tables_group_id_fkey
+  1169→  foreign key (group_id) references table_groups(id) on delete set null;
+  1170→```
+  1171→
+  1172→⚠️ WARN · 0014:263 · organization_subscriptions.plan_id FK has no ON DELETE behavior
+  1173→```
+  1174→plan_id         uuid not null references subscription_plans(id),
+  1175→```
+  1176→Defaults to `NO ACTION` which would block any plan deletion. Should be `on delete restrict` (intentional) or at least explicit. Fix:
+  1177→```sql
+  1178→alter table organization_subscriptions drop constraint organization_subscriptions_plan_id_fkey;
+  1179→alter table organization_subscriptions add constraint organization_subscriptions_plan_id_fkey
+  1180→  foreign key (plan_id) references subscription_plans(id) on delete restrict;
+  1181→```
+  1182→
+  1183→⚠️ WARN · 0012:10 · whatsapp_messages.organization_id is nullable with no clear reason
+  1184→```
+  1185→organization_id     uuid references organizations(id) on delete cascade,
+  1186→```
+  1187→Combined with `to_phone text not null`, a row with NULL organization_id is allowed — orphan messages that no tenant can see. Either `not null` or document why outbound system messages can be org-less.
+  1188→
+  1189→⚠️ WARN · Missing CHECK constraints on enum-like text columns. All of these are documented as enums in comments but never enforced:
+  1190→- 0001:51 `users.role` ('ADMIN' | 'STAFF')
+  1191→- 0001:121 `tables.zone`, 0001:122 `tables.shape`, 0001:125 `tables.status`
+  1192→- 0001:139 `orders.status`, 0001:140 `orders.order_type`
+  1193→- 0001:178-181 `reservations.status`, `shift`, `source`
+  1194→- 0006:136 `reservations.channel` (added)
+  1195→- 0004:18-19 `notifications.type`, `notifications.severity`
+  1196→- 0007:30 `chat_messages.priority`
+  1197→- 0007:45,51 `staff_shifts.team`, `staff_shifts.status`
+  1198→- 0009:32,43,44 `public_reviews.author_role`, `source`, `status`
+  1199→- 0009:137 `google_review_settings.auto_response_mode`
+  1200→- 0003:34 `audit_logs.actor_role`
+  1201→- 0013:12 `import_jobs.status`
+  1202→- 0012:15 `whatsapp_messages.status`
+  1203→Fix: add `check (col in (...))` for each, or convert to `create type ... as enum (...)`. The 0014/0017 billing tables already do this correctly (`billing_cycle`, `invoices.status`) — apply the same pattern.
+  1204→
+  1205→⚠️ WARN · 0006:43 · customers table lacks UNIQUE constraint on (organization_id, phone) and (organization_id, email)
+  1206→Only indexes exist:
+  1207→```
+  1208→create index if not exists customers_organization_id_phone_idx on customers(organization_id, phone);
+  1209→create index if not exists customers_organization_id_email_idx on customers(organization_id, email);
+  1210→```
+  1211→This allows duplicate customer rows for the same phone/email within one tenant. Fix:
+  1212→```sql
+  1213→alter table customers add constraint customers_org_phone_unique unique (organization_id, phone);
+  1214→alter table customers add constraint customers_org_email_unique unique (organization_id, email);
+  1215→```
+  1216→(Email can be NULL — `unique` allows multiple NULLs, which is fine.)
+  1217→
+  1218→✅ OK · 0001:53 · users.organization_id FK on delete cascade — correct.
+  1219→✅ OK · 0001:143,183 · orders.table_id / reservations.table_id → tables(id) on delete set null — correct (don't lose order history when a table is deleted).
+  1220→✅ OK · 0006:134 · reservations.customer_id → customers(id) on delete set null — correct (don't lose reservation history).
+  1221→✅ OK · 0014:95 · user_roles UNIQUE (user_id, organization_id) — one role per user per org, correct.
+  1222→✅ OK · 0014:273 · organization_subscriptions UNIQUE (organization_id) — one subscription per org, correct.
+  1223→
+  1224→==================================================================
+  1225→B. RLS (Row Level Security)
+  1226→==================================================================
+  1227→
+  1228→❌ BUG · 0003:60-66 · audit_logs_super_admin_select — STILL recursive after 0010
+  1229→```
+  1230→create policy audit_logs_super_admin_select on audit_logs
+  1231→  for select using (
+  1232→    exists (
+  1233→      select 1 from users u
+  1234→      where u.id = auth.uid() and u.is_super_admin = true
+  1235→    )
+  1236→  );
+  1237→```
+  1238→The 0010 fix rewrote `is_current_user_super_admin()` to read the JWT claim, but this policy still embeds an inline subquery on `users`. When ANY query hits audit_logs, PostgreSQL evaluates this SELECT policy → the inner `select 1 from users u` triggers users' RLS → users_super_admin_select (also inline-recursive, see below) runs the same subquery → infinite recursion → `42P17`.
+  1239→Fix:
+  1240→```sql
+  1241→drop policy if exists audit_logs_super_admin_select on audit_logs;
+  1242→create policy audit_logs_super_admin_select on audit_logs
+  1243→  for select using (is_current_user_super_admin());
+  1244→```
+  1245→
+  1246→❌ BUG · 0003:78-86 · users_super_admin_select — recursive
+  1247→```
+  1248→create policy users_super_admin_select on users
+  1249→  for select using (
+  1250→    exists (
+  1251→      select 1 from users u
+  1252→      where u.id = auth.uid() and u.is_super_admin = true
+  1253→    )
+  1254→  );
+  1255→```
+  1256→A policy on `users` that subqueries `users` — textbook infinite recursion. This is the policy that 0010 was supposed to fix but never touched. Fix:
+  1257→```sql
+  1258→drop policy if exists users_super_admin_select on users;
+  1259→create policy users_super_admin_select on users
+  1260→  for select using (is_current_user_super_admin());
+  1261→```
+  1262→
+  1263→❌ BUG · 0003:88-95 · users_super_admin_update — recursive (same pattern).
+  1264→❌ BUG · 0003:100-107 · organizations_super_admin_select — recursive.
+  1265→❌ BUG · 0003:109-116 · organizations_super_admin_update — recursive.
+  1266→❌ BUG · 0003:124-166 · Dynamic loop creates `_super_admin_select`, `_super_admin_update`, `_super_admin_delete` policies on `categories, menu_items, tables, orders, order_items, reservations, organization_settings, verification_tokens` — ALL of them embed the same recursive `select 1 from users u where u.id = auth.uid() and u.is_super_admin = true` subquery. Every tenant table inherits the recursion bug.
+  1267→Fix: drop every one of those policies and recreate them with `using (is_current_user_super_admin())`. This is what 0010 should have done. Suggested 0018 migration:
+  1268→```sql
+  1269→do $$
+  1270→declare t text;
+  1271→begin
+  1272→  for t in select unnest(array[
+  1273→    'categories','menu_items','tables','orders','order_items',
+  1274→    'reservations','organization_settings','verification_tokens'
+  1275→  ])
+  1276→  loop
+  1277→    execute format('drop policy if exists %I_super_admin_select on %I;', t, t);
+  1278→    execute format('drop policy if exists %I_super_admin_update on %I;', t, t);
+  1279→    execute format('drop policy if exists %I_super_admin_delete on %I;', t, t);
+  1280→    execute format('create policy %I_super_admin_select on %I for select using (is_current_user_super_admin());', t, t);
+  1281→    execute format('create policy %I_super_admin_update on %I for update using (is_current_user_super_admin()) with check (true);', t, t);
+  1282→    execute format('create policy %I_super_admin_delete on %I for delete using (is_current_user_super_admin());', t, t);
+  1283→  end loop;
+  1284→end $$;
+  1285→drop policy if exists users_super_admin_select on users;
+  1286→create policy users_super_admin_select on users for select using (is_current_user_super_admin());
+  1287→drop policy if exists users_super_admin_update on users;
+  1288→create policy users_super_admin_update on users for update using (is_current_user_super_admin()) with check (true);
+  1289→drop policy if exists organizations_super_admin_select on organizations;
+  1290→create policy organizations_super_admin_select on organizations for select using (is_current_user_super_admin());
+  1291→drop policy if exists organizations_super_admin_update on organizations;
+  1292→create policy organizations_super_admin_update on organizations for update using (is_current_user_super_admin()) with check (true);
+  1293→drop policy if exists audit_logs_super_admin_select on audit_logs;
+  1294→create policy audit_logs_super_admin_select on audit_logs for select using (is_current_user_super_admin());
+  1295→```
+  1296→
+  1297→❌ BUG · 0014:139-141 · user_profiles_self_select — recursive
+  1298→```
+  1299→exists (select 1 from users u where u.id = user_id and u.organization_id = current_user_org_id())
+  1300→```
+  1301→Subqueries `users` and users has the recursive `users_super_admin_select` policy from 0003. Even though `current_user_org_id()` itself no longer recurses (post-0010), this subquery still triggers users' RLS → recursion. Fix: either drop the `exists` branch (relying on the JWT `sub` claim and super_admin is enough), or restructure with a SECURITY DEFINER helper.
+  1302→
+  1303→❌ BUG · 0014:151, 184-187, 191, 197 · user_profiles_tenant_insert, user_sessions_self_select/insert/update — same recursive `exists (select 1 from users u where ...)` pattern.
+  1304→
+  1305→❌ BUG · 0009:84-90 · public_reviews_public_insert lets anon users insert reviews with no rate-limit at the DB layer
+  1306→```
+  1307→create policy public_reviews_public_insert on public_reviews
+  1308→  for insert with check (
+  1309→    status = 'PENDING'
+  1310→    and rating >= 1 and rating <= 5
+  1311→    and length(author_name) >= 2 and length(author_name) <= 120
+  1312→    and length(body) >= 10 and length(body) <= 2000
+  1313→  );
+  1314→```
+  1315→The comment claims "rate-limited at the API layer" — but RLS-level there's no throttle. Any anon client can spam-insert pending reviews. Pair this with the recursion bug above and the INSERT path also triggers the public_reviews_super_admin_select policy which (post-0010) is fine, but the cumulative effect of N inserts each evaluating N+1 policy subqueries is a DoS vector. Fix: add a per-IP / per-day unique constraint or use pg_ratelimit / row count cap.
+  1316→
+  1317→⚠️ WARN · 0001:326-334 · organizations has SELECT and UPDATE policies but NO INSERT or DELETE policy.
+  1318→This means: only the service_role (which bypasses RLS) can create or delete organizations. Probably intentional (org creation goes through `/api/auth/register` which uses service_role), but it should be documented.
+  1319→
+  1320→⚠️ WARN · 0004:40-46 · notifications has SELECT, UPDATE, broadcast-INSERT (0005) but NO DELETE policy.
+  1321→Means tenants can't delete their own notifications, only super_admin via service_role can. Probably intentional but worth confirming.
+  1322→
+  1323→⚠️ WARN · 0006:79-82, 35-38 · customers and zones get super_admin SELECT/UPDATE but NO super_admin INSERT/DELETE policies — super_admin can't insert or delete customer/zone rows through RLS, only via service_role.
+  1324→
+  1325→⚠️ WARN · 0006:106-129 · customer_tags and customer_tag_assignments have NO super_admin policies at all — super_admin can't manage them through RLS.
+  1326→
+  1327→⚠️ WARN · 0007:62-88 · chat_channels and chat_messages have only SELECT/INSERT tenant policies and super_admin SELECT. No UPDATE/DELETE for either tenant or super_admin. Messages cannot be deleted through RLS.
+  1328→
+  1329→⚠️ WARN · 0013:30-47 · import_jobs: tenant has SELECT/INSERT/UPDATE, super_admin has SELECT only. No DELETE for either. Super_admin can't cancel/delete import jobs through RLS, and neither can a tenant.
+  1330→
+  1331→⚠️ WARN · 0014:65-67 · permissions table: `create policy permissions_select on permissions for select using (true);` — readable by anyone, including anon. Probably fine for a permission catalog (no sensitive data) but the comment says "readable by all authenticated" while the policy actually allows anon too. Either tighten with `using (auth.role() = 'authenticated')` or fix the comment.
+  1332→
+  1333→⚠️ WARN · 0014:78-83 · role_permissions: only a SELECT policy exists. No INSERT/UPDATE/DELETE — all role-permission assignment must go through service_role.
+  1334→
+  1335→✅ OK · 0001:257-268 · `current_user_org_id()` reads JWT claim, returns NULL for anon → denies all. Correct.
+  1336→✅ OK · 0010:37-52 · `is_current_user_super_admin()` post-fix reads JWT claim, marked STABLE SECURITY DEFINER. Function itself is recursion-safe.
+  1337→✅ OK · 0016:96-98 · `system_settings_read` policy correctly hides secrets: `for select using (not is_secret)`.
+  1338→✅ OK · 0017:47-51, 69-73, 93-97, 112-116 · invoices/payment_methods/subscription_history/usage_logs — all have tenant SELECT + super_admin ALL, complete coverage.
+  1339→
+  1340→==================================================================
+  1341→C. INDEXES
+  1342→==================================================================
+  1343→
+  1344→❌ BUG · 0001:154-165 · order_items has no index on menu_item_id
+  1345→```
+  1346→create index if not exists order_items_order_id_idx on order_items(order_id);
+  1347→create index if not exists order_items_organization_id_idx on order_items(organization_id);
+  1348→```
+  1349→When a menu_item is deleted (with the cascade FK), Postgres must seq-scan order_items to find dependent rows. Same for any "which orders contain this dish?" report. Fix:
+  1350→```sql
+  1351→create index if not exists order_items_menu_item_id_idx on order_items(menu_item_id);
+  1352→```
+  1353→
+  1354→❌ BUG · 0001:143,183 · orders.table_id and reservations.table_id have no index
+  1355→```
+  1356→table_id        uuid references tables(id) on delete set null,
+  1357→```
+  1358→Foreign-key ON DELETE SET NULL forces Postgres to seq-scan orders/reservations every time a table is deleted. Fix:
+  1359→```sql
+  1360→create index if not exists orders_table_id_idx on orders(table_id) where table_id is not null;
+  1361→create index if not exists reservations_table_id_idx on reservations(table_id) where table_id is not null;
+  1362→```
+  1363→
+  1364→❌ BUG · 0007:23-36 · chat_messages has no index on user_id
+  1365→```
+  1366→user_id         uuid references users(id) on delete set null,
+  1367→```
+  1368→ON DELETE SET NULL triggers a seq-scan when a user is deleted. Also blocks "show all messages by user X" queries. Fix:
+  1369→```sql
+  1370→create index if not exists chat_messages_user_id_idx on chat_messages(user_id) where user_id is not null;
+  1371→```
+  1372→
+  1373→❌ BUG · 0014:72-76 · role_permissions has no index on permission_id
+  1374→```
+  1375→create table if not exists role_permissions (
+  1376→  role_id       uuid not null references roles(id) on delete cascade,
+  1377→  permission_id uuid not null references permissions(id) on delete cascade,
+  1378→  primary key (role_id, permission_id)
+  1379→);
+  1380→```
+  1381→PK gives `(role_id, permission_id)` index. Reverse lookup "which roles have permission X" needs `(permission_id, role_id)`. Fix:
+  1382→```sql
+  1383→create index if not exists role_permissions_permission_id_idx on role_permissions(permission_id);
+  1384→```
+  1385→
+  1386→❌ BUG · 0014:88-96 · user_roles has no index on role_id
+  1387→```
+  1388→create index if not exists user_roles_user_id_idx on user_roles(user_id);
+  1389→create index if not exists user_roles_organization_id_idx on user_roles(organization_id);
+  1390→```
+  1391→Dropping a role forces seq-scan to cascade-delete user_roles rows. Fix:
+  1392→```sql
+  1393→create index if not exists user_roles_role_id_idx on user_roles(role_id);
+  1394→```
+  1395→
+  1396→⚠️ WARN · 0014:164-179 · user_sessions has 3 indexes (user_id, token_jti, active) but no index on organization_id. Likely fine because sessions are user-scoped, but if you ever query "all sessions for an org" it'll seq-scan.
+  1397→
+  1398→⚠️ WARN · 0014:204-220 · user_activity: has indexes on user_id, organization_id, created_at, action — ✅. But action_idx is not partial; could be a hot index. Consider partial `where action in ('login','logout')` if those dominate.
+  1399→
+  1400→✅ OK · 0001:148-149 · orders has composite indexes (organization_id, status) and (organization_id, created_at) — covers the two hottest query patterns (active orders by tenant, recent orders by tenant).
+  1401→✅ OK · 0001:188-190 · reservations has (organization_id, date), (organization_id, status), (organization_id, shift) — fully covers calendar, status board, shift filter.
+  1402→✅ OK · 0006:65-68 · customers has (organization_id), (organization_id, phone), (organization_id, email), and a partial (organization_id, vip_status) where vip_status=true — excellent coverage.
+  1403→✅ OK · 0003:45-48 · audit_logs has created_at desc, actor_id, organization_id, action — complete.
+  1404→
+  1405→==================================================================
+  1406→D. TRIGGERS & FUNCTIONS
+  1407→==================================================================
+  1408→
+  1409→❌ BUG · 0015:6-53 · transfer_reservation RPC is SECURITY DEFINER with NO org check
+  1410→```
+  1411→CREATE OR REPLACE FUNCTION transfer_reservation(
+  1412→  p_reservation_id UUID,
+  1413→  p_old_table_id UUID,
+  1414→  p_new_table_id UUID
+  1415→)
+  1416→RETURNS JSONB AS $$
+  1417→...
+  1418→  SELECT * INTO v_reservation FROM reservations WHERE id = p_reservation_id;
+  1419→  ...
+  1420→  UPDATE reservations SET table_id = p_new_table_id ... WHERE id = p_reservation_id;
+  1421→  UPDATE tables SET status = 'AVAILABLE' ... WHERE id = p_old_table_id;
+  1422→  UPDATE tables SET status = 'RESERVED' ... WHERE id = p_new_table_id;
+  1423→...
+  1424→$$ LANGUAGE plpgsql SECURITY DEFINER;
+  1425→```
+  1426→SECURITY DEFINER means the function runs as its owner (postgres, which bypasses RLS). Any authenticated user can call `select transfer_reservation(some_uuid, table_a, table_b);` and move ANY reservation in ANY tenant's table. There is no `where organization_id = current_user_org_id()` check anywhere.
+  1427→Also: p_old_table_id is never validated to equal v_reservation.table_id, so a malicious caller could free an unrelated table by passing its UUID as p_old_table_id.
+  1428→Fix:
+  1429→```sql
+  1430→create or replace function transfer_reservation(
+  1431→  p_reservation_id uuid, p_old_table_id uuid, p_new_table_id uuid
+  1432→) returns jsonb as $$
+  1433→declare
+  1434→  v_reservation record;
+  1435→  v_new_table    record;
+  1436→  v_org          uuid := current_user_org_id();
+  1437→begin
+  1438→  if v_org is null and not is_current_user_super_admin() then
+  1439→    return jsonb_build_object('ok', false, 'error', 'No autenticado');
+  1440→  end if;
+  1441→
+  1442→  select * into v_reservation from reservations
+  1443→   where id = p_reservation_id
+  1444→     and (v_org is null or organization_id = v_org);  -- super_admin bypasses
+  1445→  if not found then
+  1446→    return jsonb_build_object('ok', false, 'error', 'Reserva no encontrada');
+  1447→  end if;
+  1448→
+  1449→  if v_reservation.table_id is distinct from p_old_table_id then
+  1450→    return jsonb_build_object('ok', false, 'error', 'La mesa origen no coincide con la reserva');
+  1451→  end if;
+  1452→
+  1453→  select * into v_new_table from tables
+  1454→   where id = p_new_table_id
+  1455→     and (v_org is null or organization_id = v_org);
+  1456→  if not found then
+  1457→    return jsonb_build_object('ok', false, 'error', 'Mesa de destino no encontrada');
+  1458→  end if;
+  1459→
+  1460→  update reservations set table_id = p_new_table_id, zone = v_new_table.zone, updated_at = now()
+  1461→   where id = p_reservation_id;
+  1462→  if p_old_table_id is not null then
+  1463→    update tables set status = 'AVAILABLE', updated_at = now() where id = p_old_table_id;
+  1464→  end if;
+  1465→  update tables set status = 'RESERVED', updated_at = now() where id = p_new_table_id;
+  1466→
+  1467→  return jsonb_build_object('ok', true, 'message', 'OK', 'new_table', row_to_json(v_new_table));
+  1468→exception when others then
+  1469→  return jsonb_build_object('ok', false, 'error', SQLERRM);
+  1470→end;
+  1471→$$ language plpgsql security definer set search_path = public, pg_temp;
+  1472→```
+  1473→(The `SET search_path` is critical for SECURITY DEFINER functions to prevent search_path hijacking.)
+  1474→
+  1475→❌ BUG · 0006:148-184 · update_customer_metrics() doesn't decrement on status reversal
+  1476→```
+  1477→if new.status = 'COMPLETED' and (old.status is null or old.status <> 'COMPLETED') then
+  1478→  update customers set visits_count = visits_count + 1, ...
+  1479→end if;
+  1480→```
+  1481→If a reservation goes PENDING → COMPLETED → CANCELLED (a real-world scenario when staff clicks the wrong button), visits_count is incremented but never decremented. Same for NO_SHOW and CANCELLED counters. The CRM metrics drift permanently.
+  1482→Fix: add reverse-update branches when transitioning OUT of a terminal state:
+  1483→```sql
+  1484→if old.status = 'COMPLETED' and new.status <> 'COMPLETED' then
+  1485→  update customers set visits_count = greatest(visits_count - 1, 0) where id = new.customer_id;
+  1486→end if;
+  1487→-- and similar for NO_SHOW / CANCELLED
+  1488→```
+  1489→
+  1490→⚠️ WARN · 0001:213-233 · touch_updated_at() trigger created only on 8 tables (organizations, users, categories, menu_items, tables, orders, reservations, organization_settings). 22+ other tables with `updated_at` columns have NO touch trigger:
+  1491→- zones (0006), customers (0006), customer_tags (0006)
+  1492→- chat_channels (0007), chat_messages (no updated_at — skip), staff_shifts (0007)
+  1493→- notifications (no updated_at — skip), audit_logs (no updated_at — skip)
+  1494→- public_reviews (0009 — has trigger ✅), google_review_settings (0009 — has trigger ✅)
+  1495→- whatsapp_messages (0012 — has trigger ✅)
+  1496→- import_jobs (0013 — has trigger ✅)
+  1497→- roles (no updated_at — skip)
+  1498→- user_profiles (0014 — has trigger ✅), user_sessions (no updated_at — skip)
+  1499→- subscription_plans (0014 — no trigger ❌), organization_subscriptions (0014 — has trigger ✅)
+  1500→- feature_flag_overrides (0016 — has updated_at but no trigger ❌), system_settings (0016 — has updated_at but no trigger ❌), event_log (no updated_at — skip)
+  1501→- email_queue (0015 — has updated_at but no trigger ❌), organization_usage (0015 — has updated_at but no trigger ❌)
+  1502→- invoices (0017 — has updated_at but no trigger ❌), payment_methods (no updated_at — skip)
+  1503→- subscription_history (no updated_at — skip), usage_logs (no updated_at — skip)
+  1504→Fix: add a single migration 0018 that loops over the missing tables and creates the trigger:
+  1505→```sql
+  1506→do $$
+  1507→declare t text;
+  1508→begin
+  1509→  for t in select unnest(array[
+  1510→    'zones','customers','customer_tags','staff_shifts','chat_channels',
+  1511→    'subscription_plans','feature_flag_overrides','system_settings',
+  1512→    'email_queue','organization_usage','invoices'
+  1513→  ])
+  1514→  loop
+  1515→    execute format('drop trigger if exists %I_touch on %I;', t, t);
+  1516→    execute format('create trigger %I_touch before update on %I for each row execute function touch_updated_at();', t, t);
+  1517→  end loop;
+  1518→end $$;
+  1519→```
+  1520→
+  1521→⚠️ WARN · 0004:53-78 · notify_super_admins() does a row-by-row loop instead of a single INSERT...SELECT
+  1522→```
+  1523→for admin_record in select id from users where is_super_admin = true
+  1524→loop
+  1525→  insert into notifications (...) values (admin_record.id, ...);
+  1526→end loop;
+  1527→```
+  1528→Functionally correct, but for N super admins it issues N INSERTs. Fix:
+  1529→```sql
+  1530→insert into notifications (user_id, type, severity, title, message, organization_id, action_url, metadata)
+  1531→select id, p_type, p_severity, p_title, p_message, p_organization_id, p_action_url, p_metadata
+  1532→  from users where is_super_admin = true;
+  1533→```
+  1534→
+  1535→⚠️ WARN · 0006:184 · update_customer_metrics() is marked SECURITY DEFINER but has no `set search_path`. Same for transfer_reservation (0015:53), notify_super_admins (0004:78). All SECURITY DEFINER functions should pin search_path to prevent hijacking. Fix: append `set search_path = public, pg_temp` to each `create function ... $$ language plpgsql security definer set search_path = public, pg_temp;`.
+  1536→
+  1537→✅ OK · 0001:214-220 · touch_updated_at() definition — simple, correct, idempotent (`create or replace`).
+  1538→✅ OK · 0002:43-63 · rls_check() — pure SQL, STABLE, safe, used only for diagnostics.
+  1539→✅ OK · 0010:37-52 · is_current_user_super_admin() post-fix — STABLE, SECURITY DEFINER, no table access.
+  1540→✅ OK · 0010:61-69 · current_user_org_id() post-fix — STABLE, SECURITY DEFINER, no table access.
+  1541→
+  1542→==================================================================
+  1543→E. MIGRATION ORDERING
+  1544→==================================================================
+  1545→
+  1546→✅ OK · 17 migrations numbered 0001 → 0017 sequentially, no gaps.
+  1547→✅ OK · Every `create table` uses `if not exists`, every `alter table ... add column` uses `if not exists`, every `create index` uses `if not exists`, every `create or replace function` is idempotent. Re-running the whole chain is safe.
+  1548→✅ OK · No migration creates a table already created by another. (0017 only ADDS COLUMNS to subscription_plans/organization_subscriptions, doesn't recreate them.)
+  1549→✅ OK · No migration drops something a later migration depends on. (0011 drops users_super_admin_update, but recreates it immediately in the same migration. 0003 drops & recreates various policies — fine.)
+  1550→
+  1551→⚠️ WARN · 0017:7-21 — "Autocontenida" header says it ADDS columns that "pudieran faltar" but the columns already exist (created in 0014). The `add column if not exists` is harmless but the migration is noisier than it needs to be. Not a bug, just style.
+  1552→
+  1553→⚠️ WARN · 0017:119-127 — Header comment references OLD wrong yearly prices:
+  1554→```
+  1555→-- Inicio: 59€/mes, 590€/año (59*10=590, ahorro real ~17%)
+  1556→-- Premium: 119€/mes, 950€/año (119*8=952, redondeado a 950 para 20% aprox)
+  1557→-- Empresarial: 249€/mes, 1990€/año (249*8=1992, redondeado a 1990)
+  1558→```
+  1559→But the actual UPDATEs further down use the correct 566 / 1142 / 2390. The comment is misleading — fix the comment to match the SQL.
+  1560→
+  1561→==================================================================
+  1562→F. SPECIFIC CONCERNS
+  1563→==================================================================
+  1564→
+  1565→F1. subscription_plans seeded with correct prices (59/566, 119/1142, 249/2390)?
+  1566→---
+  1567→❌ BUG · 0014:443-450 — WRONG initial seed:
+  1568→```
+  1569→insert into subscription_plans (...) values
+  1570→  ('starter', 'Starter', ..., 29.00, 290.00, 15, 3, 500, ..., 1),
+  1571→  ('professional', 'Professional', ..., 59.00, 590.00, 50, 10, null, ..., 2),
+  1572→  ('enterprise', 'Enterprise', ..., 149.00, 1490.00, null, null, null, ..., 3)
+  1573→on conflict (name) do nothing;
+  1574→```
+  1575→Monthly prices are 29/59/149 (wrong — should be 59/119/249). Yearly 290/590/1490 (wrong — should be 566/1142/2390).
+  1576→
+  1577→✅ OK · 0017:129-166 — UPDATEs the rows to the correct values:
+  1578→```
+  1579→UPDATE subscription_plans SET price_monthly = 59.00, price_yearly = 566.00, ... WHERE name = 'starter';
+  1580→UPDATE subscription_plans SET price_monthly = 119.00, price_yearly = 1142.00, ... WHERE name = 'professional';
+  1581→UPDATE subscription_plans SET price_monthly = 249.00, price_yearly = 2390.00, ... WHERE name = 'enterprise';
+  1582→```
+  1583→
+  1584→✅ OK · 0017:169-182 — Fallback INSERTs with the correct prices for fresh installs where the 0014 seed didn't run.
+  1585→
+  1586→NET RESULT after 0017: prices are correct ✅. But: if anyone snapshots the DB after 0014 but before 0017, they get the wrong prices. And the label rename ('Starter'→'Inicio', 'Professional'→'Premium', 'Enterprise'→'Empresarial') is also done in 0017. The 0017 comment block at lines 119-127 still shows the OLD prices (590/950/1990) — misleading.
+  1587→
+  1588→F2. feature_flags table — exists, where, seeded?
+  1589→---
+  1590→✅ OK · 0015:82-90 — table created:
+  1591→```
+  1592→CREATE TABLE IF NOT EXISTS feature_flags (
+  1593→  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  1594→  key             TEXT NOT NULL UNIQUE,
+  1595→  label           TEXT NOT NULL,
+  1596→  description     TEXT,
+  1597→  default_value   BOOLEAN NOT NULL DEFAULT false,
+  1598→  plan_required   TEXT,  -- 'starter', 'professional', 'enterprise', or NULL for all
+  1599→  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  1600→);
+  1601→```
+  1602→✅ OK · 0015:92-93 — RLS enabled, public SELECT policy.
+  1603→✅ OK · 0015:96-111 — Seeded with 14 flags (reservations, tables, crm, menu, analytics, chat, shifts, kitchen, whatsapp, web_import, google_reviews, advanced_analytics, api_access, white_label).
+  1604→✅ OK · 0016:53-62 — `feature_flag_overrides` table created for per-org overrides with UNIQUE (organization_id, flag_key) and FK to feature_flags(key) on delete cascade.
+  1605→
+  1606→F3. organization_subscriptions table — complete?
+  1607→---
+  1608→⚠️ WARN · 0014:260-274 — Initial schema is INCOMPLETE. Has: organization_id, plan_id, billing_cycle, status, trial_ends_at, current_period_start/end, stripe_customer_id, stripe_subscription_id. Missing: cancel_at_period_end, canceled_at, extra_restaurants, extra_restaurant_price.
+  1609→✅ OK · 0017:185-188 — Adds the 4 missing columns:
+  1610→```
+  1611→ALTER TABLE organization_subscriptions ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT false;
+  1612→ALTER TABLE organization_subscriptions ADD COLUMN IF NOT EXISTS canceled_at TIMESTAMPTZ;
+  1613→ALTER TABLE organization_subscriptions ADD COLUMN IF NOT EXISTS extra_restaurants INT NOT NULL DEFAULT 0;
+  1614→ALTER TABLE organization_subscriptions ADD COLUMN IF NOT EXISTS extra_restaurant_price NUMERIC(10,2) NOT NULL DEFAULT 49.00;
+  1615→```
+  1616→NET RESULT after 0017: table is complete ✅. Default `extra_restaurant_price = 49.00` is hardcoded — should arguably live in `system_settings` for tunability.
+  1617→
+  1618→F4. is_current_user_super_admin() recursion fix — 0003 vs 0010?
+  1619→---
+  1620→❌ BUG · 0003:171-179 — Original definition IS recursive:
+  1621→```
+  1622→create or replace function is_current_user_super_admin()
+  1623→returns boolean as $$
+  1624→begin
+  1625→  return exists (
+  1626→    select 1 from users u
+  1627→    where u.id = auth.uid() and u.is_super_admin = true
+  1628→  );
+  1629→end;
+  1630→$$ language plpgsql stable;
+  1631→```
+  1632→✅ OK · 0010:37-52 — Function rewritten to read JWT claim only:
+  1633→```
+  1634→create or replace function is_current_user_super_admin()
+  1635→returns boolean as $$
+  1636→declare claim text;
+  1637→begin
+  1638→  claim := current_setting('request.jwt.claim.is_super_admin', true);
+  1639→  return coalesce(claim = 'true' or claim = 't' or claim = '1', false);
+  1640→end;
+  1641→$$ language plpgsql stable security definer;
+  1642→```
+  1643→❌ BUG · The 0010 fix is INCOMPLETE. Migration 0003 created ELEVEN inline policies that embed the same `select 1 from users u where u.id = auth.uid() and u.is_super_admin = true` subquery directly (NOT through the function):
+  1644→- audit_logs_super_admin_select (0003:60-66)
+  1645→- users_super_admin_select (0003:78-86)
+  1646→- users_super_admin_update (0003:88-95) — later replaced by 0011:15-18 which uses the function ✅
+  1647→- organizations_super_admin_select (0003:100-107)
+  1648→- organizations_super_admin_update (0003:109-116)
+  1649→- categories_super_admin_select/update/delete (0003:135-163, dynamic loop)
+  1650→- menu_items_super_admin_select/update/delete
+  1651→- tables_super_admin_select/update/delete
+  1652→- orders_super_admin_select/update/delete
+  1653→- order_items_super_admin_select/update/delete
+  1654→- reservations_super_admin_select/update/delete
+  1655→- organization_settings_super_admin_select/update/delete
+  1656→- verification_tokens_super_admin_select/update/delete
+  1657→Migration 0010 did NOT drop or rewrite any of these. They STILL contain the recursive subquery. Only `users_super_admin_update` was incidentally fixed by 0011 (because 0011 rewrote that one policy). All others remain recursive.
+  1658→
+  1659→F5. transfer_reservation RPC — exists and correct?
+  1660→---
+  1661→✅ OK · 0015:6-53 — Function exists, takes (p_reservation_id, p_old_table_id, p_new_table_id), returns JSONB.
+  1662→❌ BUG · SECURITY DEFINER with no org check (see D above for full analysis & fix).
+  1663→❌ BUG · p_old_table_id not validated against the reservation's current table_id — a caller could free any table by passing its UUID.
+  1664→❌ BUG · No `SET search_path` — vulnerable to search_path hijacking if any schema attack is possible.
+  1665→✅ OK · Exception handler present, returns JSON error.
+  1666→✅ OK · Parameterized queries — no SQL injection.
+  1667→
+  1668→==================================================================
+  1669→G. PERFORMANCE
+  1670→==================================================================
+  1671→
+  1672→⚠️ WARN · 0006:148-184 · update_customer_metrics() fires on every UPDATE of reservations and runs up to 3 separate UPDATE queries against customers. For a busy restaurant doing many reservation status changes per minute, this is 3 row-updates per reservation status change. Combined with the missing reverse-decrement logic (see D), the table is also wrong. Consider a single conditional UPDATE or a daily rollup job.
+  1673→
+  1674→⚠️ WARN · 0014:353-438 · The role_permissions seed issues 9 separate INSERT...SELECT statements (one per role). Functionally fine but could be one statement with a VALUES+WHERE. Not a hot path, low priority.
+  1675→
+  1676→⚠️ WARN · 0014:456-480 · The user_roles migration issues 3 INSERT...SELECT statements with `not exists` anti-joins. Each one seq-scans users. Fine for one-time migration, but if re-run on a large users table it'll be slow. Acceptable.
+  1677→
+  1678→✅ OK · 0001:148-149 · orders composite indexes (organization_id, status) + (organization_id, created_at) — covers the two hottest query patterns. No N+1.
+  1679→✅ OK · 0001:188-190 · reservations composite indexes — covers calendar, status, shift filter.
+  1680→✅ OK · 0006:65-68 · customers has 4 indexes including a partial VIP index — well-designed for CRM queries.
+  1681→✅ OK · 0003:45-48 · audit_logs has 4 indexes including `action` — supports admin audit dashboard filtering.
+  1682→✅ OK · 0002:43-63 · rls_check() — single SQL query, no N+1.
+  1683→
+  1684→==================================================================
+  1685→NEXT ACTIONS (recommended for a follow-up `audit-2-fix` task)
+  1686→==================================================================
+  1687→1. CRITICAL: Create migration 0018 that drops and recreates ALL 11+ inline super_admin policies from 0003, replacing the recursive `exists (select 1 from users u where u.id = auth.uid() and u.is_super_admin = true)` subqueries with `is_current_user_super_admin()`. Without this, the recursion bug from 0010 is only half-fixed and any tenant query that touches a super_admin policy will error with 42P17.
+  1688→2. CRITICAL: Rewrite transfer_reservation() to validate org ownership of both the reservation and the target table, validate p_old_table_id matches, and add `set search_path = public, pg_temp`.
+  1689→3. CRITICAL: Fix order_items.menu_item_id FK to ON DELETE SET NULL (and drop NOT NULL) to prevent order history loss.
+  1690→4. HIGH: Fix update_customer_metrics() to decrement counters on status reversal.
+  1691→5. HIGH: Add the missing FK on tables.group_id (create table_groups table) or drop the column.
+  1692→6. HIGH: Add missing indexes on order_items.menu_item_id, orders.table_id, reservations.table_id, chat_messages.user_id, role_permissions.permission_id, user_roles.role_id.
+  1693→7. HIGH: Add touch_updated_at() triggers on the 11 tables with `updated_at` but no trigger (zones, customers, customer_tags, staff_shifts, chat_channels, subscription_plans, feature_flag_overrides, system_settings, email_queue, organization_usage, invoices).
+  1694→8. MEDIUM: Add CHECK constraints on all enum-like text columns (or convert to proper enums).
+  1695→9. MEDIUM: Add UNIQUE constraints on customers (organization_id, phone) and (organization_id, email).
+  1696→10. MEDIUM: Fix the misleading 0017 header comment that references old wrong yearly prices.
+  1697→11. MEDIUM: Tighten the public_reviews INSERT policy or add a per-IP rate-limit table to prevent anon spam.
+  1698→12. LOW: Replace notify_super_admins() row-by-row loop with INSERT...SELECT.
+  1699→13. LOW: Add `set search_path` to all SECURITY DEFINER functions.
+  1700→
+  1701→This was a READ-ONLY audit. No source files were modified. Recommended next task: `audit-2-fix` to triage and patch the 5 CRITICAL items (recursive RLS policies, transfer_reservation org check, order_items FK cascade), followed by a `audit-2-hardening` pass for the HIGH/MEDIUM items.
+  1702→
+  1703→---
+  1704→Task ID: audit-7
+  1705→Agent: explore (audit sub-agent)
+  1706→Task: Read-only audit of Stripe billing integration (webhook security, idempotency, races, subscription lifecycle, customer management, plan limits enforcement, trial period, pricing consistency, endpoint config).
+  1707→
+  1708→Scope inspected:
+  1709→- src/lib/stripe.ts (292 lines) — Stripe SDK wrapper, PLANS const, getOrCreateCustomer, createCheckoutSession, ensureStripePrice, createPortalSession, cancel/reactivate, verifyWebhookSignature, getOrgPlan, checkLimit.
+  1710→- src/app/api/stripe/webhook/route.ts (206 lines) — single POST handler with switch on event.type.
+  1711→- src/app/api/billing/checkout/route.ts (39 lines) — POST creates checkout session.
+  1712→- src/app/api/billing/portal/route.ts (25 lines) — POST creates billing portal session.
+  1713→- src/app/api/billing/subscription/route.ts (91 lines) — GET (usage+invoices+PMs) and POST (cancel/reactivate).
+  1714→- src/app/api/admin/billing/route.ts (54 lines) — super-admin MRR/ARR dashboard.
+  1715→- src/components/dashboard/sections/BillingSection.tsx (250 lines) — pricing UI + usage bars + invoices list + cancel/reactivate.
+  1716→- Cross-checked: src/middleware.ts, supabase/migrations/0014_enterprise_rbac.sql (defines organization_subscriptions, subscription_plans, trial seed), supabase/migrations/0017_billing_enterprise.sql (invoices/payment_methods/subscription_history tables + plan prices), supabase/migrations/0001_init.sql, src/app/api/tables/route.ts (limit enforcement check), src/app/api/auth/register/route.ts (trial setup for new orgs).
+  1717→- Searched src/ for `checkLimit`, `trial_ends_at`, `runtime.*nodejs`, `dynamic.*force-dynamic` to confirm call sites.
+  1718→
+  1719→==================================================================
+  1720→A. WEBHOOK SECURITY
+  1721→==================================================================
+  1722→
+  1723→A1. Signature verified correctly?
+  1724→✅ OK · src/lib/stripe.ts:182-195 — `verifyWebhookSignature` calls `stripe.webhooks.constructEvent(payload, signature, endpointSecret)` (the canonical Stripe SDK method). Errors are caught, logged, and converted to `null` (caller returns 400).
+  1725→```ts
+  1726→export function verifyWebhookSignature(payload: string | Buffer, signature: string): Stripe.Event | null {
+  1727→  const stripe = getStripe();
+  1728→  if (!stripe) return null;
+  1729→  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  1730→  if (!endpointSecret) return null;
+  1731→  try {
+  1732→    return stripe.webhooks.constructEvent(payload, signature, endpointSecret);
+  1733→  } catch (e: any) {
+  1734→    logger.error("Stripe webhook signature verification failed", "stripe", { error: e.message });
+  1735→    return null;
+  1736→  }
+  1737→}
+  1738→```
+  1739→
+  1740→A2. Raw body used (not JSON-parsed)?
+  1741→✅ OK · src/app/api/stripe/webhook/route.ts:7 — uses `req.text()` (raw string), passed verbatim to `verifyWebhookSignature`. No `await req.json()` call.
+  1742→```ts
+  1743→const payload = await req.text();
+  1744→const signature = req.headers.get("stripe-signature") || "";
+  1745→const event = verifyWebhookSignature(payload, signature);
+  1746→```
+  1747→
+  1748→A3. STRIPE_WEBHOOK_SECRET required? What if missing?
+  1749→⚠️ WARN · src/lib/stripe.ts:186-187 — If `STRIPE_WEBHOOK_SECRET` env var is missing, `verifyWebhookSignature` returns `null` → webhook returns 400 → Stripe retries forever → silent failure in production. The logger.error inside the catch block is NEVER reached when the env var is missing (the function returns earlier at line 187). Should hard-fail at boot OR log explicitly when missing.
+  1750→```ts
+  1751→const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  1752→if (!endpointSecret) return null;   // ← silent return, no log
+  1753→```
+  1754→Fix: add `logger.error("STRIPE_WEBHOOK_SECRET not set — webhook will reject all events", "stripe");` before returning null, OR throw at module load.
+  1755→
+  1756→A4. Can the webhook be called WITHOUT auth? (MUST be callable by Stripe.)
+  1757→❌ BUG (CRITICAL, production-blocking) · src/middleware.ts:11-25 — The middleware runs on every `/api/*` route except `/api/auth/`, `/api/public/`, `/api/health`. `/api/stripe/webhook` matches none of those exemptions, so middleware executes `getToken({ req })`. Stripe's webhook call has no NextAuth JWT cookie → `token` is null → middleware returns 401 BEFORE the route handler is ever invoked. **Stripe can never deliver a webhook event.** No subscription, invoice, or payment_method will ever be recorded.
+  1758→```ts
+  1759→// src/middleware.ts:11-25
+  1760→if (pathname.startsWith('/api/auth/')) return NextResponse.next()
+  1761→if (pathname.startsWith('/api/public/') || pathname === '/api/health') return NextResponse.next()
+  1762→// ...
+  1763→if (pathname.startsWith('/api/')) {
+  1764→  const token = await getToken({ req, secret: NEXTAUTH_SECRET || '' })
+  1765→  if (!token) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+  1766→  // ...
+  1767→}
+  1768→```
+  1769→Fix:
+  1770→```ts
+  1771→// src/middleware.ts — add the stripe webhook to the public bypass list at the top:
+  1772→if (pathname.startsWith('/api/stripe/webhook')) return NextResponse.next()
+  1773→```
+  1774→AND update the matcher so it doesn't even enter middleware:
+  1775→```ts
+  1776→export const config = {
+  1777→  matcher: ['/api/((?!auth|public|health|stripe).*)', '/login'],
+  1778→}
+  1779→```
+  1780→
+  1781→A5. Webhook excluded from middleware auth?
+  1782→❌ BUG (same as A4) · src/middleware.ts:40-42 — matcher is `'/api/((?!auth|public|health).*)'`. The negative lookahead excludes only `auth|public|health` — `stripe` is NOT excluded, so middleware runs on `/api/stripe/webhook`. Confirmed by reading the file: there is no `/api/stripe/` exemption anywhere in middleware.ts.
+  1783→```ts
+  1784→export const config = {
+  1785→  matcher: ['/api/((?!auth|public|health).*)', '/login'],
+  1786→}
+  1787→```
+  1788→
+  1789→==================================================================
+  1790→B. IDEMPOTENCY
+  1791→==================================================================
+  1792→
+  1793→B1. Duplicate `checkout.session.completed` (Stripe retry)?
+  1794→❌ BUG · src/app/api/stripe/webhook/route.ts:51-56 — The UPDATE on `organization_subscriptions` is idempotent (one row per org thanks to `unique (organization_id)` constraint from 0014:273), BUT the INSERT into `subscription_history` has no idempotency guard. Stripe retries the same event 3+ times by default → 3 duplicate `subscription.created` rows in history.
+  1795→```ts
+  1796→// route.ts:51-56
+  1797→await supabaseAdmin.from("subscription_history").insert({
+  1798→  organization_id: orgId,
+  1799→  event_type: "subscription.created",
+  1800→  to_plan: planName,
+  1801→  to_cycle: billingCycle,
+  1802→});
+  1803→```
+  1804→Same bug pattern repeats for `subscription.canceled` (line 95-98), `invoice.paid` (line 131-135), and `payment.failed` (line 156-160).
+  1805→Fix options (pick one):
+  1806→  (a) Add a `processed_events` table keyed on `event.id`; check at top of handler, insert at end. Recommended.
+  1807→  (b) Add UNIQUE constraints to `subscription_history` on `(organization_id, event_type, stripe_event_id)` and store `event.id` as a column.
+  1808→  (c) Use `event.id` as a synthetic dedup key — log it (already done at route.ts:15) but actually persist it.
+  1809→
+  1810→B2. Duplicate `invoice.paid` for same invoice ID?
+  1811→❌ BUG · src/app/api/stripe/webhook/route.ts:115-129 + supabase/migrations/0017_billing_enterprise.sql:27 — The migration correctly defines `stripe_invoice_id TEXT UNIQUE` (line 27), but the Supabase `upsert()` call does NOT specify `onConflict: 'stripe_invoice_id'`. PostgREST's default `Prefer: resolution=merge-duplicates` resolves conflicts on the PRIMARY KEY (`id` UUID, auto-generated), NOT on the unique constraint. So a retry: (1) generates a fresh uuid PK (no PK conflict), (2) hits the `stripe_invoice_id` UNIQUE violation, (3) Postgres raises 42P01, (4) Supabase returns `{ data: null, error: ... }` (not thrown), (5) handler returns 500 → Stripe retries → infinite loop.
+  1812→```ts
+  1813→// route.ts:115-129
+  1814→await supabaseAdmin.from("invoices").upsert({
+  1815→  organization_id: orgSub.organization_id,
+  1816→  stripe_invoice_id: invoice.id,
+  1817→  // ...
+  1818→});
+  1819→```
+  1820→```sql
+  1821→-- 0017_billing_enterprise.sql:24-41
+  1822→CREATE TABLE IF NOT EXISTS invoices (
+  1823→  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  1824→  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  1825→  stripe_invoice_id TEXT UNIQUE,
+  1826→  ...
+  1827→);
+  1828→```
+  1829→Fix:
+  1830→```ts
+  1831→await supabaseAdmin.from("invoices").upsert({
+  1832→  // ... same payload
+  1833→}, { onConflict: 'stripe_invoice_id' });
+  1834→```
+  1835→
+  1836→B3. Duplicate `payment_method.attached`?
+  1837→❌ BUG · src/app/api/stripe/webhook/route.ts:176-185 + 0017_billing_enterprise.sql:57 — Same root cause as B2. `stripe_payment_method_id TEXT UNIQUE` exists but `upsert()` doesn't pass `onConflict: 'stripe_payment_method_id'`. Retries fail with 500.
+  1838→```ts
+  1839→// route.ts:176-185
+  1840→await supabaseAdmin.from("payment_methods").upsert({
+  1841→  organization_id: orgSub.organization_id,
+  1842→  stripe_payment_method_id: pm.id,
+  1843→  // ...
+  1844→});
+  1845→```
+  1846→Fix:
+  1847→```ts
+  1848→}, { onConflict: 'stripe_payment_method_id' });
+  1849→```
+  1850→
+  1851→==================================================================
+  1852→C. RACE CONDITIONS
+  1853→==================================================================
+  1854→
+  1855→C1. Double-click "Upgrade to Premium"?
+  1856→⚠️ WARN · src/app/api/billing/checkout/route.ts:5-39 + src/components/dashboard/sections/BillingSection.tsx:157-166 — Two rapid clicks each call POST /api/billing/checkout. The handler has no in-flight guard: it calls `getOrCreateCustomer` then `createCheckoutSession` twice → two Stripe Checkout Sessions created. Stripe allows multiple sessions per customer; the user can complete either (whichever they land on). Result: wasted sessions, but no DB corruption (only one will be `completed`). The frontend `disabled={checkoutMut.isPending || p.name === plan?.planName}` (line 159) only disables the SAME button during the mutation — a second button click on a different plan, or a second tab, bypasses it.
+  1857→```ts
+  1858→// BillingSection.tsx:157-166
+  1859→<Button
+  1860→  onClick={() => checkoutMut.mutate({ planName: p.name, billingCycle: cycle })}
+  1861→  disabled={checkoutMut.isPending || p.name === plan?.planName}
+  1862→  ...
+  1863→>
+  1864→```
+  1865→Fix: server-side, before creating a session, query Stripe for any existing `open` checkout session for this customer (or store active session_id in DB with TTL) and return its URL instead of creating a new one.
+  1866→
+  1867→C2. Two tabs open checkout simultaneously?
+  1868→⚠️ WARN · Same as C1. Two tabs → two sessions → whichever the user completes wins. If they complete BOTH (e.g., go back and forth), Stripe will replace the customer's existing subscription with the second one (Stripe enforces "one active subscription per customer" by default unless multiple is configured). The `customer.subscription.updated` webhook will fire for the replacement; DB stays consistent. Not a data-integrity bug, just a poor UX. Acceptable for v1, but worth a note.
+  1869→
+  1870→C3. Webhook fires while user is mid-checkout?
+  1871→✅ OK · The webhook handler UPDATEs `organization_subscriptions` by `organization_id` (idempotent) and relies on Stripe as source of truth. If `checkout.session.completed` arrives while the user is still on the Stripe-hosted page, the DB is updated to `status: active` — that's fine, the user is redirected to `/?billing=success` afterward. No ordering bug. The `unique (organization_id)` constraint on `organization_subscriptions` (0014:273) guarantees a single row regardless of insert-vs-update race.
+  1872→
+  1873→==================================================================
+  1874→D. SUBSCRIPTION LIFECYCLE
+  1875→==================================================================
+  1876→
+  1877→D1. checkout.session.completed → plan_id updated correctly?
+  1878→✅ OK (with minor caveat) · src/app/api/stripe/webhook/route.ts:36-48 — Plan is read from `session.metadata.plan_name`, looked up in `subscription_plans` by name, and UPDATEd. **Caveat ⚠️:** the first UPDATE (lines 27-34) sets `status: active` and `billing_cycle` but NOT `plan_id` — it relies on the second UPDATE (lines 43-48) to set the plan. If the second lookup fails (e.g., `planName` metadata is missing or the plan row doesn't exist), the org ends up `status: active` with whatever plan_id they had before (could be `starter` from `getOrCreateCustomer`). Also: `current_period_start: new Date().toISOString()` (line 32) uses server wall-clock, not Stripe's `subscription.current_period_start`. Minor.
+  1879→```ts
+  1880→// route.ts:36-48
+  1881→const { data: plan } = await supabaseAdmin
+  1882→  .from("subscription_plans")
+  1883→  .select("id")
+  1884→  .eq("name", planName)
+  1885→  .single();
+  1886→if (plan) {
+  1887→  await supabaseAdmin
+  1888→    .from("organization_subscriptions")
+  1889→    .update({ plan_id: plan.id })
+  1890→    .eq("organization_id", orgId);
+  1891→}
+  1892→```
+  1893→Fix: collapse into one UPDATE with plan_id, AND fetch the Stripe subscription object to use its `current_period_start`/`current_period_end`:
+  1894→```ts
+  1895→const stripeSub = await stripe.subscriptions.retrieve(session.subscription);
+  1896→await supabaseAdmin.from("organization_subscriptions").update({
+  1897→  stripe_subscription_id: session.subscription,
+  1898→  status: "active",
+  1899→  billing_cycle: billingCycle || "monthly",
+  1900→  plan_id: plan?.id,
+  1901→  current_period_start: new Date(stripeSub.current_period_start * 1000).toISOString(),
+  1902→  current_period_end: new Date(stripeSub.current_period_end * 1000).toISOString(),
+  1903→  cancel_at_period_end: stripeSub.cancel_at_period_end,
+  1904→}).eq("organization_id", orgId);
+  1905→```
+  1906→
+  1907→D2. customer.subscription.updated → current_period_end stored?
+  1908→✅ OK · src/app/api/stripe/webhook/route.ts:66-77 — `sub.current_period_end` (unix seconds) is converted to ISO and stored. Also stores `current_period_start`, `status` (with mapping for active/past_due/canceled), and `cancel_at_period_end`.
+  1909→```ts
+  1910→const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
+  1911→await supabaseAdmin.from("organization_subscriptions").update({
+  1912→  status: sub.status === "active" ? "active" : sub.status === "past_due" ? "past_due" : sub.status === "canceled" ? "canceled" : sub.status,
+  1913→  current_period_start: periodStart,
+  1914→  current_period_end: periodEnd,
+  1915→  cancel_at_period_end: sub.cancel_at_period_end,
+  1916→}).eq("organization_id", orgId);
+  1917→```
+  1918→⚠️ WARN (bonus): This handler does NOT update `plan_id`. If a customer upgrades/downgrades via Stripe billing portal, the new price's `plan_name` is NOT propagated to DB → the displayed plan becomes stale. Also no `subscription_history` entry is inserted for plan changes. Fix: read `sub.metadata.plan_name` and update plan_id + insert history when it differs from current.
+  1919→
+  1920→D3. customer.subscription.deleted → status='canceled' + canceled_at?
+  1921→✅ OK · src/app/api/stripe/webhook/route.ts:82-101 — Both fields set correctly, plus a `subscription.canceled` history entry.
+  1922→```ts
+  1923→await supabaseAdmin.from("organization_subscriptions").update({
+  1924→  status: "canceled",
+  1925→  canceled_at: new Date().toISOString(),
+  1926→}).eq("organization_id", orgId);
+  1927→```
+  1928→⚠️ WARN (minor): `current_period_end` and `cancel_at_period_end` are NOT cleared on deletion — should also set `cancel_at_period_end: false` and `stripe_subscription_id: null` to avoid stale state if the org later resubscribes.
+  1929→
+  1930→D4. Cancel at period end → cancel_at_period_end stored?
+  1931→✅ OK · Two paths converge correctly:
+  1932→  - Client path: src/app/api/billing/subscription/route.ts:59-69 calls `cancelSubscription(stripeSubscriptionId)` (which `stripe.subscriptions.update(..., { cancel_at_period_end: true })`) then locally UPDATEs `cancel_at_period_end: true`.
+  1933→  - Webhook path: Stripe fires `customer.subscription.updated` with `cancel_at_period_end: true`, route.ts:75 sets it again.
+  1934→```ts
+  1935→// subscription/route.ts:60-64
+  1936→await cancelSubscription(plan.stripeSubscriptionId);
+  1937→await supabaseAdmin
+  1938→  .from("organization_subscriptions")
+  1939→  .update({ cancel_at_period_end: true })
+  1940→  .eq("organization_id", user.organizationId);
+  1941→```
+  1942→
+  1943→D5. Reactivate → cancel_at_period_end reset?
+  1944→✅ OK · src/app/api/billing/subscription/route.ts:74-84 — Calls `reactivateSubscription` (sets `cancel_at_period_end: false` in Stripe) then locally sets `cancel_at_period_end: false, canceled_at: null`. The `customer.subscription.updated` webhook will also confirm.
+  1945→```ts
+  1946→await reactivateSubscription(plan.stripeSubscriptionId);
+  1947→await supabaseAdmin
+  1948→  .from("organization_subscriptions")
+  1949→  .update({ cancel_at_period_end: false, canceled_at: null })
+  1950→  .eq("organization_id", user.organizationId);
+  1951→```
+  1952→
+  1953→==================================================================
+  1954→E. CUSTOMER MANAGEMENT
+  1955→==================================================================
+  1956→
+  1957→E1. getOrCreateCustomer race condition?
+  1958→❌ BUG (two distinct bugs in one function) · src/lib/stripe.ts:27-59:
+  1959→
+  1960→  **Bug #1 — Race creates orphaned Stripe customers:** Two concurrent calls for the same org: (a) both check DB (line 32-38) → both see null → (b) both call `stripe.customers.create` (line 41-45) → TWO customers exist in Stripe, only ONE is ever stored in DB. The other is orphaned (still billed nothing, but counts against Stripe's customer list and pollutes the dashboard). The webhook handler looks up `orgSub` by `stripe_customer_id` (e.g. route.ts:108-112, 169-173), so any event referencing the orphaned customer will be silently dropped.
+  1961→
+  1962→  **Bug #2 — Upsert silently fails on the second call:** The `organization_subscriptions` table has `unique (organization_id)` (0014:273), but `supabaseAdmin.upsert({...})` (line 48-56) does NOT pass `onConflict: 'organization_id'`. PostgREST's default `merge-duplicates` resolves on PRIMARY KEY (`id` UUID, auto-generated). Second call generates a fresh uuid → no PK conflict → hits the `organization_id` UNIQUE violation → PostgREST returns `{ data: null, error: ... }` (NOT thrown by supabase-js) → caller's `await` resolves normally → function returns `customer.id` from the now-orphaned second customer.
+  1963→
+  1964→```ts
+  1965→// src/lib/stripe.ts:27-59
+  1966→export async function getOrCreateCustomer(organizationId, email, name) {
+  1967→  const { data: sub } = await supabaseAdmin
+  1968→    .from("organization_subscriptions")
+  1969→    .select("stripe_customer_id")
+  1970→    .eq("organization_id", organizationId)
+  1971→    .maybeSingle();
+  1972→  if (sub?.stripe_customer_id) return sub.stripe_customer_id;   // ← race window here
+  1973→
+  1974→  const customer = await stripe.customers.create({...});         // ← both calls create
+  1975→  await supabaseAdmin
+  1976→    .from("organization_subscriptions")
+  1977→    .upsert({                                                    // ← no onConflict → second call fails
+  1978→      organization_id: organizationId,
+  1979→      stripe_customer_id: customer.id,
+  1980→      // ...
+  1981→    });
+  1982→  return customer.id;                                            // ← returned regardless of upsert success
+  1983→}
+  1984→```
+  1985→Fix:
+  1986→```ts
+  1987→// (1) pass onConflict so the upsert actually works:
+  1988→const { data: existing } = await supabaseAdmin
+  1989→  .from("organization_subscriptions")
+  1990→  .upsert({
+  1991→    organization_id: organizationId,
+  1992→    stripe_customer_id: customer.id,
+  1993→    plan_id: (await supabaseAdmin.from("subscription_plans").select("id").eq("name","starter").single()).data?.id,
+  1994→    billing_cycle: "monthly",
+  1995→    status: "trial",
+  1996→  }, { onConflict: 'organization_id' })
+  1997→  .select("stripe_customer_id")
+  1998→  .single();
+  1999→
+  2000→// (2) guard with a Postgres advisory lock OR an idempotency table to prevent
+
+[showing lines 1-2000 of 5939; use offset=2001 with limit to continue reading]

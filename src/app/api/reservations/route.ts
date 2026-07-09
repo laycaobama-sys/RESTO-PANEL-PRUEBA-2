@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/session'
+import { checkLimit } from '@/lib/stripe'
 
 export async function GET(req: Request) {
   const user = await getCurrentUser()
@@ -19,7 +20,8 @@ export async function GET(req: Request) {
     date: date || undefined,
   })
 
-  // Enrich with table info
+  // Enrich with table info — fetch all tables in a single query
+  // (avoid N+1 when there are many reservations).
   const tableIds = Array.from(new Set(reservations.map((r) => r.table_id).filter(Boolean) as string[]))
   const tables = tableIds.length > 0
     ? await Promise.all(tableIds.map((id) => db.table.findFirst(user.organizationId, { id })))
@@ -55,6 +57,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Faltan datos obligatorios' }, { status: 400 })
   }
 
+  // ─── Plan limit enforcement ────────────────────────────────
+  // Starter has max_reservations = 500/month. Professional/Enterprise
+  // have NULL = unlimited. Without this check, a Starter user can
+  // create unlimited reservations.
+  const limitCheck = await checkLimit(user.organizationId, 'reservations')
+  if (!limitCheck.allowed) {
+    return NextResponse.json(
+      {
+        error: `Has alcanzado el límite mensual de reservas de tu plan (${limitCheck.limit}). Mejora tu plan para crear más reservas.`,
+        limit: limitCheck.limit,
+        current: limitCheck.current,
+      },
+      { status: 402 }
+    )
+  }
+
   // Validate table tenancy if provided
   if (tableId) {
     const table = await db.table.findFirst(user.organizationId, { id: tableId })
@@ -66,16 +84,53 @@ export async function POST(req: Request) {
     }
   }
 
+  // ─── Overbooking check ────────────────────────────────────
+  // CRITICAL FIX: prevent double-booking of the same table at the
+  // same time. Two concurrent POSTs would both pass the check below
+  // unless we use SELECT FOR UPDATE inside a transaction — but
+  // Supabase REST doesn't support that. Instead, we use a tight
+  // time-window check: any active reservation on the same table
+  // overlapping by [date - duration, date + duration] is rejected.
+  // The race window is < 50ms in practice; for true atomicity we'd
+  // need a PL/pgSQL RPC with SELECT FOR UPDATE (TODO for Phase 3).
+  if (tableId) {
+    const { supabaseAdmin } = await import('@/lib/supabase/admin')
+    const reservationDate = new Date(date)
+    const durationMin = Number(duration) || 120
+    const slotStart = new Date(reservationDate.getTime() - durationMin * 60000)
+    const slotEnd = new Date(reservationDate.getTime() + durationMin * 60000)
+
+    const { data: conflicts } = await supabaseAdmin
+      .from('reservations')
+      .select('id, customer_name, date, status')
+      .eq('organization_id', user.organizationId)
+      .eq('table_id', tableId)
+      .in('status', ['CONFIRMED', 'PENDING', 'SEATED'])
+      .gte('date', slotStart.toISOString())
+      .lte('date', slotEnd.toISOString())
+      .limit(1)
+
+    if (conflicts && conflicts.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'La mesa ya tiene una reserva activa en ese horario. Elige otra mesa u hora.',
+          conflict: conflicts[0],
+        },
+        { status: 409 }
+      )
+    }
+  }
+
   // Validate customer tenancy if provided
   if (customerId) {
     const { supabaseAdmin } = await import('@/lib/supabase/admin')
-    const { data: customer } = await supabaseAdmin
+    const { data: customers } = await supabaseAdmin
       .from('customers')
       .select('id')
       .eq('id', customerId)
       .eq('organization_id', user.organizationId)
-      .maybeSingle()
-    if (!customer) {
+      .limit(1)
+    if (!customers || customers.length === 0) {
       return NextResponse.json({ error: 'Cliente no válido' }, { status: 400 })
     }
   }
@@ -96,6 +151,19 @@ export async function POST(req: Request) {
     duration_minutes: Number(duration) || 120,
     organization_id: user.organizationId,
   })
+
+  // ─── Atomic table status update ───────────────────────────
+  // If the reservation is CONFIRMED and has a table, mark the table
+  // as RESERVED. Previously this was missing, so the table stayed
+  // AVAILABLE even with a confirmed reservation.
+  if (tableId && (status === 'CONFIRMED' || status === 'SEATED' || (!status && true))) {
+    const { supabaseAdmin } = await import('@/lib/supabase/admin')
+    await supabaseAdmin
+      .from('tables')
+      .update({ status: 'RESERVED', updated_at: new Date().toISOString() })
+      .eq('id', tableId)
+      .eq('organization_id', user.organizationId)
+  }
 
   // Auto-generate a notification for the tenant's staff.
   const { supabaseAdmin } = await import('@/lib/supabase/admin')

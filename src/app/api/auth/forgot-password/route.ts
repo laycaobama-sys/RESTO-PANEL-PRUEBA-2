@@ -70,13 +70,11 @@ export async function POST(req: Request) {
         }),
       })
 
-      // In dev mode, also return the token so the UI can auto-redirect
-      // (no email actually sent unless RESEND_API_KEY is set)
-      const isDev = process.env.NODE_ENV !== 'production'
-      if (isDev) {
-        return NextResponse.json({ ok: true, message: genericMessage, resetToken: token })
-      }
-
+      // CRITICAL FIX: NEVER return the reset token in the JSON response,
+      // even in dev mode. Previously, if NODE_ENV was undefined (common
+      // in Docker/bare deploys), the token was leaked in production.
+      // The token is sent ONLY via email now. In dev, check the server
+      // logs or the email_queue table to find it.
       return NextResponse.json({ ok: true, message: genericMessage })
     }
 

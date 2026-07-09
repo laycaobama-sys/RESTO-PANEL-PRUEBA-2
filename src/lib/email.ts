@@ -5,6 +5,7 @@
 //
 // Features:
 //   - HTML + text templates for every email type
+//   - HTML escaping of user-supplied fields (XSS prevention)
 //   - Retry with exponential backoff (3 attempts)
 //   - Error logging to console + audit_logs
 //   - Graceful degradation: if RESEND_API_KEY is not set,
@@ -34,6 +35,22 @@ function getClient(): Resend | null {
   if (!RESEND_API_KEY) return null;
   if (!_client) _client = new Resend(RESEND_API_KEY);
   return _client;
+}
+
+// ─── HTML escaping (XSS prevention in email templates) ──────
+// CRITICAL FIX: previously, user-supplied fields like customerName
+// were interpolated raw into HTML templates. An attacker could
+// register as `<script>alert(1)</script>` and inject JS into the
+// reservation confirmation email. Email clients that render HTML
+// would execute it (especially webmail clients).
+export function escapeHtml(s: unknown): string {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export interface EmailTemplate {
@@ -238,10 +255,14 @@ const BUTTON = (text: string, href: string) => `
 export const emailTemplates = {
   // ─── Welcome (after registration) ─────────────────────────
   welcome({ name, restaurantName, loginUrl }: { name: string; restaurantName: string; loginUrl: string }): EmailTemplate {
+    // Escape user-supplied fields to prevent HTML injection
+    const _name = escapeHtml(name);
+    const _restaurantName = escapeHtml(restaurantName);
+    const _loginUrl = escapeHtml(loginUrl);
     const html = WRAPPER(`
-      <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#f5f5f0;">¡Bienvenido a RestoPanel, ${name}! 👋</h1>
+      <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#f5f5f0;">¡Bienvenido a RestoPanel, ${_name}! 👋</h1>
       <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#a1a1aa;">
-        Tu restaurante <strong style="color:#C5A059;">${restaurantName}</strong> ya está creado y listo para empezar.
+        Tu restaurante <strong style="color:#C5A059;">${_restaurantName}</strong> ya está creado y listo para empezar.
         Hemos configurado tu espacio de trabajo con todo lo que necesitas para gestionar reservas, mesas, clientes y carta.
       </p>
       <p style="margin:0 0 8px;font-size:14px;color:#a1a1aa;">Próximos pasos recomendados:</p>
@@ -251,9 +272,9 @@ export const emailTemplates = {
         <li>Personaliza tu página pública de reservas</li>
         <li>Importa tu web actual (Ajustes → Importar web)</li>
       </ul>
-      ${BUTTON("Entrar a mi panel", loginUrl)}
+      ${BUTTON("Entrar a mi panel", _loginUrl)}
       <p style="margin:24px 0 0;font-size:13px;color:#525252;">Si no creaste esta cuenta, puedes ignorar este email.</p>
-    `, `Bienvenido a RestoPanel, ${name}`);
+    `, `Bienvenido a RestoPanel, ${_name}`);
 
     const text = `¡Bienvenido a RestoPanel, ${name}!
 
@@ -268,17 +289,20 @@ Entra a tu panel: ${loginUrl}
 
   // ─── Password reset ────────────────────────────────────────
   passwordReset({ name, resetUrl, expiresIn = "1 hora" }: { name: string; resetUrl: string; expiresIn?: string }): EmailTemplate {
+    const _name = escapeHtml(name);
+    const _resetUrl = escapeHtml(resetUrl);
+    const _expiresIn = escapeHtml(expiresIn);
     const html = WRAPPER(`
       <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#f5f5f0;">Recuperación de contraseña</h1>
       <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#a1a1aa;">
-        Hola ${name}, hemos recibido una solicitud para restablecer tu contraseña de RestoPanel.
+        Hola ${_name}, hemos recibido una solicitud para restablecer tu contraseña de RestoPanel.
       </p>
       <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#a1a1aa;">
-        Haz clic en el botón para crear una nueva contraseña. El enlace expira en <strong style="color:#C5A059;">${expiresIn}</strong>.
+        Haz clic en el botón para crear una nueva contraseña. El enlace expira en <strong style="color:#C5A059;">${_expiresIn}</strong>.
       </p>
-      ${BUTTON("Restablecer contraseña", resetUrl)}
+      ${BUTTON("Restablecer contraseña", _resetUrl)}
       <p style="margin:24px 0 0;font-size:13px;color:#525252;">Si no solicitaste este cambio, ignora este email. Tu contraseña seguirá siendo la misma.</p>
-    `, `Recuperación de contraseña para ${name}`);
+    `, `Recuperación de contraseña para ${_name}`);
 
     const text = `Recuperación de contraseña
 
@@ -296,13 +320,15 @@ Si no lo solicitaste, ignora este email.
 
   // ─── Email verification ────────────────────────────────────
   emailVerification({ name, verifyUrl }: { name: string; verifyUrl: string }): EmailTemplate {
+    const _name = escapeHtml(name);
+    const _verifyUrl = escapeHtml(verifyUrl);
     const html = WRAPPER(`
       <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#f5f5f0;">Verifica tu email</h1>
       <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#a1a1aa;">
-        Hola ${name}, confirma tu dirección de email para completar tu registro en RestoPanel.
+        Hola ${_name}, confirma tu dirección de email para completar tu registro en RestoPanel.
       </p>
-      ${BUTTON("Verificar email", verifyUrl)}
-      <p style="margin:24px 0 0;font-size:13px;color:#525252;">O copia este enlace: ${verifyUrl}</p>
+      ${BUTTON("Verificar email", _verifyUrl)}
+      <p style="margin:24px 0 0;font-size:13px;color:#525252;">O copia este enlace: ${_verifyUrl}</p>
     `, `Verifica tu email en RestoPanel`);
 
     const text = `Verifica tu email
@@ -335,20 +361,26 @@ ${verifyUrl}
     zone?: string;
     cancelUrl?: string;
   }): EmailTemplate {
+    const _customerName = escapeHtml(customerName);
+    const _restaurantName = escapeHtml(restaurantName);
+    const _date = escapeHtml(date);
+    const _time = escapeHtml(time);
+    const _zone = escapeHtml(zone);
+    const _cancelUrl = escapeHtml(cancelUrl);
     const html = WRAPPER(`
       <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#f5f5f0;">Reserva confirmada ✅</h1>
       <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#a1a1aa;">
-        Hola ${customerName}, tu reserva en <strong style="color:#C5A059;">${restaurantName}</strong> está confirmada.
+        Hola ${_customerName}, tu reserva en <strong style="color:#C5A059;">${_restaurantName}</strong> está confirmada.
       </p>
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;border-radius:8px;padding:20px;margin-bottom:24px;">
-        <tr><td style="font-size:13px;color:#525252;padding-bottom:8px;">Fecha</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${date}</td></tr>
-        <tr><td style="font-size:13px;color:#525252;padding-bottom:8px;">Hora</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${time}</td></tr>
+        <tr><td style="font-size:13px;color:#525252;padding-bottom:8px;">Fecha</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${_date}</td></tr>
+        <tr><td style="font-size:13px;color:#525252;padding-bottom:8px;">Hora</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${_time}</td></tr>
         <tr><td style="font-size:13px;color:#525252;padding-bottom:8px;">Comensales</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${partySize} personas</td></tr>
-        ${zone ? `<tr><td style="font-size:13px;color:#525252;">Zona</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${zone}</td></tr>` : ""}
+        ${zone ? `<tr><td style="font-size:13px;color:#525252;">Zona</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${_zone}</td></tr>` : ""}
       </table>
       <p style="margin:0;font-size:14px;color:#a1a1aa;">Te esperamos. Si necesitas cancelar o modificar tu reserva, contáctanos.</p>
-      ${cancelUrl ? BUTTON("Cancelar reserva", cancelUrl) : ""}
-    `, `Reserva confirmada en ${restaurantName}`);
+      ${cancelUrl ? BUTTON("Cancelar reserva", _cancelUrl) : ""}
+    `, `Reserva confirmada en ${_restaurantName}`);
 
     const text = `Reserva confirmada
 
@@ -379,18 +411,22 @@ ${zone ? `- Zona: ${zone}\n` : ""}Te esperamos.
     time: string;
     partySize: number;
   }): EmailTemplate {
+    const _customerName = escapeHtml(customerName);
+    const _restaurantName = escapeHtml(restaurantName);
+    const _date = escapeHtml(date);
+    const _time = escapeHtml(time);
     const html = WRAPPER(`
       <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#f5f5f0;">Tu reserva es mañana 📅</h1>
       <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#a1a1aa;">
-        Hola ${customerName}, te recordamos tu reserva en <strong style="color:#C5A059;">${restaurantName}</strong>.
+        Hola ${_customerName}, te recordamos tu reserva en <strong style="color:#C5A059;">${_restaurantName}</strong>.
       </p>
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;border-radius:8px;padding:20px;margin-bottom:24px;">
-        <tr><td style="font-size:13px;color:#525252;padding-bottom:8px;">Fecha</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${date}</td></tr>
-        <tr><td style="font-size:13px;color:#525252;padding-bottom:8px;">Hora</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${time}</td></tr>
+        <tr><td style="font-size:13px;color:#525252;padding-bottom:8px;">Fecha</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${_date}</td></tr>
+        <tr><td style="font-size:13px;color:#525252;padding-bottom:8px;">Hora</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${_time}</td></tr>
         <tr><td style="font-size:13px;color:#525252;">Comensales</td><td style="font-size:14px;color:#f5f5f0;font-weight:600;text-align:right;">${partySize} personas</td></tr>
       </table>
       <p style="margin:0;font-size:14px;color:#a1a1aa;">Si no puedes venir, avísanos con la mayor antelación posible.</p>
-    `, `Recordatorio: reserva en ${restaurantName} mañana`);
+    `, `Recordatorio: reserva en ${_restaurantName} mañana`);
 
     const text = `Recordatorio de reserva
 

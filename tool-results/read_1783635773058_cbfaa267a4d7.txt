@@ -1,0 +1,674 @@
+  6491→Task ID: phase-e-f
+  6492→Agent: Explore (Sub-agent)
+  6493→Task: Phase E (Reservas) + Phase F (Stripe) — READ-ONLY audit trying to break reservations and Stripe.
+  6494→
+  6495→Mission accomplished: found 28 bugs across reservations and Stripe. 7 CRITICAL, 9 HIGH, 12 MEDIUM/LOW. The reservations system can be overbooked with 100 parallel POSTs (no overlap check, no unique constraint, no table-status update). The Stripe integration lets users create duplicate subscriptions and keeps canceled users on premium features. Migration 0018 silently regressed customer no_show/cancellation tracking. The atomic transfer_reservation() RPC exists in the DB but is never called by the API route.
+  6496→
+  6497→Files audited:
+  6498→- src/app/api/reservations/route.ts (GET, POST)
+  6499→- src/app/api/reservations/[id]/route.ts (PATCH, DELETE)
+  6500→- src/app/api/tables/transfer/route.ts
+  6501→- src/app/api/tables/available/route.ts
+  6502→- src/app/api/tables/group/route.ts
+  6503→- src/app/api/tables/[id]/route.ts
+  6504→- src/app/api/customers/route.ts
+  6505→- src/components/dashboard/sections/ReservationsSection.tsx
+  6506→- src/components/dashboard/sections/BillingSection.tsx
+  6507→- src/app/api/stripe/webhook/route.ts
+  6508→- src/app/api/billing/checkout/route.ts
+  6509→- src/app/api/billing/portal/route.ts
+  6510→- src/app/api/billing/subscription/route.ts
+  6511→- src/app/api/admin/billing/route.ts
+  6512→- src/lib/stripe.ts
+  6513→- src/lib/feature-flags.ts
+  6514→- src/lib/rate-limit.ts
+  6515→- src/lib/db.ts
+  6516→- supabase/migrations/0001_init.sql (reservations table — no UNIQUE on table_id+date)
+  6517→- supabase/migrations/0006_crm_customers.sql (original update_customer_metrics trigger)
+  6518→- supabase/migrations/0015_transfer_rpc.sql (transfer_reservation RPC)
+  6519→- supabase/migrations/0018_audit_fixes.sql (regressed the trigger; redefined the RPC)
+  6520→
+  6521→Findings:
+  6522→
+  6523→# ============================================================
+  6524→# PHASE E — RESERVAS
+  6525→# ============================================================
+  6526→
+  6527→❌ BUG E1 (CRITICAL) — POST /api/reservations has NO overlap check and NO table-status update → guaranteed overbooking under concurrency
+  6528→File: src/app/api/reservations/route.ts:58-98
+  6529→Verbatim:
+  6530→```
+  6531→  // Validate table tenancy if provided
+  6532→  if (tableId) {
+  6533→    const table = await db.table.findFirst(user.organizationId, { id: tableId })
+  6534→    if (!table) {
+  6535→      return NextResponse.json(
+  6536→        { error: 'La mesa seleccionada no pertenece a tu restaurante' },
+  6537→        { status: 403 }
+  6538→      )
+  6539→    }
+  6540→  }
+  6541→  // ... customer validation ...
+  6542→  const reservation = await db.reservation.create({
+  6543→    customer_name: customerName,
+  6544→    phone,
+  6545→    email: email || null,
+  6546→    party_size: Number(partySize),
+  6547→    date: new Date(date).toISOString(),
+  6548→    status: status || 'PENDING',
+  6549→    shift: shift || 'DINNER',
+  6550→    zone: zone || null,
+  6551→    source: source || 'PHONE',
+  6552→    notes: notes || null,
+  6553→    table_id: tableId || null,
+  6554→    customer_id: customerId || null,
+  6555→    duration_minutes: Number(duration) || 120,
+  6556→    organization_id: user.organizationId,
+  6557→  })
+  6558→```
+  6559→Why it breaks: With 100 parallel POSTs for table T at 14:00, every request validates that table T exists (passes 100×), then every request calls db.reservation.create() — and src/lib/db.ts:614-622 just does `.insert(input).select().single()` with no SELECT FOR UPDATE, no overlap check, no UNIQUE constraint. The DB schema (supabase/migrations/0001_init.sql:170-190) has only `reservations_organization_id_date_idx`, `reservations_organization_id_status_idx`, `reservations_organization_id_shift_idx` — none of them unique on (table_id, date). All 100 inserts succeed. Two guests arrive for the same table.
+  6560→Also: the route never marks the table as RESERVED. Compare with src/app/api/orders/route.ts:108 which does `db.table.update(tableObj.id, ..., { status: 'OCCUPIED' })`. Reservations don't do the equivalent, so the table stays AVAILABLE even after booking.
+  6561→Concrete fix:
+  6562→  1. Add a Postgres EXCLUDE constraint: `ALTER TABLE reservations ADD CONSTRAINT reservations_no_table_overlap EXCLUDE USING gist (table_id WITH =, tstzrange(date, date + (duration_minutes||' minutes')::interval) WITH &&) WHERE (table_id IS NOT NULL AND status IN ('PENDING','CONFIRMED','SEATED'))`. Requires `btree_gist` extension.
+  6563→  2. OR: in POST, wrap the overlap check + insert in a transaction with `SELECT 1 FROM reservations WHERE table_id=$1 AND date < $end AND (date + (duration_minutes||' minutes')::interval) > $start AND status IN ('PENDING','CONFIRMED','SEATED') FOR UPDATE` — and re-check after acquiring the lock.
+  6564→  3. After create, if tableId && status in [CONFIRMED, SEATED], call `db.table.update(tableId, user.organizationId, { status: 'RESERVED' })`.
+  6565→
+  6566→❌ BUG E2 (CRITICAL) — PATCH /api/reservations/[id] does NOT validate that the new table_id belongs to the org (multi-tenant isolation hole)
+  6567→File: src/app/api/reservations/[id]/route.ts:25
+  6568→Verbatim:
+  6569→```
+  6570→  if (body.tableId !== undefined) patch.table_id = body.tableId || null
+  6571→  if (typeof body.status === 'string' && VALID_STATUS.includes(body.status)) {
+  6572→    patch.status = body.status
+  6573→    if (body.status === 'CONFIRMED' && body.tableId) {
+  6574→      await db.table.update(body.tableId, user.organizationId, { status: 'RESERVED' }).catch(() => null)
+  6575→    }
+  6576→  }
+  6577→```
+  6578→Why it breaks: POST validates tenancy (route.ts:59-67), PATCH does not. A logged-in user from org A can PATCH their own reservation with `{ tableId: '<uuid-of-table-from-org-B>' }`. The reservations UPDATE filters by `organization_id = user.organizationId` (db.ts:623-632) so it only updates OUR row — but the `table_id` column is set to the foreign UUID. The FK `reservations.table_id → tables(id) ON DELETE SET NULL` (0001_init.sql:183) only checks existence, not ownership. Now org A's reservation points to org B's table. The subsequent `db.table.update(body.tableId, user.organizationId, ...)` filters by org, so it affects 0 rows and the `.catch(() => null)` swallows the error.
+  6579→Concrete fix: Mirror the POST check:
+  6580→```
+  6581→if (body.tableId !== undefined && body.tableId) {
+  6582→  const t = await db.table.findFirst(user.organizationId, { id: body.tableId })
+  6583→  if (!t) return NextResponse.json({ error: 'La mesa no pertenece a tu restaurante' }, { status: 403 })
+  6584→  patch.table_id = body.tableId
+  6585→} else if (body.tableId === null || body.tableId === '') {
+  6586→  patch.table_id = null
+  6587→}
+  6588→```
+  6589→
+  6590→❌ BUG E3 (CRITICAL) — PATCH only syncs table status when both status='CONFIRMED' AND tableId are sent together; changing table alone, cancelling, no-show, completing, or deleting all leak table state
+  6591→File: src/app/api/reservations/[id]/route.ts:26-31
+  6592→Verbatim:
+  6593→```
+  6594→  if (typeof body.status === 'string' && VALID_STATUS.includes(body.status)) {
+  6595→    patch.status = body.status
+  6596→    if (body.status === 'CONFIRMED' && body.tableId) {
+  6597→      await db.table.update(body.tableId, user.organizationId, { status: 'RESERVED' }).catch(() => null)
+  6598→    }
+  6599→  }
+  6600→```
+  6601→Why it breaks: Multiple leaks:
+  6602→  (a) PATCH `{ tableId: 'new-table' }` without status → new table_id is stored but new table stays AVAILABLE; old table is not freed.
+  6603→  (b) PATCH `{ status: 'CONFIRMED' }` on a reservation that already has table_id (no tableId in body) → table is NOT marked RESERVED (condition requires body.tableId).
+  6604→  (c) PATCH `{ status: 'CANCELLED' }` or `{ status: 'NO_SHOW' }` → table is NOT freed.
+  6605→  (d) PATCH `{ status: 'COMPLETED' }` → table is NOT freed.
+  6606→  (e) DELETE /api/reservations/[id] (line 55) just `db.reservation.delete(...)` — does NOT free the table either.
+  6607→Net result: once a table is marked RESERVED (only via path a+CONFIRMED combo), it stays RESERVED forever until someone manually edits it from the Tables section. The floor plan shows tables as "reserved" for reservations that no longer exist.
+  6608→Concrete fix: Always sync the table to the reservation state in a single helper, called from both PATCH and DELETE:
+  6609→```
+  6610→async function syncTableStatus(reservation, user) {
+  6611→  if (!reservation.table_id) return;
+  6612→  const active = ['PENDING','CONFIRMED','SEATED'].includes(reservation.status);
+  6613→  await db.table.update(reservation.table_id, user.organizationId, { status: active ? 'RESERVED' : 'AVAILABLE' }).catch(() => null);
+  6614→}
+  6615→```
+  6616→Call it after PATCH (for both old and new table_id if the table changed) and before DELETE (using the existing reservation's table_id).
+  6617→
+  6618→❌ BUG E4 (CRITICAL) — Transfer route is NOT atomic; uses 3 separate non-transactional supabase calls instead of the transfer_reservation() RPC that migrations 0015+0018 defined
+  6619→File: src/app/api/tables/transfer/route.ts:48-98
+  6620→Verbatim:
+  6621→```
+  6622→  // ─── Always use manual transaction (more reliable than RPC) ───
+  6623→  // 1. Update reservation with new table AND zone
+  6624→  const { error: updateError } = await supabaseAdmin
+  6625→    .from("reservations")
+  6626→    .update({ table_id: newTableId, zone: newTable.zone, updated_at: new Date().toISOString() })
+  6627→    .eq("id", reservationId)
+  6628→    .eq("organization_id", user.organizationId);
+  6629→  ...
+  6630→  // 2. Free old table
+  6631→  if (oldTableId) {
+  6632→    await supabaseAdmin
+  6633→      .from("tables")
+  6634→      .update({ status: "AVAILABLE", updated_at: new Date().toISOString() })
+  6635→      .eq("id", oldTableId)
+  6636→      .eq("organization_id", user.organizationId);
+  6637→  }
+  6638→  // 3. Reserve new table
+  6639→  await supabaseAdmin
+  6640→    .from("tables")
+  6641→    .update({ status: "RESERVED", updated_at: new Date().toISOString() })
+  6642→    .eq("id", newTableId)
+  6643→    .eq("organization_id", user.organizationId);
+  6644→```
+  6645→Why it breaks:
+  6646→  (a) The comment "more reliable than RPC" is wrong. The RPC (supabase/migrations/0018_audit_fixes.sql:106-187) uses `SELECT ... FOR UPDATE` on both the reservation and the new table, validates org ownership, validates old_table_id matches (optimistic lock), and runs all 3 updates in a single transaction with automatic rollback. The "manual" version does none of this.
+  6647→  (b) If step 2 fails (network blip), the reservation is moved but the old table is still RESERVED — orphaned.
+  6648→  (c) If step 3 fails, the reservation is moved and old table freed, but the new table shows AVAILABLE even though it's booked.
+  6649→  (d) Two concurrent transfers of the same reservation to different tables: both read `oldTableId = X`, both update the reservation (last write wins → reservation points to table B), both free X, both reserve their respective target. Result: table C (the loser's target) is permanently RESERVED with no reservation pointing to it.
+  6650→  (e) The RPC also checks `p_old_table_id` matches the current `table_id` — the manual version doesn't, so the optimistic-lock protection from 0018 is bypassed.
+  6651→Concrete fix: Call the RPC:
+  6652→```
+  6653→const { data, error } = await supabaseAdmin.rpc('transfer_reservation', {
+  6654→  p_reservation_id: reservationId,
+  6655→  p_new_table_id: newTableId,
+  6656→  p_old_table_id: oldTableId,  // optional but recommended for compare-and-swap
+  6657→});
+  6658→if (error || !data) return NextResponse.json({ error: error?.message || 'Transfer failed' }, { status: 500 });
+  6659→```
+  6660→Also: the new table's zone should be updated on the reservation — the RPC in 0018 doesn't set zone, only table_id. Either extend the RPC or do a tiny follow-up UPDATE for zone.
+  6661→
+  6662→❌ BUG E5 (CRITICAL) — Migration 0018 REGRESSED update_customer_metrics(): the rewritten function lost the NO_SHOW and CANCELLED branches that existed in 0006
+  6663→File: supabase/migrations/0018_audit_fixes.sql:215-261 (replaces the function from 0006_crm_customers.sql:148-184)
+  6664→Original (0006) handled three status transitions:
+  6665→```
+  6666→  if new.status = 'COMPLETED' ... then visits_count + 1
+  6667→  if new.status = 'NO_SHOW'   ... then no_shows_count + 1
+  6668→  if new.status = 'CANCELLED' ... then cancellations_count + 1
+  6669→```
+  6670→New (0018) only handles COMPLETED:
+  6671→```
+  6672→  IF v_new_status = 'COMPLETED' AND v_old_status != 'COMPLETED' THEN
+  6673→    UPDATE customers SET visits_count = visits_count + 1, last_visit_at = now(), ...
+  6674→  END IF;
+  6675→  IF v_old_status = 'COMPLETED' AND v_new_status != 'COMPLETED' THEN
+  6676→    UPDATE customers SET visits_count = GREATEST(0, visits_count - 1), ...
+  6677→  END IF;
+  6678→```
+  6679→Why it breaks: After 0018 is applied, marking a reservation as NO_SHOW or CANCELLED no longer increments `customers.no_shows_count` or `customers.cancellations_count`. The columns still exist (0006_crm_customers.sql:58-59) and are still surfaced in the UI (src/app/api/customers/route.ts:56-57 returns cancellationsCount and noShowsCount), but the values are frozen. The CRM "client metrics" feature is silently broken.
+  6680→The 0018 migration's stated goal was "4. update_customer_metrics() con decremento al revertir" — add decrement-on-reversal. It accidentally deleted two unrelated branches.
+  6681→Concrete fix: Re-add the missing branches to the function in 0018 (or in a new 0019 migration):
+  6682→```
+  6683→  IF v_new_status = 'NO_SHOW' AND v_old_status != 'NO_SHOW' THEN
+  6684→    UPDATE customers SET no_shows_count = COALESCE(no_shows_count,0) + 1, updated_at = now() WHERE id = v_customer_id;
+  6685→  END IF;
+  6686→  IF v_old_status = 'NO_SHOW' AND v_new_status != 'NO_SHOW' THEN
+  6687→    UPDATE customers SET no_shows_count = GREATEST(0, COALESCE(no_shows_count,1) - 1), updated_at = now() WHERE id = v_customer_id;
+  6688→  END IF;
+  6689→  -- same pattern for CANCELLED → cancellations_count
+  6690→```
+  6691→
+  6692→❌ BUG E6 (HIGH) — POST /api/reservations never calls checkLimit('reservations'); the Starter plan's maxReservations quota is unenforced
+  6693→File: src/app/api/reservations/route.ts:44-98 (entire POST handler)
+  6694→Verbatim: no reference to checkLimit anywhere in this file.
+  6695→Cross-ref: src/lib/stripe.ts:271 exports `checkLimit(orgId, 'reservations')`. The only caller is src/app/api/tables/route.ts:71. Reservations, users, and restaurants limits are never enforced.
+  6696→Why it breaks: A Starter org (maxReservations = 500/month per the seed in 0014/0017) can create unlimited reservations. The quota is in the DB but never checked.
+  6697→Concrete fix: At the top of POST, before validation:
+  6698→```
+  6699→const limit = await checkLimit(user.organizationId, 'reservations');
+  6700→if (!limit.allowed) {
+  6701→  return NextResponse.json({ error: `Has alcanzado el límite de reservas mensuales de tu plan (${limit.limit}).`, limit: limit.limit, current: limit.current }, { status: 402 });
+  6702→}
+  6703→```
+  6704→
+  6705→❌ BUG E7 (HIGH) — POST /api/reservations has no rate limit; the rate-limit library exists but is only wired into auth/public-reviews/web-import
+  6706→File: src/app/api/reservations/route.ts:44-98
+  6707→Cross-ref: src/lib/rate-limit.ts:69-84 defines `RATE_LIMITS.api = { window: 60s, max: 60 }` but no API route imports it.
+  6708→Why it breaks: An authenticated user (or a bot with stolen credentials) can hammer POST /api/reservations 1000 times/second. Combined with E1 (no overlap check), this makes the overbooking exploit trivial. Also amplifies E6 (quota never enforced).
+  6709→Concrete fix:
+  6710→```
+  6711→import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+  6712→const rl = checkRateLimit(req, RATE_LIMITS.api);
+  6713→if (rl.limited) return NextResponse.json({ error: 'too_many_requests' }, { status: 429, headers: { 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': String(rl.resetAt) } });
+  6714→```
+  6715→
+  6716→❌ BUG E8 (HIGH) — PATCH /api/reservations/[id] does not validate enum values for shift, zone, source
+  6717→File: src/app/api/reservations/[id]/route.ts:21-23
+  6718→Verbatim:
+  6719→```
+  6720→  if (typeof body.shift === 'string') patch.shift = body.shift
+  6721→  if (typeof body.zone === 'string') patch.zone = body.zone
+  6722→  if (typeof body.source === 'string') patch.source = body.source
+  6723→```
+  6724→Why it breaks: A user can PATCH `{ shift: 'BREAKFAST' }` or `{ zone: 'ROOFTOP' }`. The CHECK constraints added in 0018_audit_fixes.sql:572-582 are `NOT VALID` (only apply to new rows) and only cover status and tables.status, not reservations.shift/zone/source. So garbage values are persisted and break the UI's filter selects (ReservationsSection.tsx:92-104 hardcodes LUNCH/DINNER, INTERIOR/TERRACE/BAR/VIP).
+  6725→Concrete fix: Add VALID_SHIFT, VALID_ZONE, VALID_SOURCE arrays at the top of the file (mirroring VALID_STATUS on line 5) and gate each assignment with `.includes()`.
+  6726→
+  6727→❌ BUG E9 (HIGH) — GET /api/reservations returns ALL matching rows with no pagination
+  6728→File: src/lib/db.ts:582-603 (list method) + src/app/api/reservations/route.ts:15-41
+  6729→Verbatim (db.ts):
+  6730→```
+  6731→  async list(organizationId, opts = {}): Promise<Reservation[]> {
+  6732→    let q = supabaseAdmin.from("reservations").select("*").eq("organization_id", organizationId);
+  6733→    ...
+  6734→    q = q.order("date", { ascending: true });
+  6735→    const { data, error } = await q;
+  6736→    ...
+  6737→  }
+  6738→```
+  6739→Why it breaks: No `.limit()`. For a busy restaurant with 5 years of history, an unfiltered GET (no date param) could return 100k+ rows. The ReservationsSection only ever sends `?date=YYYY-MM-DD` so in practice it's bounded to one day, but a direct API call without date returns everything. The GET handler then does a second fan-out query (Promise.all of table.findFirst for every unique table_id) which compounds the problem.
+  6740→Concrete fix: Add `limit` and `offset` query params, default `limit=100`, max `limit=500`. For the dashboard's "all reservations on date X" use case the default is fine. Add `.limit(opts.limit ?? 100)` and `.range(opts.offset ?? 0, (opts.offset ?? 0) + (opts.limit ?? 100) - 1)` to the db method.
+  6741→
+  6742→❌ BUG E10 (MEDIUM) — Transfer route does not check that the new table is available at the reservation's date/time (overlap)
+  6743→File: src/app/api/tables/transfer/route.ts:23-32
+  6744→Verbatim:
+  6745→```
+  6746→  const { data: newTable } = await supabaseAdmin
+  6747→    .from("tables")
+  6748→    .select("id, number, name, zone, status, capacity")
+  6749→    .eq("id", newTableId)
+  6750→    .eq("organization_id", user.organizationId)
+  6751→    .maybeSingle();
+  6752→  if (!newTable) { return NextResponse.json({ error: "Mesa de destino no válida" }, { status: 400 }); }
+  6753→```
+  6754→Why it breaks: The check is purely "does this table belong to my org". It does NOT check whether the new table already has an overlapping CONFIRMED/PENDING/SEATED reservation at the reservation's date. So you can transfer a 20:00 reservation onto a table that's already booked at 20:00. Combined with E1 (no overlap check on POST either), this is another overbooking vector.
+  6755→Concrete fix: Before the reservation UPDATE, run the same overlap query that /api/tables/available uses (route.ts:43-64) restricted to the new table. If overlap exists, return 409.
+  6756→
+  6757→❌ BUG E11 (MEDIUM) — Transfer route doesn't check if the reservation was already transferred (no compare-and-swap); the RPC version does
+  6758→File: src/app/api/tables/transfer/route.ts:46
+  6759→Verbatim: `const oldTableId = reservation.table_id;`
+  6760→Why it breaks: Read at time T, used at T+Δ. Two concurrent transfers of the same reservation both read oldTableId=X. Both updates succeed. The RPC in 0018_audit_fixes.sql:146-149 explicitly checks `p_old_table_id != v_reservation.table_id` and raises — the manual version skips this. See also E4(d).
+  6761→Concrete fix: Use the RPC (E4 fix), OR add `.eq('table_id', oldTableId)` to the reservation UPDATE so it affects 0 rows if the table changed meanwhile, and return 409 if `updateError` indicates 0 rows affected.
+  6762→
+  6763→❌ BUG E12 (MEDIUM) — Reservations don't support grouped tables; booking a "group" only books one physical table
+  6764→File: src/app/api/reservations/route.ts (entire) + supabase/migrations/0008_table_groups.sql + 0018 (FK tables.group_id → table_groups)
+  6765→Why it breaks: `reservations.table_id` is a single FK. When tables 5+6 are grouped (share group_id), a reservation for "the group" only sets table_id to one of them. The other table remains AVAILABLE and can be booked by someone else. The UI advertises grouping as a Premium feature (BillingSection.tsx:14: "Agrupación de mesas") but reservations don't honor it.
+  6766→Concrete fix: Either (a) block reservations on tables that have a group_id (return 400 "esta mesa está agrupada, reserva el grupo"), or (b) add a `group_id` column to reservations and when a grouped table is booked, atomically reserve all tables in the group.
+  6767→
+  6768→❌ BUG E13 (LOW) — DELETE /api/reservations/[id] doesn't write an audit log entry
+  6769→File: src/app/api/reservations/[id]/route.ts:48-57
+  6770→Verbatim: `await db.reservation.delete(id, user.organizationId); return NextResponse.json({ ok: true })`
+  6771→Why it breaks: Other mutating routes (transfer route.ts:101-110, etc.) write to audit_logs. Reservation deletion leaves no trace. Minor compliance issue.
+  6772→Concrete fix: Wrap the delete in a try/catch that also calls `db.auditLogs.insert({ action: 'RESERVATION_DELETE', ... })`.
+  6773→
+  6774→# ============================================================
+  6775→# PHASE F — STRIPE
+  6776→# ============================================================
+  6777→
+  6778→❌ BUG F1 (CRITICAL) — POST /api/billing/checkout does not prevent duplicate subscriptions; a user can be charged 2×/3× for overlapping plans
+  6779→File: src/app/api/billing/checkout/route.ts:11-38 + src/lib/stripe.ts:94-112
+  6780→Verbatim (checkout route):
+  6781→```
+  6782→  const body = await req.json();
+  6783→  const { planName, billingCycle } = body;
+  6784→  if (!PLANS[planName as PlanName]) {
+  6785→    return NextResponse.json({ error: "Plan inválido" }, { status: 400 });
+  6786→  }
+  6787→  ...
+  6788→  const result = await createCheckoutSession({ organizationId: user.organizationId, planName: planName as PlanName, billingCycle: billingCycle || "monthly", customerId, ... });
+  6789→```
+  6790→Verbatim (createCheckoutSession):
+  6791→```
+  6792→  const session = await stripe.checkout.sessions.create({
+  6793→    customer: opts.customerId,
+  6794→    mode: "subscription",
+  6795→    line_items: [{ price: priceId, quantity: 1 }],
+  6796→    ...
+  6797→  });
+  6798→```
+  6799→Why it breaks: `mode: "subscription"` always creates a NEW Stripe subscription. Stripe allows multiple subscriptions per customer. The route never checks `getOrgPlan(orgId).stripeSubscriptionId`. Scenario:
+  6800→  1. User on Starter clicks "Premium" → checkout → completes. Stripe creates sub_A. Webhook `checkout.session.completed` updates org_subscriptions.stripe_subscription_id = sub_A.
+  6801→  2. User clicks "Empresarial" → checkout → completes. Stripe creates sub_B. Webhook updates org_subscriptions.stripe_subscription_id = sub_B (sub_A is overwritten in the DB but still active and charging in Stripe).
+  6802→  3. User is now paying for Starter (if it was a paid sub) + Premium + Empresarial every month. The DB only shows sub_B.
+  6803→  4. Same applies if the user just double-clicks "Elegir plan" — two sessions, two subs.
+  6804→Concrete fix: In POST /api/billing/checkout, before creating the session:
+  6805→```
+  6806→const plan = await getOrgPlan(user.organizationId);
+  6807→if (plan.stripeSubscriptionId && plan.status === 'active') {
+  6808→  // Option A: reject
+  6809→  return NextResponse.json({ error: 'Ya tienes una suscripción activa. Usa "Cambiar plan" desde el portal de Stripe.' }, { status: 409 });
+  6810→  // Option B: use Stripe's proration via subscription update
+  6811→  // const session = await stripe.checkout.sessions.create({ mode: 'setup', ... }) or use billing portal flows
+  6812→}
+  6813→```
+  6814→Or migrate to Stripe's `subscription_update` mode / `subscription_data.from_subscription` to prorate in-place.
+  6815→
+  6816→❌ BUG F2 (CRITICAL) — Webhook customer.subscription.deleted clears stripe_subscription_id but NOT plan_id; combined with F3, canceled users keep premium features forever
+  6817→File: src/app/api/stripe/webhook/route.ts:126-153
+  6818→Verbatim:
+  6819→```
+  6820→      case 'customer.subscription.deleted': {
+  6821→        const sub = event.data.object as any
+  6822→        const orgId = sub.metadata?.organization_id
+  6823→        if (orgId) {
+  6824→          await supabaseAdmin
+  6825→            .from('organization_subscriptions')
+  6826→            .update({
+  6827→              status: 'canceled',
+  6828→              canceled_at: new Date().toISOString(),
+  6829→              cancel_at_period_end: false,
+  6830→              stripe_subscription_id: null,
+  6831→            })
+  6832→            .eq('organization_id', orgId)
+  6833→```
+  6834→Why it breaks: `plan_id` is not reset. `getOrgPlan` (stripe.ts:212-264) returns `planName: plan?.name || "starter"` — it reads plan_id from the subscription_plans join, not from Stripe. So planName stays 'professional'/'enterprise' after cancellation.
+  6835→Concrete fix: Look up the starter plan id and reset:
+  6836→```
+  6837→const { data: starterPlan } = await supabaseAdmin.from('subscription_plans').select('id').eq('name','starter').single();
+  6838→await supabaseAdmin.from('organization_subscriptions').update({
+  6839→  status: 'canceled', canceled_at: new Date().toISOString(),
+  6840→  cancel_at_period_end: false, stripe_subscription_id: null,
+  6841→  plan_id: starterPlan?.id ?? null, billing_cycle: 'monthly',
+  6842→}).eq('organization_id', orgId);
+  6843→```
+  6844→
+  6845→❌ BUG F3 (CRITICAL) — isFeatureEnabled only checks the plan name; it ignores subscription status — past_due and canceled users retain all premium features
+  6846→File: src/lib/feature-flags.ts:69-82
+  6847→Verbatim:
+  6848→```
+  6849→        const { data: sub } = await supabaseAdmin
+  6850→          .from("organization_subscriptions")
+  6851→          .select("subscription_plans!inner(name)")
+  6852→          .eq("organization_id", organizationId)
+  6853→          .maybeSingle();
+  6854→        const planData = sub?.subscription_plans;
+  6855→        const planName = Array.isArray(planData) ? (planData[0] as any)?.name : (planData as any)?.name;
+  6856→        if (planName) { orgPlan = planName; }
+  6857→```
+  6858→Why it breaks: The select only fetches the plan name via the join. It does NOT fetch `organization_subscriptions.status`. So if status is 'past_due' (payment failed) or 'canceled' (per F2, plan_id not cleared), orgPlan stays at the premium tier and `isFeatureEnabled` returns true for analytics/chat/shifts/kitchen/whatsapp/etc.
+  6859→Concrete fix:
+  6860→```
+  6861→const { data: sub } = await supabaseAdmin
+  6862→  .from("organization_subscriptions")
+  6863→  .select("status, subscription_plans!inner(name)")
+  6864→  .eq("organization_id", organizationId)
+  6865→  .maybeSingle();
+  6866→let orgPlan = "starter";
+  6867→const planName = Array.isArray(sub?.subscription_plans) ? sub.subscription_plans[0]?.name : sub?.subscription_plans?.name;
+  6868→if (planName && sub?.status === 'active') orgPlan = planName;
+  6869→// trial also gets plan features; past_due gets a grace period if you want, but canceled → starter
+  6870→```
+  6871→Also: getOrgPlan (stripe.ts:212) should probably gate `planName` by status too — the BillingSection UI uses `plan.status` for the badge but the feature gate doesn't.
+  6872→
+  6873→❌ BUG F4 (CRITICAL) — incrementUsage has a race condition AND the upsert OVERWRITES the counter to 1 on every call
+  6874→File: src/lib/feature-flags.ts:177-218
+  6875→Verbatim:
+  6876→```
+  6877→    await supabaseAdmin
+  6878→      .from("organization_usage")
+  6879→      .upsert(
+  6880→        { organization_id: organizationId, metric, period, count: 1, updated_at: now.toISOString() },
+  6881→        { onConflict: "organization_id,metric,period" }
+  6882→      );
+  6883→    // Increment count
+  6884→    const { data: existing } = await supabaseAdmin
+  6885→      .from("organization_usage")
+  6886→      .select("count")
+  6887→      .eq("organization_id", organizationId)
+  6888→      .eq("metric", metric)
+  6889→      .eq("period", period)
+  6890→      .maybeSingle();
+  6891→    if (existing) {
+  6892→      await supabaseAdmin
+  6893→        .from("organization_usage")
+  6894→        .update({ count: existing.count + 1, updated_at: now.toISOString() })
+  6895→        .eq("organization_id", organizationId)
+  6896→        .eq("metric", metric)
+  6897→        .eq("period", period);
+  6898→    }
+  6899→```
+  6900→Why it breaks:
+  6901→  (a) The `upsert` with `count: 1` runs first. If the row already exists with count=50, the upsert's ON CONFLICT DO UPDATE SET count=1 OVERWRITES 50 with 1. The counter is reset on every call.
+  6902→  (b) Then select reads 1, update sets count=2. So after the second call onwards, the counter is permanently stuck at 2.
+  6903→  (c) Even if (a) were fixed, two concurrent calls can both read the same count and both write count+1, losing one increment (classic read-modify-write race).
+  6904→Net: the organization_usage table is permanently wrong. Any quota check (checkUsageLimit, line 146) returns incorrect `current`. Combined with E6 (reservations never check the limit anyway), this is doubly broken.
+  6905→Concrete fix: Use a single atomic SQL statement via .rpc() or .upsert() with a proper increment:
+  6906→```
+  6907→-- migration: create or replace function increment_usage(p_org uuid, p_metric text, p_period text) returns void as $$
+  6908→--   insert into organization_usage(organization_id, metric, period, count) values (p_org,p_metric,p_period,1)
+  6909→--   on conflict (organization_id, metric, period) do update set count = organization_usage.count + 1, updated_at = now();
+  6910→-- $$ language sql;
+  6911→const { error } = await supabaseAdmin.rpc('increment_usage', { p_org: organizationId, p_metric: metric, p_period: period });
+  6912→```
+  6913→Or, without a new RPC: `supabaseAdmin.from('organization_usage').upsert({organization_id, metric, period, count: 1}, {onConflict: 'organization_id,metric,period', count: 'organization_usage.count+1'})` — but supabase-js doesn't support expression upserts directly, so the RPC is the cleanest fix.
+  6914→
+  6915→❌ BUG F5 (HIGH) — Webhook customer.subscription.updated uses string-interpolated .or() to resolve plan by price_id; if the price isn't found, plan_id silently stays stale
+  6916→File: src/app/api/stripe/webhook/route.ts:92-101
+  6917→Verbatim:
+  6918→```
+  6919→          let planId: string | null = null;
+  6920→          if (sub.items?.data?.[0]?.price?.id) {
+  6921→            const { data: planByPrice } = await supabaseAdmin
+  6922→              .from('subscription_plans')
+  6923→              .select('id')
+  6924→              .or(
+  6925→                `stripe_price_id_monthly.eq.${sub.items.data[0].price.id},stripe_price_id_yearly.eq.${sub.items.data[0].price.id}`
+  6926→              )
+  6927→              .maybeSingle()
+  6928→            planId = planByPrice?.id || null
+  6929→          }
+  6930→```
+  6931→Why it breaks:
+  6932→  (a) The `.or()` string interpolates `price.id` directly. Stripe price IDs are like `price_1Q...` so SQL injection isn't realistic, but if the ID ever contained a comma or `.` (it won't, but defensive), the PostgREST parser would misbehave.
+  6933→  (b) If the user changed plans via Stripe Portal and the new price wasn't created by our `ensureStripePrice` (e.g., Stripe auto-created a new price for a different currency), planByPrice is null, planId stays null, and the UPDATE on line 117 uses `...(planId ? { plan_id: planId } : {})` — i.e., plan_id is NOT updated. The user is on the new plan in Stripe but the old plan in our DB. Combined with F3, they may be over- or under-privileged.
+  6934→  (c) The .maybeSingle() throws if there are 2+ matching rows. Migration 0018 added UNIQUE on stripe_price_id_monthly/yearly, so this shouldn't happen — but only protects if the migration ran.
+  6935→Concrete fix: Use two separate .eq() queries (one for monthly, one for yearly) and pick the first match. Or store the price_id in the subscription's metadata at checkout time and read it from there (more robust against Stripe-side price swaps).
+  6936→
+  6937→❌ BUG F6 (HIGH) — Webhook customer.subscription.updated does NOT insert into subscription_history (plan changes are not auditable)
+  6938→File: src/app/api/stripe/webhook/route.ts:77-124
+  6939→Verbatim: the case block only does the UPDATE on organization_subscriptions and `invalidateFeatureFlagsCache(orgId)`. No `subscription_history.upsert(...)` call.
+  6940→Why it breaks: The other 3 case blocks (checkout.session.completed line 59, customer.subscription.deleted line 141, invoice.paid line 193, invoice.payment_failed line 222) all insert into subscription_history. The `updated` block doesn't. So upgrades/downgrades/cycle changes made via the Stripe portal are invisible in the audit trail.
+  6941→Concrete fix: After the UPDATE, add:
+  6942→```
+  6943→await supabaseAdmin.from('subscription_history').upsert(
+  6944→  { organization_id: orgId, event_type: 'subscription.updated',
+  6945→    details: { stripe_event_id: event.id, old_plan: ..., new_plan: planId } },
+  6946→  { onConflict: 'organization_id,event_type,details' }
+  6947→);
+  6948→```
+  6949→
+  6950→❌ BUG F7 (HIGH) — Webhook customer.subscription.updated uses UPDATE only (no upsert); if the org has no subscription row yet (e.g., sub created directly in Stripe Dashboard), the UPDATE is a silent no-op
+  6951→File: src/app/api/stripe/webhook/route.ts:103-119
+  6952→Verbatim:
+  6953→```
+  6954→          await supabaseAdmin
+  6955→            .from('organization_subscriptions')
+  6956→            .update({ status: ..., current_period_start: periodStart, current_period_end: periodEnd, ... })
+  6957→            .eq('organization_id', orgId)
+  6958→```
+  6959→Why it breaks: If a subscription is created via Stripe Dashboard (not our checkout), there's no `organization_subscriptions` row for that org yet (the row is normally created by `getOrCreateCustomer`'s upsert at stripe.ts:58-70, but that only runs when checkout is initiated). The UPDATE matches 0 rows. The event is ack'd (200 OK) and Stripe doesn't retry. The subscription is "lost" — active in Stripe, invisible in our DB.
+  6960→Also: if `sub.metadata?.organization_id` is missing (which happens if the subscription was created in Stripe Dashboard without metadata), `orgId` is undefined and the whole block is skipped silently.
+  6961→Concrete fix: Use upsert with `onConflict: 'organization_id'`. If orgId is missing, log a warning and return 200 (so Stripe doesn't retry forever) but flag it for manual review.
+  6962→
+  6963→❌ BUG F8 (HIGH) — POST /api/billing/subscription cancel/reactivate: no try/catch around the Stripe API call; if Stripe succeeds but the DB update fails, state is inconsistent
+  6964→File: src/app/api/billing/subscription/route.ts:59-87
+  6965→Verbatim:
+  6966→```
+  6967→  if (action === "cancel") {
+  6968→    await cancelSubscription(plan.stripeSubscriptionId);
+  6969→    await supabaseAdmin
+  6970→      .from("organization_subscriptions")
+  6971→      .update({ cancel_at_period_end: true })
+  6972→      .eq("organization_id", user.organizationId);
+  6973→    await supabaseAdmin.from("subscription_history").insert({
+  6974→      organization_id: user.organizationId,
+  6975→      event_type: "subscription.cancel_scheduled",
+  6976→    });
+  6977→    return NextResponse.json({ ok: true, message: "..." });
+  6978→  }
+  6979→```
+  6980→Why it breaks:
+  6981→  (a) If `cancelSubscription` throws (Stripe API down, invalid sub id, network), the error propagates as an unhandled 500. The user sees a generic error.
+  6982→  (b) If `cancelSubscription` succeeds but the supabase UPDATE fails (DB down), the subscription is canceled in Stripe but our DB still shows `cancel_at_period_end: false`. The user thinks they're still subscribed. (The `customer.subscription.updated` webhook will eventually reconcile this — but only if the webhook is delivered and processed.)
+  6983→  (c) The `subscription_history.insert` is not idempotent — double-clicking "Cancelar" inserts two history rows. (Compare with the webhook's upserts.)
+  6984→Concrete fix: Wrap in try/catch; on Stripe success + DB failure, log a warning and return 200 with a "may take a minute to reflect" message. Use upsert for the history insert.
+  6985→
+  6986→❌ BUG F9 (HIGH) — POST /api/customers returns a raw Postgres error as 500 when the new UNIQUE constraints (added by 0018) reject a duplicate phone/email
+  6987→File: src/app/api/customers/route.ts:79-96 + supabase/migrations/0018_audit_fixes.sql:543-549
+  6988→Verbatim:
+  6989→```
+  6990→  const { data, error } = await supabaseAdmin
+  6991→    .from('customers')
+  6992→    .insert({ full_name: fullName, phone, email: email || null, ... })
+  6993→    .select()
+  6994→    .single()
+  6995→  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  6996→```
+  6997→Cross-ref: 0018 added `customers_org_phone_uniq ON customers(organization_id, phone) WHERE phone IS NOT NULL` and `customers_org_email_uniq ON customers(organization_id, email) WHERE email IS NOT NULL`.
+  6998→Why it breaks: A user creating a customer with a phone that already exists in their org now gets `duplicate key value violates unique constraint "customers_org_phone_uniq"` returned as a 500 with the raw Postgres message. Should be a 409 with a friendly Spanish message.
+  6999→Concrete fix:
+  7000→```
+  7001→if (error) {
+  7002→  if (error.code === '23505') {
+  7003→    return NextResponse.json({ error: 'Ya existe un cliente con ese teléfono o email' }, { status: 409 });
+  7004→  }
+  7005→  return NextResponse.json({ error: error.message }, { status: 500 });
+  7006→}
+  7007→```
+  7008→Also: POST /api/reservations doesn't have a "find or create customer by phone" flow — if a returning customer books again by phone, a new (duplicate) reservation is created without linking to the existing customer_id. This is the upstream cause of why 0018 had to de-duplicate customers in the first place.
+  7009→
+  7010→❌ BUG F10 (HIGH) — POST /api/billing/checkout has no role check; any STAFF user can subscribe the org to a paid plan
+  7011→File: src/app/api/billing/checkout/route.ts:5-9
+  7012→Verbatim:
+  7013→```
+  7014→  const user = await getCurrentUser();
+  7015→  if (!user || !user.organizationId) {
+  7016→    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  7017→  }
+  7018→```
+  7019→Why it breaks: Compare with src/app/api/tables/route.ts:60 (`if (!user || user.role !== 'ADMIN')`) and src/app/api/tables/[id]/route.ts:11 (same). Billing is more sensitive than tables — a STAFF user shouldn't be able to subscribe the org to Enterprise. The current code lets them.
+  7020→Concrete fix: `if (!user || !user.organizationId || (user.role !== 'ADMIN' && !user.isSuperAdmin)) return 401;`. Same for /api/billing/subscription POST and /api/billing/portal POST.
+  7021→
+  7022→❌ BUG F11 (MEDIUM) — getOrCreateCustomer has a race condition that creates orphaned Stripe customers
+  7023→File: src/lib/stripe.ts:32-72
+  7024→Verbatim:
+  7025→```
+  7026→  const { data: sub } = await supabaseAdmin
+  7027→    .from("organization_subscriptions")
+  7028→    .select("stripe_customer_id")
+  7029→    .eq("organization_id", organizationId)
+  7030→    .maybeSingle();
+  7031→  if (sub?.stripe_customer_id) return sub.stripe_customer_id;
+  7032→  // Create new customer in Stripe
+  7033→  const customer = await stripe.customers.create({ ... });
+  7034→  await supabaseAdmin.from("organization_subscriptions").upsert(
+  7035→    { organization_id: organizationId, stripe_customer_id: customer.id, ... },
+  7036→    { onConflict: "organization_id" }
+  7037→  );
+  7038→  return customer.id;
+  7039→```
+  7040→Why it breaks: Two concurrent calls (user double-clicks "Elegir plan") both pass the `if (sub?.stripe_customer_id) return` check (both see null), both create a Stripe customer, both upsert (one wins, the other customer is orphaned in Stripe). Over time the Stripe account accumulates orphaned customers. Not a money leak, but a data-hygiene problem and a Stripe API quota drain.
+  7041→Concrete fix: Wrap in a DB transaction with `SELECT ... FOR UPDATE`, or catch the unique violation on the upsert and re-read.
+  7042→
+  7043→❌ BUG F12 (MEDIUM) — ensureStripePrice lists ALL products and prices on every single checkout
+  7044→File: src/lib/stripe.ts:118-156
+  7045→Verbatim:
+  7046→```
+  7047→  const products = await stripe.products.list({ limit: 100 });
+  7048→  let product = products.data.find((p) => p.name === productName);
+  7049→  ...
+  7050→  const prices = await stripe.prices.list({ product: product.id, limit: 10 });
+  7051→  const existingPrice = prices.data.find((p) => p.unit_amount === amount * 100 && p.recurring?.interval === interval);
+  7052→```
+  7053→Why it breaks: Every checkout triggers 2 Stripe API calls (products.list + prices.list) just to find a price that should already be known. The subscription_plans table already has `stripe_price_id_monthly` and `stripe_price_id_yearly` columns (added by 0014/0017, with UNIQUE indexes from 0018:352-358) — they're just never populated by this function. Adds ~300-500ms latency to every checkout and burns Stripe API quota.
+  7054→Concrete fix: After creating/finding the price, write it back to subscription_plans.stripe_price_id_{cycle}. On subsequent calls, read from the DB first and skip the Stripe API calls.
+  7055→
+  7056→❌ BUG F13 (MEDIUM) — Webhook idempotency relies on JSONB equality for the `details` column; JSONB key ordering or extra keys would create duplicate history rows
+  7057→File: src/app/api/stripe/webhook/route.ts:59-68, 141-148, 193-201, 222-230
+  7058→Verbatim (representative):
+  7059→```
+  7060→  await supabaseAdmin.from('subscription_history').upsert(
+  7061→    {
+  7062→      organization_id: orgId,
+  7063→      event_type: 'subscription.created',
+  7064→      to_plan: planName,
+  7065→      to_cycle: billingCycle,
+  7066→      details: { stripe_event_id: event.id },
+  7067→    },
+  7068→    { onConflict: 'organization_id,event_type,details' }
+  7069→  )
+  7070→```
+  7071→Why it breaks: The ON CONFLICT target is `(organization_id, event_type, details)` where `details` is JSONB. Postgres JSONB equality is based on the parsed JSON tree (not text), so key ordering doesn't matter — BUT if two events of the same type for the same org have the same `stripe_event_id` but DIFFERENT extra keys (e.g., one includes `invoice_id` and another doesn't), they'd be treated as different rows. Currently each event type includes a consistent set of keys, so this works today. However, it's fragile — any future code change that adds a key to `details` for the same event_type would break dedup for in-flight retries.
+  7072→Concrete fix: Add a dedicated `stripe_event_id` column with a UNIQUE constraint (per event_type or globally) and use that as the conflict target instead of the JSONB blob. This is the standard Stripe-webhook idempotency pattern.
+  7073→
+  7074→❌ BUG F14 (MEDIUM) — POST /api/billing/checkout does not validate that billingCycle is 'monthly' or 'yearly'
+  7075→File: src/app/api/billing/checkout/route.ts:12 + src/lib/stripe.ts:118-125
+  7076→Verbatim (checkout): `const { planName, billingCycle } = body;` and `billingCycle: billingCycle || "monthly"`
+  7077→Verbatim (stripe.ts):
+  7078→```
+  7079→  const amount = cycle === "monthly" ? plan.monthly : plan.yearly;
+  7080→  const interval = cycle === "monthly" ? "month" : "year";
+  7081→```
+  7082→Why it breaks: If the client sends `{ planName: 'professional', billingCycle: 'weekly' }`, the check `cycle === "monthly"` is false, so it falls through to the `yearly` branch — the user is charged €1142/year but the metadata says `billing_cycle: 'weekly'`. The DB stores 'weekly' as billing_cycle. The admin/billing MRR calculation (admin/billing/route.ts:27 `s.billing_cycle === "yearly" ? plan?.price_yearly : plan?.price_monthly`) would then use the monthly price for MRR, undercounting revenue.
+  7083→Concrete fix: `if (!['monthly','yearly'].includes(billingCycle)) return NextResponse.json({ error: 'billingCycle debe ser monthly o yearly' }, { status: 400 });`
+  7084→
+  7085→❌ BUG F15 (LOW) — POST /api/billing/subscription returns success even if the supabase update affected 0 rows
+  7086→File: src/app/api/billing/subscription/route.ts:60-71
+  7087→Verbatim:
+  7088→```
+  7089→    await cancelSubscription(plan.stripeSubscriptionId);
+  7090→    await supabaseAdmin
+  7091→      .from("organization_subscriptions")
+  7092→      .update({ cancel_at_period_end: true })
+  7093→      .eq("organization_id", user.organizationId);
+  7094→    ...
+  7095→    return NextResponse.json({ ok: true, message: "Suscripción cancelada..." });
+  7096→```
+  7097→Why it breaks: The supabase UPDATE returns `{ data, error, count }`. The code doesn't check `count`. If the org_subscriptions row doesn't exist (race with webhook), the update affects 0 rows but the API still returns 200 OK. The user thinks they canceled; the DB is unchanged.
+  7098→Concrete fix: `const { count } = await ...update(...).eq(...); if (count === 0) return NextResponse.json({ error: 'No se encontró la suscripción' }, { status: 404 });`
+  7099→
+  7100→❌ BUG F16 (LOW) — admin/billing MRR/ARR calculation treats yearly subscriptions as 1× monthly
+  7101→File: src/app/api/admin/billing/route.ts:27, 42-49
+  7102→Verbatim:
+  7103→```
+  7104→  const price = s.billing_cycle === "yearly" ? plan?.price_yearly : plan?.price_monthly;
+  7105→  return { ..., mrr: s.status === "active" ? price : 0, ... };
+  7106→  ...
+  7107→  const mrr = active.reduce((sum, o) => sum + (o.mrr || 0), 0);
+  7108→  const stats = {
+  7109→    mrr: mrr.toFixed(2),
+  7110→    arr: (mrr * 12).toFixed(2),
+  7111→    ...
+  7112→  };
+  7113→```
+  7114→Why it breaks: For a yearly subscriber, `mrr` is set to `price_yearly` (e.g., 1142) — that's the YEARLY price, not the monthly equivalent. The MRR is overstated by 12× for yearly subscribers. Then `arr = mrr * 12` would be 1142 × 12 = 13704 for one Premium-yearly subscriber, when it should be 1142 (annual already).
+  7115→Concrete fix: `const price = s.billing_cycle === "yearly" ? (plan?.price_yearly || 0) / 12 : (plan?.price_monthly || 0);` — normalize to monthly.
+  7116→
+  7117→---
+  7118→
+  7119→Summary table:
+  7120→
+  7121→| ID | Severity | Area | One-liner |
+  7122→|----|----------|------|-----------|
+  7123→| E1 | CRITICAL | Reservations POST | No overlap check + no table-status update → 100 parallel POSTs overbook same table |
+  7124→| E2 | CRITICAL | Reservations PATCH | No org validation on table_id → cross-tenant table assignment |
+  7125→| E3 | CRITICAL | Reservations PATCH/DELETE | Table status only synced on CONFIRMED+tableId combo; cancel/no-show/complete/delete all leak RESERVED state |
+  7126→| E4 | CRITICAL | Tables transfer | Route uses 3 non-atomic updates instead of the transfer_reservation() RPC; concurrent transfers leak table state |
+  7127→| E5 | CRITICAL | Migration 0018 | update_customer_metrics() rewrite lost NO_SHOW and CANCELLED branches — CRM metrics frozen |
+  7128→| E6 | HIGH | Reservations POST | checkLimit('reservations') never called — Starter quota unenforced |
+  7129→| E7 | HIGH | Reservations POST | No rate limit — api RATE_LIMITS preset exists but unused |
+  7130→| E8 | HIGH | Reservations PATCH | No enum validation for shift/zone/source |
+  7131→| E9 | HIGH | Reservations GET | No pagination — unbounded SELECT |
+  7132→| E10 | MEDIUM | Tables transfer | No overlap check on new table |
+  7133→| E11 | MEDIUM | Tables transfer | No compare-and-swap on old_table_id |
+  7134→| E12 | MEDIUM | Reservations | Grouped tables not supported — group booking only reserves one physical table |
+  7135→| E13 | LOW | Reservations DELETE | No audit log entry |
+  7136→| F1 | CRITICAL | Stripe checkout | No duplicate-subscription prevention — user can be charged 2×/3× for overlapping plans |
+  7137→| F2 | CRITICAL | Stripe webhook | customer.subscription.deleted doesn't reset plan_id |
+  7138→| F3 | CRITICAL | Feature flags | isFeatureEnabled ignores subscription status — canceled/past_due users keep premium features |
+  7139→| F4 | CRITICAL | Usage tracking | incrementUsage upsert OVERWRITES counter to 1 + read-modify-write race — quotas permanently broken |
+  7140→| F5 | HIGH | Stripe webhook | .or() string interpolation for price_id lookup; missing price → stale plan_id |
+  7141→| F6 | HIGH | Stripe webhook | customer.subscription.updated doesn't write subscription_history |
+  7142→| F7 | HIGH | Stripe webhook | UPDATE-only (no upsert) — subs created in Stripe Dashboard are silently lost |
+  7143→| F8 | HIGH | Billing subscription | No error handling around Stripe API + non-idempotent history insert |
+  7144→| F9 | HIGH | Customers POST | Duplicate phone/email returns raw Postgres 500 instead of friendly 409 |
+  7145→| F10 | HIGH | Billing checkout | No ADMIN role check — STAFF can subscribe org to paid plans |
+  7146→| F11 | MEDIUM | Stripe customer | getOrCreateCustomer race creates orphaned Stripe customers |
+  7147→| F12 | MEDIUM | Stripe price | ensureStripePrice lists all products/prices on every checkout — should cache in DB |
+  7148→| F13 | MEDIUM | Stripe webhook | Idempotency relies on JSONB equality — fragile to schema drift |
+  7149→| F14 | MEDIUM | Billing checkout | No validation that billingCycle ∈ {monthly, yearly} |
+  7150→| F15 | LOW | Billing subscription | Returns success even if DB update affected 0 rows |
+  7151→| F16 | LOW | Admin billing | MRR/ARR miscalculated for yearly subscribers (overstated 12×) |
+  7152→
+  7153→Top 7 CRITICAL fixes (priority order):
+  7154→1. E1 — Add EXCLUDE constraint OR transactional overlap check on reservations POST; also mark table RESERVED.
+  7155→2. E4 — Switch transfer route to call the transfer_reservation() RPC (already exists, already atomic, already validates org + old_table_id).
+  7156→3. F1 — Reject checkout if org already has an active subscription (or use Stripe's subscription_update flow).
+  7157→4. F3 — Gate isFeatureEnabled on subscription status (canceled/past_due → starter).
+  7158→5. F2 — Reset plan_id to starter on customer.subscription.deleted.
+  7159→6. F4 — Replace incrementUsage with a single atomic `INSERT ... ON CONFLICT DO UPDATE count = count + 1` via RPC.
+  7160→7. E5 — Restore the NO_SHOW and CANCELLED branches in update_customer_metrics() (lost in the 0018 rewrite).
+  7161→
+  7162→This was a READ-ONLY audit. No source files were modified. Recommended next task: `phase-e-f-fix` to patch the 7 CRITICAL bugs (E1, E4, E5, F1, F2, F3, F4) in priority order. The HIGH bugs (E6, E7, E8, E9, F5, F6, F7, F8, F9, F10) can follow in a second fix task; MEDIUM/LOW items in a third polish task.
+
+[showing lines 6491-7162 of 7163; use offset=7163 with limit to continue reading]

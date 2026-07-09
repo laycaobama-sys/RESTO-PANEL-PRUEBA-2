@@ -1,0 +1,602 @@
+   465→          <span className="flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" /> Terraza</span>
+   466→        </div>
+   467→      </motion.div>
+   468→    </div>
+   469→  );
+   470→}
+   471→
+   472→// ─── SOCIAL PROOF ────────────────────────────────────────────
+   473→function SocialProof() {
+   474→  return (
+   475→    <section className="border-b border-white/5 py-8">
+   476→      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+   477→        <p className="text-center text-[10px] uppercase tracking-wider text-neutral-600 mb-5">
+   478→          Métricas objetivo del producto
+   479→        </p>
+   480→        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+   481→          <Stat value="-35%" label="no-shows con reconfirmación automática" />
+   482→          <Stat value="100%" label="datos propios, sin intermediarios" />
+   483→          <Stat value="0€" label="comisiones por reserva" />
+   484→          <Stat value="24/7" label="sincronización multicanal" />
+   485→        </div>
+   486→      </div>
+   487→    </section>
+   488→  );
+   489→}
+   490→
+   491→function Stat({ value, label }: { value: string; label: string }) {
+   492→  return (
+   493→    <motion.div
+   494→      initial={{ opacity: 0, y: 10 }}
+   495→      whileInView={{ opacity: 1, y: 0 }}
+   496→      viewport={{ once: true }}
+   497→      transition={{ duration: 0.5 }}
+   498→    >
+   499→      <p className="text-3xl font-bold text-[#C5A059]">{value}</p>
+   500→      <p className="text-sm text-neutral-500 mt-1">{label}</p>
+   501→    </motion.div>
+   502→  );
+   503→}
+   504→
+   505→// ─── MODULES ─────────────────────────────────────────────────
+   506→function Modules() {
+   507→  const modules = [
+   508→    { tag: "RestoBookings", icon: <CalendarCheck className="w-5 h-5" />, title: "Centralización de reservas", desc: "Todas las reservas que llegan de tu web, Google Maps, Instagram, Facebook, WhatsApp y teléfono van a parar al mismo libro digital. En tiempo real, sin cuadernos ni hojas sueltas.", benefits: ["Un solo calendario para todo", "Sin doble reserva", "Disponibilidad sincronizada"] },
+   509→    { tag: "RestoFloor", icon: <LayoutGrid className="w-5 h-5" />, title: "Asignación inteligente de mesas", desc: "Un motor de sala combina tu plano, las zonas (terraza, interior, VIP), los turnos y la duración media para asignar mesas automáticamente y maximizar el aforo sin huecos vacíos.", benefits: ["Más cubiertos por turno", "Menos huecos muertos", "Reglas configurables"] },
+   510→    { tag: "RestoGuard", icon: <ShieldCheck className="w-5 h-5" />, title: "Control avanzado de no-shows", desc: "Reconfirmación automática por email, SMS o WhatsApp antes de cada reserva. Tarjeta como garantía opcional y prepago de menús, experiencias o entradas según tu política.", benefits: ["Hasta -35% de ausencias", "Prepago de experiencias", "Política flexible por local"] },
+   511→    { tag: "RestoCRM", icon: <Users className="w-5 h-5" />, title: "CRM y base de datos propia", desc: "Cada cliente queda registrado con historial de visitas, ticket medio, frecuencia, preferencias y alergias. Lanza campañas segmentadas por SMS, email o WhatsApp a tus clientes reales.", benefits: ["Datos 100% tuyos", "Campañas segmentadas", "Sin depender de OTAs"] },
+   512→    { tag: "RestoNight", icon: <Moon className="w-5 h-5" />, title: "Ocio nocturno y eventos", desc: "El mismo panel sirve para el servicio de mediodía y para la noche. Vende entradas online, controla accesos y listas de invitados, gestiona zonas VIP, mesas, botellas y packs.", benefits: ["Entradas y listas en un clic", "Control de aforo", "Zonas VIP y botellas"] },
+   513→    { tag: "RestoQueue", icon: <Clock className="w-5 h-5" />, title: "Cola virtual y listas de espera", desc: "Cuando la sala está llena, los clientes entran en una cola virtual con notificación por SMS o WhatsApp. Tú decides cuándo llamarlos; ellos no esperan de pie en la puerta.", benefits: ["Menos abandonos en puerta", "Notificación automática", "Más consumo en barra"] },
+   514→  ];
+   515→
+   516→  return (
+   517→    <section id="modulos" className="py-20 sm:py-28">
+   518→      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+   519→        <div className="max-w-2xl mx-auto text-center mb-14">
+   520→          <span className="text-sm font-semibold text-[#C5A059] uppercase tracking-wider">Una plataforma, siete módulos</span>
+   521→          <h2 className="text-3xl sm:text-4xl font-bold text-[#f5f5f0] mt-2 tracking-tight">Todo lo que pasa en tu sala, en un solo panel</h2>
+   522→          <p className="mt-4 text-neutral-400 text-lg">Olvídate de saltar entre cinco herramientas distintas. Cada módulo de RestoPanel resuelve un problema concreto de la operativa diaria.</p>
+   523→        </div>
+   524→
+   525→        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+   526→          {modules.map((m, i) => (
+   527→            <ModuleCard key={i} {...m} delay={i * 0.08} />
+   528→          ))}
+   529→        </div>
+   530→      </div>
+   531→    </section>
+   532→  );
+   533→}
+   534→
+   535→function ModuleCard({
+   536→  tag, icon, title, desc, benefits, delay,
+   537→}: {
+   538→  tag: string; icon: React.ReactNode; title: string; desc: string; benefits: string[]; delay: number;
+   539→}) {
+   540→  return (
+   541→    <motion.div
+   542→      initial={{ opacity: 0, y: 20 }}
+   543→      whileInView={{ opacity: 1, y: 0 }}
+   544→      viewport={{ once: true }}
+   545→      transition={{ duration: 0.5, delay }}
+   546→      whileHover={{ y: -4 }}
+   547→      className="bg-[#111518] rounded-2xl border border-white/[0.06] p-6 hover:border-[#C5A059]/30 transition-all group"
+   548→    >
+   549→      <div className="flex items-center justify-between mb-4">
+   550→        <div className="w-10 h-10 rounded-xl bg-[#C5A059]/10 text-[#C5A059] flex items-center justify-center group-hover:bg-[#C5A059] group-hover:text-[#0a0a0a] transition-colors">
+   551→          {icon}
+   552→        </div>
+   553→        <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-white/5 text-neutral-500 uppercase tracking-wider">{tag}</span>
+   554→      </div>
+   555→      <h3 className="font-semibold text-[#f5f5f0] text-lg">{title}</h3>
+   556→      <p className="text-sm text-neutral-400 mt-2 leading-relaxed">{desc}</p>
+   557→      <ul className="mt-4 space-y-1.5">
+   558→        {benefits.map((b, i) => (
+   559→          <li key={i} className="flex items-start gap-2 text-sm text-neutral-300">
+   560→            <Check className="w-4 h-4 text-[#C5A059] flex-shrink-0 mt-0.5" />
+   561→            {b}
+   562→          </li>
+   563→        ))}
+   564→      </ul>
+   565→    </motion.div>
+   566→  );
+   567→}
+   568→
+   569→// ─── AUTOMATION ──────────────────────────────────────────────
+   570→function Automation() {
+   571→  return (
+   572→    <section id="automatizacion" className="py-20 sm:py-28 bg-gradient-to-b from-[#0a0a0a] to-[#0d1410]">
+   573→      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+   574→        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+   575→          <motion.div
+   576→            initial={{ opacity: 0, x: -30 }}
+   577→            whileInView={{ opacity: 1, x: 0 }}
+   578→            viewport={{ once: true }}
+   579→            transition={{ duration: 0.7 }}
+   580→          >
+   581→            <span className="text-sm font-semibold text-[#C5A059] uppercase tracking-wider">Modo automático</span>
+   582→            <h2 className="text-3xl sm:text-4xl font-bold text-[#f5f5f0] mt-2 tracking-tight">Tú defines las reglas. RestoPanel hace el trabajo.</h2>
+   583→            <p className="mt-4 text-neutral-400 text-lg">Configura una vez tus políticas de reserva, tiempos de mesa, cobros y recordatorios. El sistema se encarga de ejecutarlas sin que tengas que tocar nada más.</p>
+   584→
+   585→            <ul className="mt-8 space-y-4">
+   586→              <Benefit icon={<Zap className="w-4 h-4" />} title="Confirmaciones y reconfirmaciones automáticas" desc="Email, SMS o WhatsApp según el canal por el que llegó la reserva. Tú eliges cuándo y cuántas veces." />
+   587→              <Benefit icon={<CalendarCheck className="w-4 h-4" />} title="Reposicionamiento y listas de espera" desc="Si alguien cancela, el sistema reposiciona automáticamente a quien estaba en cola y le avisa." />
+   588→              <Benefit icon={<Globe className="w-4 h-4" />} title="Sincronización multicanal" desc="La disponibilidad se actualiza al instante en tu web, Google Maps y redes sociales. Nadie reserva una mesa que ya no existe." />
+   589→            </ul>
+   590→
+   591→            <div className="mt-8 p-4 rounded-xl bg-[#C5A059]/10 border border-[#C5A059]/20">
+   592→              <p className="text-sm text-[#C5A059] font-medium">Menos llamadas y WhatsApps improvisados. Más reservas confirmadas. Más tiempo para cuidar la experiencia en sala.</p>
+   593→            </div>
+   594→          </motion.div>
+   595→
+   596→          {/* Real photo with overlay */}
+   597→          <motion.div
+   598→            initial={{ opacity: 0, scale: 0.95 }}
+   599→            whileInView={{ opacity: 1, scale: 1 }}
+   600→            viewport={{ once: true }}
+   601→            transition={{ duration: 0.7 }}
+   602→            className="relative"
+   603→          >
+   604→            <div className="relative rounded-2xl overflow-hidden shadow-2xl">
+   605→              <img src="/landing/photo-calendar.jpeg" alt="Gestión de reservas con calendario de mesas — RestoPanel" className="w-full h-[280px] sm:h-[400px] object-cover object-center" />
+   606→              <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent" />
+   607→            </div>
+   608→
+   609→            {/* Floating calendar card */}
+   610→            <motion.div
+   611→              animate={{ y: [0, -8, 0] }}
+   612→              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+   613→              className="absolute top-6 right-6 bg-[#111518]/95 backdrop-blur rounded-xl border border-white/10 shadow-2xl p-3 w-40"
+   614→            >
+   615→              <p className="text-[10px] font-bold text-[#C5A059] uppercase mb-1">Julio 2026</p>
+   616→              <div className="grid grid-cols-7 gap-0.5">
+   617→                {Array.from({ length: 31 }, (_, i) => (
+   618→                  <div key={i} className={cn(
+   619→                    "text-[8px] text-center py-0.5 rounded",
+   620→                    i === 16 ? "bg-[#C5A059] text-[#0a0a0a] font-bold" : "text-neutral-500"
+   621→                  )}>
+   622→                    {i + 1}
+   623→                  </div>
+   624→                ))}
+   625→              </div>
+   626→            </motion.div>
+   627→          </motion.div>
+   628→        </div>
+   629→      </div>
+   630→    </section>
+   631→  );
+   632→}
+   633→
+   634→function Benefit({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) {
+   635→  return (
+   636→    <li className="flex gap-3">
+   637→      <div className="w-8 h-8 rounded-lg bg-[#C5A059]/10 text-[#C5A059] flex items-center justify-center flex-shrink-0 mt-0.5">{icon}</div>
+   638→      <div>
+   639→        <p className="font-semibold text-[#f5f5f0]">{title}</p>
+   640→        <p className="text-sm text-neutral-400 mt-1 leading-relaxed">{desc}</p>
+   641→      </div>
+   642→    </li>
+   643→  );
+   644→}
+   645→
+   646→// ─── ANALYTICS ───────────────────────────────────────────────
+   647→function Analytics() {
+   648→  return (
+   649→    <section id="analitica" className="py-20 sm:py-28">
+   650→      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+   651→        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+   652→          {/* Dashboard mockup */}
+   653→          <motion.div
+   654→            initial={{ opacity: 0, x: -30 }}
+   655→            whileInView={{ opacity: 1, x: 0 }}
+   656→            viewport={{ once: true }}
+   657→            transition={{ duration: 0.7 }}
+   658→            className="order-2 lg:order-1"
+   659→          >
+   660→            <div className="bg-[#111518] rounded-2xl border border-white/[0.06] p-6 shadow-2xl">
+   661→              <div className="flex items-center gap-2 mb-4">
+   662→                <div className="w-8 h-8 rounded-lg bg-[#C5A059] flex items-center justify-center text-[#0a0a0a]">
+   663→                  <BarChart3 className="w-4 h-4" />
+   664→                </div>
+   665→                <span className="font-semibold text-[#f5f5f0]">RestoAnalytics</span>
+   666→              </div>
+   667→              <div className="grid grid-cols-3 gap-3 mb-4">
+   668→                <MiniKpi label="Ocupación" value="87%" trend="+12%" />
+   669→                <MiniKpi label="Ticket medio" value="34€" trend="+5%" />
+   670→                <MiniKpi label="No-shows" value="4%" trend="-35%" />
+   671→              </div>
+   672→              <div className="h-32 flex items-end gap-1.5">
+   673→                {[40, 65, 50, 80, 70, 95, 60, 75, 85, 55, 90, 70].map((h, i) => (
+   674→                  <motion.div
+   675→                    key={i}
+   676→                    initial={{ height: 0 }}
+   677→                    whileInView={{ height: `${h}%` }}
+   678→                    viewport={{ once: true }}
+   679→                    transition={{ duration: 0.5, delay: i * 0.05 }}
+   680→                    className="flex-1 bg-gradient-to-t from-[#C5A059] to-[#C5A059]/50 rounded-t"
+   681→                  />
+   682→                ))}
+   683→              </div>
+   684→              <p className="text-xs text-neutral-500 mt-2">Reservas por día · últimos 12 días</p>
+   685→            </div>
+   686→          </motion.div>
+   687→
+   688→          <motion.div
+   689→            initial={{ opacity: 0, x: 30 }}
+   690→            whileInView={{ opacity: 1, x: 0 }}
+   691→            viewport={{ once: true }}
+   692→            transition={{ duration: 0.7 }}
+   693→            className="order-1 lg:order-2"
+   694→          >
+   695→            <span className="text-sm font-semibold text-[#C5A059] uppercase tracking-wider">Mesa de control</span>
+   696→            <h2 className="text-3xl sm:text-4xl font-bold text-[#f5f5f0] mt-2 tracking-tight">Ver claro qué da dinero y qué no</h2>
+   697→            <p className="mt-4 text-neutral-400 text-lg">RestoAnalytics convierte cada reserva, cada mesa y cada cliente en datos accionables. No son números para mirar: son números para decidir.</p>
+   698→            <ul className="mt-8 space-y-3">
+   699→              {[
+   700→                "KPIs en tiempo real: ocupación, ticket medio, recurrencia, % no-shows y rendimiento por turno y por canal.",
+   701→                "Identifica clientes VIP y frecuentes sin buscarlos manualmente.",
+   702→                "Informes listos para decidir horarios, equipo, precios y campañas.",
+   703→                "Comparativa entre locales para grupos y cadenas.",
+   704→              ].map((t, i) => (
+   705→                <li key={i} className="flex items-start gap-2 text-neutral-300">
+   706→                  <Check className="w-5 h-5 text-[#C5A059] flex-shrink-0 mt-0.5" />
+   707→                  <span>{t}</span>
+   708→                </li>
+   709→              ))}
+   710→            </ul>
+   711→          </motion.div>
+   712→        </div>
+   713→      </div>
+   714→    </section>
+   715→  );
+   716→}
+   717→
+   718→function MiniKpi({ label, value, trend }: { label: string; value: string; trend: string }) {
+   719→  const positive = trend.startsWith("+") || (label === "No-shows" && trend.startsWith("-"));
+   720→  return (
+   721→    <div className="bg-white/[0.03] rounded-lg p-3">
+   722→      <p className="text-xs text-neutral-500">{label}</p>
+   723→      <p className="text-xl font-bold text-[#f5f5f0]">{value}</p>
+   724→      <p className={`text-[10px] font-semibold ${positive ? "text-green-400" : "text-red-400"}`}>{trend}</p>
+   725→    </div>
+   726→  );
+   727→}
+   728→
+   729→// ============================================================
+   730→// ─── GOOGLE REVIEWS SECTION (premium B2B reputation panel) ──
+   731→// ============================================================
+   732→// Visual layout (mobile-first, stacks gracefully):
+   733→//   1. Eyebrow + Headline + Subtitle
+   734→//   2. Premium mockup of the in-app Google Reviews panel:
+   735→//        - KPI row (rating, volume, response time, sentiment)
+   736→//        - Reputation evolution sparkline (last 6 months)
+   737→//        - Real review cards (fetched from /api/public/reviews)
+   738→//        - Each card shows stars, author, body, response status,
+   739→//          and the restaurant's reply if it exists
+   740→//   3. Six feature cards (visualize, respond, detect, prioritize,
+   741→//      smart suggestions, measure)
+   742→//   4. Commercial benefit block (reputation = bookings)
+   743→//   5. CTA + "Leave a review" + "See it on Google" buttons
+   744→//   6. Submit-review form (real POST to /api/public/reviews)
+   745→// ============================================================
+   746→
+   747→type PublicReview = {
+   748→  id: string;
+   749→  author_name: string;
+   750→  author_role: "CLIENT" | "COMPANY";
+   751→  author_company?: string | null;
+   752→  author_avatar?: string | null;
+   753→  rating: number;
+   754→  title?: string | null;
+   755→  body: string;
+   756→  tags?: string[];
+   757→  verified_metric?: string | null;
+   758→  response_text?: string | null;
+   759→  response_at?: string | null;
+   760→  created_at: string;
+   761→  organization_id?: string | null;
+   762→};
+   763→
+   764→type ReviewAggregate = {
+   765→  count: number;
+   766→  average: number;
+   767→  distribution: { star: number; count: number }[];
+   768→} | null;
+   769→
+   770→function GoogleReviews() {
+   771→  const router = useRouter();
+   772→  const [reviews, setReviews] = useState<PublicReview[]>([]);
+   773→  const [aggregate, setAggregate] = useState<ReviewAggregate>(null);
+   774→  const [tableMissing, setTableMissing] = useState(false);
+   775→  const [loading, setLoading] = useState(true);
+   776→  const [showForm, setShowForm] = useState(false);
+   777→  const [pendingReview, setPendingReview] = useState<PublicReview | null>(null);
+   778→
+   779→  const loadReviews = useCallback(async () => {
+   780→    try {
+   781→      const r = await fetch("/api/public/reviews?limit=8", { cache: "no-store" });
+   782→      if (!r.ok) return;
+   783→      const j = await r.json();
+   784→      setReviews(j.reviews || []);
+   785→      setAggregate(j.aggregate || null);
+   786→      setTableMissing(!!j.tableMissing);
+   787→    } catch {
+   788→      /* network error — render wall with placeholder state */
+   789→    } finally {
+   790→      setLoading(false);
+   791→    }
+   792→  }, []);
+   793→
+   794→  useEffect(() => {
+   795→    loadReviews();
+   796→  }, [loadReviews]);
+   797→
+   798→  // When the submit form succeeds, we synthesise a "just published"
+   799→  // review locally so the user sees their submission appear immediately
+   800→  // on the wall with a "Recién publicada" badge. The next page reload
+   801→  // will show it as a normal approved review (the local pending copy
+   802→  // is dropped on reload).
+   803→  const handleSubmitted = useCallback((review: PublicReview) => {
+   804→    setPendingReview(review);
+   805→    setShowForm(false);
+   806→    // Scroll to the wall so the user sees their published review
+   807→    setTimeout(() => {
+   808→      document.getElementById("reviews-wall")?.scrollIntoView({ behavior: "smooth", block: "start" });
+   809→    }, 200);
+   810→    // Re-fetch so the wall reflects the new review from the server
+   811→    loadReviews();
+   812→  }, [loadReviews]);
+   813→
+   814→  return (
+   815→    <section id="google-reviews" className="py-20 sm:py-28 relative overflow-hidden bg-gradient-to-b from-[#0a0a0a] via-[#0c0f12] to-[#0a0a0a]">
+   816→      {/* Ambient gold glow */}
+   817→      <div className="absolute inset-0 pointer-events-none opacity-60">
+   818→        <div className="absolute -top-20 left-1/4 w-[400px] h-[400px] rounded-full bg-[#C5A059]/8 blur-[120px]" />
+   819→        <div className="absolute -bottom-20 right-1/4 w-[400px] h-[400px] rounded-full bg-[#004D40]/10 blur-[120px]" />
+   820→      </div>
+   821→
+   822→      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6">
+   823→        {/* ─── 1. Header ─── */}
+   824→        <motion.div
+   825→          initial={{ opacity: 0, y: 16 }}
+   826→          whileInView={{ opacity: 1, y: 0 }}
+   827→          viewport={{ once: true }}
+   828→          transition={{ duration: 0.6 }}
+   829→          className="text-center max-w-3xl mx-auto mb-12 sm:mb-16"
+   830→        >
+   831→          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#C5A059]/10 border border-[#C5A059]/25 text-xs font-semibold text-[#C5A059] uppercase tracking-wider">
+   832→            <Sparkles className="w-3.5 h-3.5" />
+   833→            Reseñas reales · Gestión de Google Reviews
+   834→          </span>
+   835→          <h2 className="mt-4 text-3xl sm:text-4xl lg:text-5xl font-bold text-[#f5f5f0] tracking-tight leading-[1.1]">
+   836→            Tu reputación online,{" "}
+   837→            <span className="bg-gradient-to-r from-[#C5A059] to-[#e3c987] bg-clip-text text-transparent">
+   838→              tan cuidada como tu servicio en sala.
+   839→            </span>
+   840→          </h2>
+   841→          <p className="mt-5 text-base sm:text-lg text-neutral-400 leading-relaxed">
+   842→            Las reseñas que ves aquí las envían clientes y restaurantes reales desde este mismo formulario. Nada de
+   843→            testimonios ficticios: cada opinión se guarda en nuestra base de datos, se modera y se publica
+   844→            automáticamente. Además, con RestoPanel puedes gestionar tus reseñas de Google desde el mismo panel que tus
+   845→            reservas, tu CRM y tus turnos. Software de reputación para hostelería que convierte cada reseña en una
+   846→            oportunidad de fidelización y reserva.
+   847→          </p>
+   848→        </motion.div>
+   849→
+   850→        {/* ─── 2. Premium mockup of the in-app panel ─── */}
+   851→        <ReviewsPanelMockup reviews={reviews} aggregate={aggregate} loading={loading} tableMissing={tableMissing} />
+   852→
+   853→        {/* ─── 3. Feature cards (6) ─── */}
+   854→        <div className="mt-16 sm:mt-20 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+   855→          <ReviewFeatureCard
+   856→            icon={<Globe className="w-5 h-5" />}
+   857→            title="Visualiza todas tus reseñas desde un único panel"
+   858→            desc="Conecta tu ficha de Google Business Profile y centraliza cada opinión en una vista única. Filtra por estrellas, fecha, estado de respuesta o sentimiento."
+   859→            delay={0}
+   860→          />
+   861→          <ReviewFeatureCard
+   862→            icon={<Reply className="w-5 h-5" />}
+   863→            title="Responde con rapidez y coherencia desde la plataforma"
+   864→            desc="Contesta sin salir del panel. Plantillas por tono, firma automática del responsable y historial completo de cada conversación con el cliente."
+   865→            delay={0.05}
+   866→          />
+   867→          <ReviewFeatureCard
+   868→            icon={<TrendingUp className="w-5 h-5" />}
+   869→            title="Detecta patrones de satisfacción o queja"
+   870→            desc="Etiquetado automático de temas recurrentes: tiempo de espera, calidad del servicio, ambiente, carta. Ve qué se repite antes de que se convierta en problema."
+   871→            delay={0.1}
+   872→          />
+   873→          <ReviewFeatureCard
+   874→            icon={<AlertTriangle className="w-5 h-5" />}
+   875→            title="Prioriza reseñas negativas o sin responder"
+   876→            desc="Bandeja inteligente que coloca arriba las opiniones de 1-3 estrellas y las que llevan más de 24h sin respuesta. Nunca se te escape una crítica."
+   877→            delay={0.15}
+   878→          />
+   879→          <ReviewFeatureCard
+   880→            icon={<Sparkles className="w-5 h-5" />}
+   881→            title="Sugerencias inteligentes para respuestas profesionales"
+   882→            desc="Borradores automáticos con el tono adecuado para cada caso: empático para quejas, cálido para 5 estrellas, formal para empresas. Tú apruebas, tú envías."
+   883→            delay={0.2}
+   884→          />
+   885→          <ReviewFeatureCard
+   886→            icon={<Gauge className="w-5 h-5" />}
+   887→            title="Mide la evolución de tu reputación mes a mes"
+   888→            desc="Nota media, volumen de reseñas, tiempo medio de respuesta y sentimiento general. Comparativas entre locales para grupos y cadenas hosteleras."
+   889→            delay={0.25}
+   890→          />
+   891→        </div>
+   892→
+   893→        {/* ─── 4. Commercial benefit block ─── */}
+   894→        <CommercialBenefitBlock />
+   895→
+   896→        {/* ─── 5. Real reviews wall + CTA ─── */}
+   897→        <div className="mt-16 sm:mt-20">
+   898→          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
+   899→            <div>
+   900→              <span className="text-sm font-semibold text-[#C5A059] uppercase tracking-wider">Reseñas reales</span>
+   901→              <h3 className="mt-2 text-2xl sm:text-3xl font-bold text-[#f5f5f0] tracking-tight">
+   902→                Lo que dicen clientes y restaurantes
+   903→              </h3>
+   904→              <p className="mt-2 text-sm text-neutral-400 max-w-xl">
+   905→                Cada reseña aquí publicada la envía un cliente real o un restaurante desde esta misma página. Nada de
+   906→                reseñas ficticias: si la pared está vacía, es porque todavía no hay reseñas aprobadas.
+   907→              </p>
+   908→            </div>
+   909→            <div className="flex flex-col sm:flex-row gap-2.5">
+   910→              <Button
+   911→                size="lg"
+   912→                className="bg-[#C5A059] hover:bg-[#b08d4e] text-[#0a0a0a] text-sm sm:text-base h-11 px-5 font-semibold"
+   913→                onClick={() => setShowForm(true)}
+   914→              >
+   915→                <Send className="w-4 h-4 mr-1.5" />
+   916→                Dejar una reseña
+   917→              </Button>
+   918→              <Button
+   919→                size="lg"
+   920→                variant="outline"
+   921→                className="border-white/20 text-[#f5f5f0] hover:bg-white/5 text-sm sm:text-base h-11 px-5"
+   922→                onClick={() => router.push("/login")}
+   923→              >
+   924→                Quiero gestionar mis reseñas
+   925→                <ArrowRight className="w-4 h-4 ml-1.5" />
+   926→              </Button>
+   927→            </div>
+   928→          </div>
+   929→
+   930→          <div id="reviews-wall">
+   931→            <RealReviewsWall
+   932→              reviews={reviews}
+   933→              aggregate={aggregate}
+   934→              loading={loading}
+   935→              tableMissing={tableMissing}
+   936→              onReload={loadReviews}
+   937→              pendingReview={pendingReview}
+   938→            />
+   939→          </div>
+   940→        </div>
+   941→
+   942→        {/* ─── 6. Submit form (slide-over) ─── */}
+   943→        <AnimatePresence>
+   944→          {showForm && (
+   945→            <ReviewSubmitForm
+   946→              onClose={() => setShowForm(false)}
+   947→              onSubmitted={handleSubmitted}
+   948→            />
+   949→          )}
+   950→        </AnimatePresence>
+   951→      </div>
+   952→    </section>
+   953→  );
+   954→}
+   955→
+   956→// ─── Premium mockup of the in-app Google Reviews panel ──────
+   957→function ReviewsPanelMockup({
+   958→  reviews,
+   959→  aggregate,
+   960→  loading,
+   961→  tableMissing,
+   962→}: {
+   963→  reviews: PublicReview[];
+   964→  aggregate: ReviewAggregate;
+   965→  loading: boolean;
+   966→  tableMissing: boolean;
+   967→}) {
+   968→  // Build the mock KPI set — uses real aggregate when available,
+   969→  // otherwise falls back to neutral placeholder values that don't
+   970→  // lie (they're shown as illustrative mockup data inside the panel
+   971→  // preview, NOT as published stats).
+   972→  const realCount = aggregate?.count || 0;
+   973→  const realAvg = aggregate?.average || 0;
+   974→  const hasReal = realCount > 0 && !tableMissing;
+   975→
+   976→  // Illustrative values for the mockup (clearly inside the preview,
+   977→  // they don't claim to be live stats on the landing itself)
+   978→  const mockAvg = hasReal ? realAvg.toFixed(1) : "4.7";
+   979→  const mockCount = hasReal ? realCount : 128;
+   980→  const mockResponseTime = "1h 42m";
+   981→  const mockSentiment = hasReal ? (realAvg >= 4.5 ? "Muy positivo" : realAvg >= 3.5 ? "Positivo" : "Mixto") : "Muy positivo";
+   982→
+   983→  // 6-month reputation evolution (mock sparkline)
+   984→  const sparkData = [4.2, 4.3, 4.4, 4.5, 4.6, 4.7];
+   985→
+   986→  // Pick up to 3 reviews for the mockup preview (or fall back to 3 illustrative cards)
+   987→  const previewReviews = reviews.slice(0, 3);
+   988→  const mockReviews: PublicReview[] = previewReviews.length > 0 ? previewReviews : [
+   989→    {
+   990→      id: "mock-1",
+   991→      author_name: "Lucía Marín",
+   992→      author_role: "CLIENT",
+   993→      rating: 5,
+   994→      title: "Cena de aniversario inolvidable",
+   995→      body: "Reservamos por la web y al llegar ya sabían que era nuestro aniversario. El servicio fue impecable y el rabo de toro excepcional. Volveremos seguro.",
+   996→      tags: ["Reservas", "Servicio"],
+   997→      verified_metric: null,
+   998→      response_text: "¡Mil gracias, Lucía! Fue un placer recibiros. Os esperamos pronto.",
+   999→      response_at: new Date(Date.now() - 86400000).toISOString(),
+  1000→      created_at: new Date(Date.now() - 3 * 86400000).toISOString(),
+  1001→      organization_id: null,
+  1002→      author_company: null,
+  1003→      author_avatar: null,
+  1004→    },
+  1005→    {
+  1006→      id: "mock-2",
+  1007→      author_name: "Andrés Ruiz",
+  1008→      author_role: "CLIENT",
+  1009→      rating: 4,
+  1010→      title: "Muy bien, con un pero",
+  1011→      body: "La comida excelente y el trato muy amable. Único pero: tuvimos que esperar 10 minutos en la barra con reserva confirmada. Por lo demás, recomendable.",
+  1012→      tags: ["Servicio", "Espera"],
+  1013→      verified_metric: null,
+  1014→      response_text: null,
+  1015→      response_at: null,
+  1016→      created_at: new Date(Date.now() - 5 * 86400000).toISOString(),
+  1017→      organization_id: null,
+  1018→      author_company: null,
+  1019→      author_avatar: null,
+  1020→    },
+  1021→    {
+  1022→      id: "mock-3",
+  1023→      author_name: "Bistró del Puerto",
+  1024→      author_role: "COMPANY",
+  1025→      rating: 5,
+  1026→      title: "RestoPanel nos ha cambiado la gestión",
+  1027→      body: "Como restaurante, gestionábamos las reseñas a mano desde el móvil. Ahora las tenemos todas en el mismo panel que las reservas y el CRM. El tiempo de respuesta se ha reducido a la mitad.",
+  1028→      tags: ["Producto", "Soporte"],
+  1029→      verified_metric: "-50% tiempo de respuesta",
+  1030→      response_text: null,
+  1031→      response_at: null,
+  1032→      created_at: new Date(Date.now() - 7 * 86400000).toISOString(),
+  1033→      organization_id: null,
+  1034→      author_company: "Bistró del Puerto · Cádiz",
+  1035→      author_avatar: null,
+  1036→    },
+  1037→  ];
+  1038→
+  1039→  return (
+  1040→    <motion.div
+  1041→      initial={{ opacity: 0, y: 24 }}
+  1042→      whileInView={{ opacity: 1, y: 0 }}
+  1043→      viewport={{ once: true }}
+  1044→      transition={{ duration: 0.7 }}
+  1045→      className="relative"
+  1046→    >
+  1047→      <div className="bg-gradient-to-br from-[#111518] to-[#0c0f12] rounded-3xl border border-[#C5A059]/15 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7),0_0_60px_-20px_rgba(197,160,89,0.25)] overflow-hidden">
+  1048→        {/* Window chrome */}
+  1049→        <div className="flex items-center gap-2 px-5 py-3 border-b border-white/[0.06] bg-black/30">
+  1050→          <div className="flex gap-1.5">
+  1051→            <span className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+  1052→            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
+  1053→            <span className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
+  1054→          </div>
+  1055→          <div className="flex-1 flex items-center justify-center">
+  1056→            <span className="text-[10px] sm:text-xs text-neutral-500 font-mono">restopanel.app/reviews</span>
+  1057→          </div>
+  1058→          <div className="flex items-center gap-1.5">
+  1059→            <span className="text-[10px] text-neutral-500 hidden sm:inline">Sincronizado · Google</span>
+  1060→            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+  1061→          </div>
+  1062→        </div>
+  1063→
+  1064→        <div className="p-5 sm:p-6">
+
+[showing lines 465-1064 of 2385; use offset=1065 with limit to continue reading]

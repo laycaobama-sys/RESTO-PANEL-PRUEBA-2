@@ -87,55 +87,73 @@ export async function POST(req: Request) {
 
     // Meta sends a confirmation on first setup
     if (body.object) {
-      // Process message webhooks
-      if (body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {
-        const message = body.entry[0].changes[0].value.messages[0];
-        const from = message.from; // phone number
-        const text = message.text?.body || "";
-        // We no longer log message text — GDPR risk.
-        logger.info(`Mensaje de WhatsApp recibido de ${from}`, "whatsapp-webhook");
+      // CRITICAL FIX: iterate over ALL entries/changes/messages.
+      // Meta batches multiple messages per webhook — previously we
+      // only read entry[0].changes[0].value.messages[0], dropping
+      // all others.
+      for (const entry of body.entry || []) {
+        for (const change of entry.changes || []) {
+          const value = change.value;
 
-        // Look up the customer by phone and store the inbound
-        // message in the CRM (best-effort, non-blocking).
-        try {
-          const { data: customer } = await supabaseAdmin
-            .from("customers")
-            .select("id, organization_id, name")
-            .eq("phone", from)
-            .maybeSingle();
+          // Process ALL inbound messages in this change
+          if (value?.messages && Array.isArray(value.messages)) {
+            for (const message of value.messages) {
+              const from = message.from;
+              const text = message.text?.body || "";
+              logger.info(`Mensaje de WhatsApp recibido de ${from}`, "whatsapp-webhook");
 
-          if (customer) {
-            await supabaseAdmin.from("whatsapp_messages").insert({
-              organization_id: customer.organization_id,
-              customer_id: customer.id,
-              direction: "inbound",
-              status: "received",
-              message_text: text,
-              wa_message_id: message.id,
-              received_at: new Date(Number(message.timestamp) * 1000).toISOString(),
-            });
+              try {
+                // CRITICAL FIX: use .limit(1) instead of .maybeSingle() —
+                // if two tenants share a customer phone (very common),
+                // .maybeSingle() throws PGRST116 and every inbound
+                // message is silently dropped.
+                // Note: this is still not org-scoped — Meta webhooks
+                // don't tell us which tenant a phone belongs to. We
+                // accept the first match as the canonical customer.
+                const { data: customers } = await supabaseAdmin
+                  .from("customers")
+                  .select("id, organization_id, name")
+                  .eq("phone", from)
+                  .limit(1);
+
+                const customer = customers?.[0];
+                if (customer) {
+                  // Idempotent insert keyed on wa_message_id
+                  await supabaseAdmin.from("whatsapp_messages").upsert({
+                    organization_id: customer.organization_id,
+                    customer_id: customer.id,
+                    direction: "inbound",
+                    status: "received",
+                    message_text: text,
+                    wa_message_id: message.id,
+                    whatsapp_message_id: message.id,
+                    received_at: new Date(Number(message.timestamp) * 1000).toISOString(),
+                  }, { onConflict: "wa_message_id" });
+                }
+              } catch (e) {
+                logger.warn("No se pudo persistir el mensaje de WhatsApp", "whatsapp-webhook", {
+                  error: (e as Error).message,
+                });
+              }
+            }
           }
-        } catch (e) {
-          // Non-critical — don't fail the webhook.
-          logger.warn("No se pudo persistir el mensaje de WhatsApp", "whatsapp-webhook", {
-            error: (e as Error).message,
-          });
-        }
-      }
 
-      // Process status updates (sent, delivered, read)
-      if (body.entry?.[0]?.changes?.[0]?.value?.statuses?.[0]) {
-        const status = body.entry[0].changes[0].value.statuses[0];
-        logger.info(`Estado de WA: ${status.status} para ${status.id}`, "whatsapp-webhook");
-
-        // Update the message status in the DB.
-        try {
-          await supabaseAdmin
-            .from("whatsapp_messages")
-            .update({ status: status.status })
-            .eq("wa_message_id", status.id);
-        } catch {
-          // Non-critical.
+          // Process ALL status updates in this change
+          if (value?.statuses && Array.isArray(value.statuses)) {
+            for (const status of value.statuses) {
+              logger.info(`Estado de WA: ${status.status} para ${status.id}`, "whatsapp-webhook");
+              try {
+                // Update by EITHER wa_message_id OR whatsapp_message_id
+                // (different code paths use different column names)
+                await supabaseAdmin
+                  .from("whatsapp_messages")
+                  .update({ status: status.status })
+                  .or(`wa_message_id.eq.${status.id},whatsapp_message_id.eq.${status.id}`);
+              } catch {
+                // Non-critical.
+              }
+            }
+          }
         }
       }
 

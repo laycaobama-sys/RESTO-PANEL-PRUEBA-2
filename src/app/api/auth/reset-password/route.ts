@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
 import { hashPassword } from '@/lib/auth'
+import { revokeAllUserSessions } from '@/lib/session-management'
+import { logger } from '@/lib/logger'
 
 const schema = z.object({
   token: z.string().min(10),
@@ -32,9 +34,19 @@ export async function POST(req: Request) {
     await supabaseAdmin.from('users').update({ password_hash: passwordHash }).eq('id', record.user_id)
     await db.verificationToken.markUsed(record.id)
 
-    return NextResponse.json({ ok: true, message: 'Contraseña actualizada correctamente' })
+    // CRITICAL FIX: revoke ALL existing sessions for this user so
+    // that any stolen JWT (from before the password change) is
+    // immediately invalid. Without this, a compromised account
+    // remains accessible to the attacker for up to 30 days.
+    // We revoke ALL sessions (including the current one) because
+    // the user just proved they have a new password — they must
+    // re-authenticate with it.
+    await revokeAllUserSessions(record.user_id)
+    logger.info('Password reset — all sessions revoked', 'auth', { userId: record.user_id })
+
+    return NextResponse.json({ ok: true, message: 'Contraseña actualizada correctamente. Por favor, inicia sesión de nuevo.' })
   } catch (e) {
-    console.error('Reset password error', e)
+    logger.error('Reset password error', 'auth', { error: (e as Error).message })
     return NextResponse.json({ error: 'Error del servidor' }, { status: 500 })
   }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { getActiveSessions, revokeAllUserSessions, revokeSession } from "@/lib/session-management";
+import { getActiveSessions, revokeAllUserSessions, revokeSessionByJtiAndUser } from "@/lib/session-management";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -26,7 +26,10 @@ export async function DELETE(req: Request) {
   }
 
   if (jti) {
-    await revokeSession(jti);
+    // CRITICAL FIX: filter by BOTH jti AND user_id — otherwise any
+    // authenticated user can revoke any other user's session by
+    // passing that user's jti (IDOR).
+    await revokeSessionByJtiAndUser(jti, user.id);
     return NextResponse.json({ ok: true, message: "Sesión cerrada" });
   }
 

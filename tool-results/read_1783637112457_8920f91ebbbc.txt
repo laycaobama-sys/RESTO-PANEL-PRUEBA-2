@@ -1,0 +1,1078 @@
+     1→Task ID: phase-a
+     2→Agent: Explore (Read-Only Backend Audit · Round 2)
+     3→Task: AUDIT (read-only) every backend file listed in the brief. Find REMAINING bugs after previous audit rounds (audit-8/9/10-11/5-6-14/7). Be EXTREMELY THOROUGH. Look for race conditions, missing org_id filters, missing auth, missing error handling, memory leaks, 500s, timeouts, duplicate writes, incomplete rollbacks, rate-limit bypass, JWT/session issues, webhook security, SSRF, SQL injection, mass assignment, open redirects.
+     4→
+     5→Scope inspected (35 files, read end-to-end):
+     6→- src/middleware.ts
+     7→- src/lib/next-auth.ts
+     8→- src/lib/session.ts
+     9→- src/lib/session-management.ts
+    10→- src/lib/rbac.ts
+    11→- src/lib/auth.ts
+    12→- src/lib/stripe.ts
+    13→- src/lib/rate-limit.ts
+    14→- src/lib/logger.ts
+    15→- src/lib/audit.ts
+    16→- src/lib/feature-flags.ts
+    17→- src/lib/email.ts
+    18→- src/lib/email-processor.ts
+    19→- src/lib/whatsapp.ts
+    20→- src/lib/web-import.ts
+    21→- src/lib/supabase/admin.ts
+    22→- src/lib/supabase/client.ts
+    23→- src/app/api/auth/[...nextauth]/route.ts
+    24→- src/app/api/auth/register/route.ts
+    25→- src/app/api/auth/forgot-password/route.ts
+    26→- src/app/api/auth/reset-password/route.ts
+    27→- src/app/api/auth/verify-email/route.ts
+    28→- src/app/api/stripe/webhook/route.ts
+    29→- src/app/api/billing/checkout/route.ts
+    30→- src/app/api/billing/portal/route.ts
+    31→- src/app/api/billing/subscription/route.ts
+    32→- src/app/api/whatsapp/webhook/route.ts
+    33→- src/app/api/whatsapp/status/route.ts
+    34→- src/app/api/tables/route.ts
+    35→- src/app/api/tables/[id]/route.ts
+    36→- src/app/api/tables/transfer/route.ts
+    37→- src/app/api/tables/positions/route.ts
+    38→- src/app/api/tables/group/route.ts
+    39→- src/app/api/reservations/route.ts
+    40→- src/app/api/reservations/[id]/route.ts
+    41→- src/app/api/restaurant/import-web/route.ts
+    42→- src/app/api/user/sessions/route.ts
+    43→
+    44→Also inspected for context: src/lib/db.ts (full), supabase/migrations/0001_*, 0014_*, 0015_*, 0017_*, 0018_*. No source files were modified.
+    45→
+    46→Methodology: file-by-file read + cross-reference against DB schema (migrations 0001–0018) to verify that (a) unique constraints cited by `onConflict` exist, (b) columns referenced actually exist, (c) RLS policies match the assumed tenant-isolation model. Targeted ripgrep across src/ for callers of `startEmailProcessor`, `startWhatsAppProcessor`, `checkRateLimit`, `RATE_LIMITS`, `invalidateRbacCache`, `revokeSession` to confirm dead-code vs wired-up status.
+    47→
+    48→================================================================================
+    49→# Summary of REMAINING bugs found in this round
+    50→================================================================================
+    51→
+    52→Counts:
+    53→- ❌ CRITICAL: 4
+    54→- ❌ HIGH:     11
+    55→- ⚠️  MEDIUM:  14
+    56→- ℹ️  LOW:      7
+    57→- ✅ OK:        6 (noted at end)
+    58→
+    59→Top 5 priorities (by impact × likelihood):
+    60→1. CRITICAL — `/api/user/sessions` DELETE IDOR: any authenticated user can revoke ANY other user's session by passing that user's JTI (audit-9 B1 still unfixed).
+    61→2. CRITICAL — `/api/auth/reset-password` does not revoke existing sessions after a password change. Stolen-password victims remain compromised even after reset.
+    62→3. CRITICAL — `/api/auth/register` returns `verifyToken` in the JSON response, completely bypassing email verification.
+    63→4. CRITICAL — `/api/whatsapp/webhook` customer lookup by `phone` uses `.maybeSingle()` → throws `PGRST116` on duplicate phones (very common across tenants), dropping every inbound WhatsApp message from any customer whose phone is shared.
+    64→5. HIGH — `/api/reservations` POST has no rate limit AND no `checkLimit('reservations')` enforcement; each call also fires WhatsApp + email → trivial DoS + plan bypass.
+    65→
+    66→================================================================================
+    67→# A. Authentication & Session subsystem
+    68→================================================================================
+    69→
+    70→## A.1 ❌ BUG (CRITICAL) — `/api/user/sessions` DELETE IDOR on `jti`
+    71→File: src/app/api/user/sessions/route.ts:28-30
+    72→Code:
+    73→```ts
+    74→if (jti) {
+    75→  await revokeSession(jti);
+    76→  return NextResponse.json({ ok: true, message: "Sesión cerrada" });
+    77→}
+    78→```
+    79→`revokeSession(jti)` in src/lib/session-management.ts:55-62 only filters by `token_jti`:
+    80→```ts
+    81→export async function revokeSession(jti: string): Promise<void> {
+    82→  try {
+    83→    await supabaseAdmin
+    84→      .from("user_sessions")
+    85→      .update({ revoked_at: new Date().toISOString() })
+    86→      .eq("token_jti", jti);
+    87→  } catch {}
+    88→}
+    89→```
+    90→The `jti` comes from the query string with NO validation that it belongs to the current user. Any authenticated user can revoke ANY other user's (or even the super-admin's) active session by guessing/leaking their JTI. JTIs are UUIDs (`randomUUID()` in session-management.ts:229) so blind guessing is impractical, but a leaked JTI (e.g. from logs, network sniffing, XSS reading localStorage) gives an attacker a one-shot denial-of-service primitive against any user. This was flagged in audit-9 (worklog line 580) and is NOT fixed.
+    91→
+    92→Concrete fix:
+    93→```ts
+    94→// src/lib/session-management.ts — accept userId and scope the UPDATE
+    95→export async function revokeSession(userId: string, jti: string): Promise<void> {
+    96→  try {
+    97→    await supabaseAdmin
+    98→      .from("user_sessions")
+    99→      .update({ revoked_at: new Date().toISOString() })
+   100→      .eq("token_jti", jti)
+   101→      .eq("user_id", userId);          // ← caller-scoped
+   102→  } catch {}
+   103→}
+   104→
+   105→// src/app/api/user/sessions/route.ts:28
+   106→if (jti) {
+   107→  await revokeSession(user.id, jti);
+   108→  return NextResponse.json({ ok: true, message: "Sesión cerrada" });
+   109→}
+   110→```
+   111→
+   112→## A.2 ❌ BUG (CRITICAL) — `/api/auth/reset-password` does NOT invalidate existing sessions
+   113→File: src/app/api/auth/reset-password/route.ts:30-33
+   114→Code:
+   115→```ts
+   116→const passwordHash = await hashPassword(password)
+   117→const { supabaseAdmin } = await import('@/lib/supabase/admin')
+   118→await supabaseAdmin.from('users').update({ password_hash: passwordHash }).eq('id', record.user_id)
+   119→await db.verificationToken.markUsed(record.id)
+   120→```
+   121→After a password reset, the user's existing JWT sessions (with the OLD password hash) remain valid. The `isSessionValid` check in next-auth.ts:161-168 only inspects `revoked_at` and `expires_at` — it does NOT compare the password hash. So if an attacker stole the user's password and the user reset it, the attacker's existing logged-in session keeps working for up to 30 days (the JWT `maxAge` in next-auth.ts:27).
+   122→
+   123→Concrete fix:
+   124→```ts
+   125→import { revokeAllUserSessions } from '@/lib/session-management'
+   126→// after the password update:
+   127→await revokeAllUserSessions(record.user_id)   // force re-login on every device
+   128→```
+   129→
+   130→## A.3 ❌ BUG (CRITICAL) — `/api/auth/register` returns `verifyToken` in the response
+   131→File: src/app/api/auth/register/route.ts:146-153
+   132→Code:
+   133→```ts
+   134→return NextResponse.json({
+   135→  ok: true,
+   136→  userId: user.id,
+   137→  restaurantId: organization.id,
+   138→  organizationId: organization.id,
+   139→  restaurantSlug: organization.slug,
+   140→  verifyToken,                            // ← bypasses email verification
+   141→})
+   142→```
+   143→The verification token is returned in the JSON response. Anyone can register with a throwaway email and immediately use the returned token to call `/api/auth/verify-email?token=...`, marking the account as verified without ever checking the inbox. This completely defeats the purpose of email verification (which gates trust signals like "this is a real restaurant").
+   144→
+   145→Concrete fix: remove `verifyToken` from the response. The token must only ever travel via the emailed link.
+   146→```ts
+   147→return NextResponse.json({
+   148→  ok: true,
+   149→  userId: user.id,
+   150→  restaurantId: organization.id,
+   151→  organizationId: organization.id,
+   152→  restaurantSlug: organization.slug,
+   153→})
+   154→```
+   155→
+   156→## A.4 ❌ BUG (CRITICAL) — WhatsApp webhook customer lookup throws on duplicate phones
+   157→File: src/app/api/whatsapp/webhook/route.ts:101-105
+   158→Code:
+   159→```ts
+   160→const { data: customer } = await supabaseAdmin
+   161→  .from("customers")
+   162→  .select("id, organization_id, name")
+   163→  .eq("phone", from)
+   164→  .maybeSingle();
+   165→```
+   166→`customers.phone` is NOT unique across tenants (many restaurants have a customer with the same phone). Supabase's `.maybeSingle()` throws `PGRST116` ("JSON object requested, multiple (or no) rows returned") when more than one row matches. The throw is caught at line 118-123 and logged, but the inbound WhatsApp message is then DROPPED — never persisted to `whatsapp_messages`. Every customer whose phone is shared across two or more tenants has all their inbound WhatsApp messages silently lost. Even if it didn't throw, the message would be persisted to `whatsapp_messages` with whichever customer's `organization_id` was returned first — a tenant-isolation violation.
+   167→
+   168→Concrete fix: scope by organization_id derived from the message metadata, and use `.limit(1)` instead of `.maybeSingle()`. The WhatsApp inbound payload includes `metadata.phone_number_id` which maps 1:1 to the tenant's WhatsApp business number:
+   169→```ts
+   170→const phoneNumberId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+   171→// look up tenant by phone_number_id (stored in organizations.whatsapp_phone_number_id)
+   172→const { data: org } = await supabaseAdmin
+   173→  .from("organizations")
+   174→  .select("id")
+   175→  .eq("whatsapp_phone_number_id", phoneNumberId)
+   176→  .maybeSingle();
+   177→if (!org) return NextResponse.json({ ok: true }); // unknown number — ignore
+   178→
+   179→const { data: customers } = await supabaseAdmin
+   180→  .from("customers")
+   181→  .select("id, organization_id, name")
+   182→  .eq("phone", from)
+   183→  .eq("organization_id", org.id)
+   184→  .limit(1);
+   185→const customer = customers?.[0];
+   186→```
+   187→
+   188→## A.5 ❌ BUG (HIGH) — `/api/auth/register` has NO rate limit
+   189→File: src/app/api/auth/register/route.ts (whole file)
+   190→There is no `checkRateLimit` or in-memory limiter call. The canonical `RATE_LIMITS.register` preset exists in src/lib/rate-limit.ts:73 but is never imported. An attacker can spam signup requests, each of which: (a) creates an Organization row, (b) creates a User row, (c) creates an OrganizationSettings row, (d) creates a verification_token row, (e) sends two emails via Resend. The Resend calls alone are a cost DoS (Resend bills per email); the DB writes are a storage DoS.
+   191→
+   192→Concrete fix:
+   193→```ts
+   194→import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+   195→// at the top of POST():
+   196→const limited = checkRateLimit(req, RATE_LIMITS.register)
+   197→if (limited.limited) {
+   198→  return NextResponse.json({ error: 'too_many_requests' }, { status: 429 })
+   199→}
+   200→```
+   201→
+   202→## A.6 ❌ BUG (HIGH) — `/api/auth/register` is non-atomic (org + settings + user + token created in 4 separate writes)
+   203→File: src/app/api/auth/register/route.ts:73-115
+   204→Code (abridged):
+   205→```ts
+   206→const organization = await db.organization.create({ ... })      // (1)
+   207→await db.organizationSettings.upsert(organization.id, {})        // (2)
+   208→const user = await db.user.create({ ... })                       // (3) — can throw
+   209→const verifyToken = randomBytes(32).toString('hex')
+   210→await db.verificationToken.create({ ... })                       // (4)
+   211→```
+   212→If step (2), (3), or (4) throws, the caller hits the outer `catch (e)` on line 154 and returns 500 — but the Organization row from step (1) is already committed (and possibly the settings row from step 2). Result: orphaned organizations with no admin user. The user can't re-register with the same email (the `exists` check on line 52-58 won't trigger because the user wasn't created, but the org was), and the slug is permanently consumed.
+   213→
+   214→Concrete fix: wrap steps 1-4 in a Postgres transaction. With Supabase, either:
+   215→- Use the `rpc()` API to call a PL/pgSQL function that does all 4 inserts in a single transaction, OR
+   216→- Use a manual BEGIN/COMMIT via the Postgres `pg` driver for the register flow.
+   217→
+   218→## A.7 ⚠️ WARN (MEDIUM) — `/api/auth/forgot-password` returns `resetToken` in any non-production NODE_ENV
+   219→File: src/app/api/auth/forgot-password/route.ts:75-78
+   220→Code:
+   221→```ts
+   222→const isDev = process.env.NODE_ENV !== 'production'
+   223→if (isDev) {
+   224→  return NextResponse.json({ ok: true, message: genericMessage, resetToken: token })
+   225→}
+   226→```
+   227→If `NODE_ENV` is unset, set to `'staging'`, `'test'`, or anything other than the literal string `'production'`, the reset token is returned in the response body — meaning anyone who can hit the endpoint can reset any account's password without email access. Staging/QA environments exposed to the internet would be fully compromised.
+   228→
+   229→Concrete fix: gate on an explicit `process.env.NODE_ENV === 'development'` (single specific value), and additionally require `process.env.ENABLE_DEV_TOKEN_RETURN === '1'` so this never accidentally turns on:
+   230→```ts
+   231→const isDev = process.env.NODE_ENV === 'development'
+   232→  && process.env.ENABLE_DEV_TOKEN_RETURN === '1'
+   233→if (isDev) { ... }
+   234→```
+   235→
+   236→## A.8 ⚠️ WARN (MEDIUM) — `/api/auth/forgot-password` blocks for up to ~60s on Resend retries
+   237→File: src/app/api/auth/forgot-password/route.ts:63-71 + src/lib/email.ts:156-162
+   238→The route does `await sendEmailAndLog({...})`. `sendEmail` retries 5 times with exponential backoff (2s, 4s, 8s, 16s, 32s = 62s total). If Resend is down, the forgot-password endpoint blocks the request thread for up to 62 seconds. Combined with the lack of rate limiting on the email-send path (the existing limiter is per-IP, not per-email), this is a trivial DoS vector: an attacker with a rotating IP pool can keep N=connection-pool request threads busy for a minute each.
+   239→
+   240→Concrete fix: fire-and-forget the email send (queue + return immediately), OR cap the retry count to 2 with a max 4s total delay, OR add a per-email rate limiter.
+   241→
+   242→## A.9 ⚠️ WARN (MEDIUM) — `src/lib/session-management.ts:180` `loginAttempts` Map is never garbage-collected
+   243→File: src/lib/session-management.ts:180
+   244→Code:
+   245→```ts
+   246→const loginAttempts = new Map<string, { count: number; firstAt: number; lockedUntil: number }>();
+   247→```
+   248→Entries are added on every failed login (line 210) and only deleted on:
+   249→- Successful login (line 218)
+   250→- Lockout expiry on read (line 189-191)
+   251→
+   252→If an attacker sprays random emails (e.g. `user1@x.com`, `user2@x.com`, …), each adds an entry that is NEVER read again (no successful login, no lockout). The Map grows unbounded — OOM in long-running processes. Same pattern as the rate-limit `store` Map in rate-limit.ts:24 (which DOES have a 5-min cleanup) — but `loginAttempts` has no cleanup interval at all.
+   253→
+   254→Concrete fix: add a periodic cleanup, OR cap the Map size (e.g. LRU with 10k entries):
+   255→```ts
+   256→setInterval(() => {
+   257→  const now = Date.now()
+   258→  for (const [k, v] of loginAttempts) {
+   259→    if (now - v.firstAt > 30 * 60 * 1000) loginAttempts.delete(k)
+   260→  }
+   261→}, 5 * 60 * 1000).unref?.()
+   262→```
+   263→
+   264→## A.10 ⚠️ WARN (MEDIUM) — `isSessionValid` fails OPEN on DB errors and on unknown JTIs
+   265→File: src/lib/session-management.ts:38-53
+   266→Code:
+   267→```ts
+   268→export async function isSessionValid(jti: string): Promise<boolean> {
+   269→  try {
+   270→    const { data } = await supabaseAdmin
+   271→      .from("user_sessions")
+   272→      .select("revoked_at, expires_at")
+   273→      .eq("token_jti", jti)
+   274→      .maybeSingle();
+   275→
+   276→    if (!data) return true; // ← unknown JTI = allow
+   277→    if (data.revoked_at) return false;
+   278→    if (new Date(data.expires_at) < new Date()) return false;
+   279→    return true;
+   280→  } catch {
+   281→    return true; // ← DB error = allow
+   282→  }
+   283→}
+   284→```
+   285→Two fail-open paths:
+   286→1. Unknown JTI → `return true`. If a JTI was issued before the `user_sessions` table existed, OR if the row was deleted by a bug/cleanup, the session is treated as valid. This means a revoked-then-deleted session is silently resurrected.
+   287→2. DB error → `return true`. During a Supabase outage, ALL JWTs are considered valid, including ones that were just revoked via `/api/user/sessions` DELETE. The "remote logout" feature silently stops working for the duration of the outage.
+   288→
+   289→Concrete fix:
+   290→- For unknown JTIs: maintain a denylist OR issue a new JTI on every password change / role change and require the DB row to exist.
+   291→- For DB errors: fail CLOSED (`return false`) on reads of privileged routes, but allow reads of unprivileged routes (or return 503). At minimum, log the fail-open so operators notice.
+   292→
+   293→## A.11 ⚠️ WARN (MEDIUM) — 30-day JWT `maxAge` is excessive for a payments-handling SaaS
+   294→File: src/lib/next-auth.ts:27
+   295→```ts
+   296→session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 }, // 30 days
+   297→```
+   298→A 30-day JWT means a compromised token (XSS, leaked log, device theft) gives the attacker a full month of access. Industry standard for SaaS handling billing is 8-24 hours of inactivity, with refresh tokens for "remember me". Combined with A.2 (no revocation on password reset) and A.10 (fail-open on DB errors), a leaked JWT is essentially unrevokable for 30 days.
+   299→
+   300→Concrete fix: set `maxAge: 8 * 60 * 60` (8h), add `updateAge: 1 * 60 * 60` (rotate the JWT every hour), and offer a separate "remember me" flag that extends to 30 days. Revoke all sessions on password change.
+   301→
+   302→## A.12 ✅ OK — `/api/auth/[...nextauth]/route.ts` is a thin re-export, no bugs.
+   303→## A.13 ✅ OK — `src/lib/auth.ts` bcrypt usage is correct (cost 10 is acceptable; could be 12 for higher security but not a bug).
+   304→## A.14 ✅ OK — `src/lib/supabase/admin.ts` correctly fails-closed if `SUPABASE_SERVICE_ROLE_KEY` is missing (throws on module load).
+   305→
+   306→================================================================================
+   307→# B. Tables & reservations subsystem
+   308→================================================================================
+   309→
+   310→## B.1 ❌ BUG (HIGH) — `/api/tables/transfer` is non-atomic across 4 separate UPDATEs (no transaction)
+   311→File: src/app/api/tables/transfer/route.ts:50-98
+   312→Code (abridged):
+   313→```ts
+   314→// 1. Update reservation with new table AND zone
+   315→const { error: updateError } = await supabaseAdmin
+   316→  .from("reservations").update({ table_id: newTableId, zone: newTable.zone, ... })
+   317→  .eq("id", reservationId).eq("organization_id", user.organizationId);
+   318→if (updateError) { ... return 500 }
+   319→
+   320→// 2. Verify the update worked (read-back)
+   321→const { data: verifyResv } = await supabaseAdmin
+   322→  .from("reservations").select("zone, table_id").eq("id", reservationId).maybeSingle();
+   323→if (verifyResv && verifyResv.zone !== newTable.zone) {
+   324→  // Force update again
+   325→  await supabaseAdmin.from("reservations").update({ zone: newTable.zone }).eq("id", reservationId);
+   326→}
+   327→
+   328→// 3. Free old table
+   329→if (oldTableId) {
+   330→  await supabaseAdmin.from("tables").update({ status: "AVAILABLE", ... })
+   331→    .eq("id", oldTableId).eq("organization_id", user.organizationId);
+   332→}
+   333→
+   334→// 4. Reserve new table
+   335→await supabaseAdmin.from("tables").update({ status: "RESERVED", ... })
+   336→  .eq("id", newTableId).eq("organization_id", user.organizationId);
+   337→```
+   338→Four separate UPDATEs with no transaction. Failures in step 3 or 4 leave the reservation on the new table but the new table is NOT marked RESERVED — the floor plan shows it as AVAILABLE and a second reservation can be seated there. The "verify the update worked" pattern in step 2 is itself an anti-pattern: it indicates the original UPDATE is unreliable, and the "force update" on line 78-81 (see B.2) actually introduces a NEW bug.
+   339→
+   340→There is a PL/pgSQL function `transfer_reservation` in migration 0015:6-53 that does exactly this atomically — but the route doesn't call it. The comment on line 48 ("Always use manual transaction (more reliable than RPC)") is misleading; the manual approach is LESS reliable.
+   341→
+   342→Concrete fix: call the existing RPC, OR wrap the 4 UPDATEs in a Postgres transaction:
+   343→```ts
+   344→const { data, error } = await supabaseAdmin.rpc('transfer_reservation', {
+   345→  p_reservation_id: reservationId,
+   346→  p_old_table_id: oldTableId,
+   347→  p_new_table_id: newTableId,
+   348→})
+   349→if (error || !data?.ok) return NextResponse.json({ error: data?.error || error?.message }, { status: 500 })
+   350→```
+   351→(The RPC function should be updated to also accept `p_organization_id` and filter by it — currently it doesn't, which is a separate latent bug.)
+   352→
+   353→## B.2 ❌ BUG (HIGH) — `/api/tables/transfer` "force update" missing `organization_id` filter
+   354→File: src/app/api/tables/transfer/route.ts:78-81
+   355→Code:
+   356→```ts
+   357→// Force update again
+   358→await supabaseAdmin
+   359→  .from("reservations")
+   360→  .update({ zone: newTable.zone })
+   361→  .eq("id", reservationId);
+   362→```
+   363→This UPDATE has NO `.eq("organization_id", user.organizationId)` filter — unlike every other query in the route. While `reservationId` is a UUID and UUIDs are globally unique in practice, this is a defense-in-depth violation. If a future DB import or migration ever produces colliding UUIDs (rare but documented when manual UUIDs are used), this UPDATE would silently modify another tenant's reservation. The `id`-only filter also bypasses any future RLS upgrade that depends on the application setting the org context.
+   364→
+   365→Concrete fix:
+   366→```ts
+   367→await supabaseAdmin
+   368→  .from("reservations")
+   369→  .update({ zone: newTable.zone })
+   370→  .eq("id", reservationId)
+   371→  .eq("organization_id", user.organizationId);   // ← always include
+   372→```
+   373→
+   374→## B.3 ❌ BUG (HIGH) — `/api/reservations` POST has NO rate limit AND no `checkLimit('reservations')` enforcement
+   375→File: src/app/api/reservations/route.ts:44-169
+   376→- No `checkRateLimit` call. A STAFF or ADMIN user can spam thousands of reservations per second. Each call triggers: 1 INSERT into `reservations`, 1 INSERT into `notifications`, 1 awaited `sendReservationConfirmation` (which writes to `whatsapp_messages` + fires the in-memory queue), 1 fire-and-forget `sendEmailAndLog` (which writes to `email_queue` or `audit_logs`). Memory + DB + WhatsApp API quota can all be exhausted in seconds.
+   377→- No `checkLimit(user.organizationId, 'reservations')` call. The `checkLimit` helper exists in src/lib/stripe.ts:271-321 and IS called for tables (src/app/api/tables/route.ts:71), but NOT for reservations. A Starter-plan tenant (limit 500 reservations/month per migration 0017:135) can create unlimited reservations — the plan limit is silently unenforced.
+   378→
+   379→Concrete fix:
+   380→```ts
+   381→import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+   382→import { checkLimit } from '@/lib/stripe'
+   383→
+   384→// at top of POST:
+   385→const rl = checkRateLimit(req, { window: 60_000, max: 20, keyPrefix: 'resv' })
+   386→if (rl.limited) return NextResponse.json({ error: 'too_many_requests' }, { status: 429 })
+   387→
+   388→const limit = await checkLimit(user.organizationId, 'reservations')
+   389→if (!limit.allowed) {
+   390→  return NextResponse.json({ error: `Has alcanzado el límite de reservas de tu plan (${limit.limit})` }, { status: 402 })
+   391→}
+   392→```
+   393→
+   394→## B.4 ❌ BUG (HIGH) — `/api/reservations/[id]` PATCH: table-status update happens BEFORE reservation update, with errors silently swallowed
+   395→File: src/app/api/reservations/[id]/route.ts:26-33
+   396→Code:
+   397→```ts
+   398→if (typeof body.status === 'string' && VALID_STATUS.includes(body.status)) {
+   399→  patch.status = body.status
+   400→  if (body.status === 'CONFIRMED' && body.tableId) {
+   401→    await db.table.update(body.tableId, user.organizationId, { status: 'RESERVED' }).catch(() => null)
+   402→  }
+   403→}
+   404→
+   405→const updated = await db.reservation.update(id, user.organizationId, patch)
+   406→```
+   407→Two bugs:
+   408→1. The table update on line 29 is `.catch(() => null)` — DB errors, missing tables, RLS failures are all silently swallowed. The reservation is then marked CONFIRMED on line 33 even though the table wasn't marked RESERVED. Floor plan shows the table as AVAILABLE while the reservation thinks it's confirmed on that table — double-booking.
+   409→2. The order is "update table → update reservation". If the table update succeeds but the reservation update throws (e.g. DB error), the table is left in RESERVED state with no reservation pointing to it. Orphan RESERVED table that no UI can clear without direct DB access.
+   410→
+   411→Concrete fix: wrap both updates in a transaction, OR at minimum swap the order and propagate errors:
+   412→```ts
+   413→const updated = await db.reservation.update(id, user.organizationId, patch)
+   414→if (body.status === 'CONFIRMED' && body.tableId) {
+   415→  const t = await db.table.update(body.tableId, user.organizationId, { status: 'RESERVED' }).catch(e => { throw new Error('No se pudo reservar la mesa: ' + e.message) })
+   416→}
+   417→```
+   418→
+   419→## B.5 ❌ BUG (HIGH) — `/api/reservations/[id]` DELETE: does not free the associated table
+   420→File: src/app/api/reservations/[id]/route.ts:48-57
+   421→Code:
+   422→```ts
+   423→export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+   424→  const user = await getCurrentUser()
+   425→  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+   426→  const { id } = await params
+   427→  const existing = await db.reservation.findById(id, user.organizationId)
+   428→  if (!existing) return NextResponse.json({ error: 'No encontrada' }, { status: 404 })
+   429→
+   430→  await db.reservation.delete(id, user.organizationId)
+   431→  return NextResponse.json({ ok: true })
+   432→}
+   433→```
+   434→When a reservation with an associated `table_id` is deleted, the table's status is NOT reset to `AVAILABLE`. It stays in `RESERVED` forever — the floor plan permanently shows it as booked, and no other reservation can be seated there without manual DB intervention. This is a data corruption bug that compounds over time (every deleted reservation leaks one RESERVED table).
+   435→
+   436→Concrete fix:
+   437→```ts
+   438→await db.reservation.delete(id, user.organizationId)
+   439→if (existing.table_id) {
+   440→  await db.table.update(existing.table_id, user.organizationId, { status: 'AVAILABLE' }).catch(() => null)
+   441→}
+   442→```
+   443→
+   444→## B.6 ❌ BUG (HIGH) — `/api/reservations/[id]` PATCH: no validation that `tableId` belongs to the tenant
+   445→File: src/app/api/reservations/[id]/route.ts:25
+   446→Code:
+   447→```ts
+   448→if (body.tableId !== undefined) patch.table_id = body.tableId || null
+   449→```
+   450→The new `tableId` is written to the reservation without verifying it belongs to the tenant. Subsequent reads via `db.table.findFirst(user.organizationId, { id: updated.table_id })` (line 34) will return `null` for foreign table IDs (the org filter in `findFirst` saves us from data exfiltration), but the reservation now has a phantom `table_id` pointing to ANOTHER tenant's table. If a transfer or another PATCH follows, the foreign table could be affected (the `db.table.update(body.tableId, user.organizationId, { status: 'RESERVED' })` on line 29 is org-scoped and would no-op, but the data integrity issue remains).
+   451→
+   452→Concrete fix:
+   453→```ts
+   454→if (body.tableId !== undefined) {
+   455→  if (body.tableId) {
+   456→    const t = await db.table.findFirst(user.organizationId, { id: body.tableId })
+   457→    if (!t) return NextResponse.json({ error: 'Mesa no válida' }, { status: 400 })
+   458→  }
+   459→  patch.table_id = body.tableId || null
+   460→}
+   461→```
+   462→
+   463→## B.7 ⚠️ WARN (MEDIUM) — `/api/tables` POST has a TOCTOU race on the plan-limit check
+   464→File: src/app/api/tables/route.ts:71-84
+   465→Code:
+   466→```ts
+   467→const limit = await checkLimit(user.organizationId, 'tables')
+   468→if (!limit.allowed) { ... }
+   469→
+   470→const existing = await db.table.findFirst(user.organizationId, { number: number.trim() })
+   471→if (existing) return NextResponse.json({ error: 'Ya existe una mesa con ese número' }, { status: 409 })
+   472→
+   473→const table = await db.table.create({ ... })
+   474→```
+   475→Two concurrent requests can both pass `checkLimit` (e.g. both see 14/15 tables), both pass the duplicate-number check (no existing table with that number), and both INSERT. Result: 16 tables, exceeding the Starter plan limit of 15. Same race applies to the duplicate-number check — two requests with the same number can both pass `findFirst` and both insert, producing two tables with the same number.
+   476→
+   477→Concrete fix: add a UNIQUE constraint on `(organization_id, number)` in the `tables` table, then rely on the DB to reject the duplicate. For the limit, use a Postgres advisory lock or a conditional INSERT … WHERE count < limit pattern.
+   478→
+   479→## B.8 ⚠️ WARN (MEDIUM) — `/api/reservations` POST: `new Date(date)` parses local time, timezone shifts the reservation
+   480→File: src/app/api/reservations/route.ts:88, 108, 124-125, 147-148
+   481→Code:
+   482→```ts
+   483→date: new Date(date).toISOString(),
+   484→```
+   485→If the client sends `"2024-12-25 20:00"` (no timezone), `new Date()` parses it as LOCAL server time. If the server runs in UTC but the user is in CET (UTC+1), the stored reservation is 19:00 UTC = 20:00 CET — correct. But if the server runs in CET and the client is in UTC, the stored time is 20:00 CET = 19:00 UTC, an hour off. The toLocaleString calls on lines 108, 124-125, 147-148 also use server-local timezone, so the WhatsApp/email messages display yet a third time depending on where the process runs. In a serverless deployment (Vercel), the runtime is UTC — fine. In a Docker container on a non-UTC host, this breaks.
+   486→
+   487→Concrete fix: require the client to send an ISO 8601 string WITH timezone offset (`2024-12-25T20:00:00+01:00`), reject strings without offset, and store + display in UTC.
+   488→
+   489→## B.9 ⚠️ WARN (MEDIUM) — `/api/reservations/[id]` PATCH: STAFF can change status to CANCELLED / NO_SHOW / COMPLETED with no role check
+   490→File: src/app/api/reservations/[id]/route.ts:7-9
+   491→```ts
+   492→const user = await getCurrentUser()
+   493→if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+   494→```
+   495→Any authenticated user (including STAFF) can PATCH any reservation in their org to any status. STAFF can cancel or no-show reservations, which has revenue impact (no-show fees, lost covers). The previous audit (audit-5-6-14 A.5) called out that the legacy `user.role !== 'ADMIN'` check is used elsewhere but RBAC isn't enforced — this is the specific instance for reservations.
+   496→
+   497→Concrete fix: gate CANCELLED / NO_SHOW / COMPLETED transitions behind ADMIN (or the future RBAC `reservations.manage` permission):
+   498→```ts
+   499→const ADMIN_ONLY_TRANSITIONS = ['CANCELLED', 'NO_SHOW', 'COMPLETED']
+   500→if (typeof body.status === 'string' && ADMIN_ONLY_TRANSITIONS.includes(body.status) && user.role !== 'ADMIN') {
+   501→  return NextResponse.json({ error: 'Se requiere ADMIN para esta transición' }, { status: 403 })
+   502→}
+   503→```
+   504→
+   505→## B.10 ⚠️ WARN (MEDIUM) — `/api/tables/positions` PATCH: no input validation for `posX`/`posY` types
+   506→File: src/app/api/tables/positions/route.ts:22
+   507→Code:
+   508→```ts
+   509→const patch: any = { pos_x: u.posX, pos_y: u.posY }
+   510→if (u.zone) patch.zone = u.zone
+   511→```
+   512→`u.posX` and `u.posY` are taken from the request body and passed directly to the DB update with no type check. A client sending `{"posX": "javascript:alert(1)"}` or `{"posX": NaN}` will write garbage to the `pos_x` column. The column type is `INT` (per migration 0001) so Postgres will reject strings, but the rejection comes back as a 500 with a generic error message; `NaN` will be coerced to NULL silently. No Zod schema, no `typeof === 'number'` check.
+   513→
+   514→Concrete fix:
+   515→```ts
+   516→if (typeof u.posX !== 'number' || !isFinite(u.posX) || typeof u.posY !== 'number' || !isFinite(u.posY)) {
+   517→  return NextResponse.json({ error: 'posX/posY must be finite numbers' }, { status: 400 })
+   518→}
+   519→```
+   520→
+   521→## B.11 ⚠️ WARN (LOW) — `/api/tables/transfer` silently overwrites the customer's zone preference
+   522→File: src/app/api/tables/transfer/route.ts:50-58
+   523→```ts
+   524→const { error: updateError } = await supabaseAdmin
+   525→  .from("reservations")
+   526→  .update({
+   527→    table_id: newTableId,
+   528→    zone: newTable.zone,        // ← overwrites customer's requested zone
+   529→    ...
+   530→  })
+   531→```
+   532→If a customer requested "TERRACE" and is transferred to a table in "BAR", their zone field is silently changed to "BAR". The original preference is lost. Reports that filter by zone will misattribute the reservation. Fix: keep the customer's original zone, only update `table_id`.
+   533→
+   534→================================================================================
+   535→# C. Billing & webhooks subsystem
+   536→================================================================================
+   537→
+   538→## C.1 ❌ BUG (HIGH) — `getOrCreateCustomer` race condition creates orphaned Stripe customers on concurrent calls
+   539→File: src/lib/stripe.ts:27-73
+   540→Code (abridged):
+   541→```ts
+   542→const { data: sub } = await supabaseAdmin
+   543→  .from("organization_subscriptions")
+   544→  .select("stripe_customer_id")
+   545→  .eq("organization_id", organizationId)
+   546→  .maybeSingle();
+   547→
+   548→if (sub?.stripe_customer_id) return sub.stripe_customer_id;
+   549→
+   550→// Create new customer in Stripe
+   551→const customer = await stripe.customers.create({ ... });
+   552→
+   553→// ... upsert with onConflict: "organization_id"
+   554→```
+   555→Two concurrent calls (e.g. user double-clicks the checkout button):
+   556→- Call A: SELECT (no row), `stripe.customers.create()` → customer A
+   557→- Call B: SELECT (no row), `stripe.customers.create()` → customer B
+   558→- Call A: UPSERT (inserts row with customer A)
+   559→- Call B: UPSERT (updates row to customer B — `onConflict: organization_id` wins)
+   560→
+   561→Result: Stripe now has TWO customers for the same org. The DB has customer B. Customer A is orphaned in Stripe, billed against nothing, but consuming a Stripe customer record. Worse: if Call A's UPSERT lands AFTER Call B's (out-of-order), the DB has customer A and Call B's checkout used customer B — the subscription is created on customer B but the DB points at customer A. Subsequent portal sessions open for customer A (no subscription) and the user can't manage their subscription.
+   562→
+   563→Concrete fix: use a Postgres advisory lock keyed on `organization_id`, OR move the customer creation into a PL/pgSQL function that does `INSERT … ON CONFLICT DO NOTHING RETURNING stripe_customer_id` and only creates a Stripe customer if the INSERT returned a row. Simplest patch: re-SELECT after upsert and use the winning customer ID:
+   564→```ts
+   565→const { data: row } = await supabaseAdmin
+   566→  .from("organization_subscriptions")
+   567→  .upsert({ organization_id, stripe_customer_id: customer.id, ... }, { onConflict: 'organization_id' })
+   568→  .select("stripe_customer_id")
+   569→  .single();
+   570→return row?.stripe_customer_id || customer.id;   // use whichever won
+   571→```
+   572→(If Call B won, Call A returns Call B's customer ID, and Call A's just-created Stripe customer is orphaned — but at least the checkout uses the DB's source of truth. To fully fix, delete the orphaned Stripe customer after losing the race.)
+   573→
+   574→## C.2 ❌ BUG (HIGH) — `/api/whatsapp/webhook` GET uses `===` to compare the verify token (timing-attack surface)
+   575→File: src/app/api/whatsapp/webhook/route.ts:42
+   576→Code:
+   577→```ts
+   578→if (mode === "subscribe" && token === VERIFY_TOKEN) {
+   579→  ...
+   580→}
+   581→```
+   582→The `VERIFY_TOKEN` is compared to the user-supplied `token` query param using `===`, which is not constant-time. A timing-attack could in theory leak the verify token byte-by-byte. Low severity because: (a) the attack requires many requests with very precise timing, (b) the verify token is only used once during webhook setup, (c) once verified, the token is no longer checked. But best practice is to use `timingSafeEqual` for any secret comparison.
+   583→
+   584→Concrete fix:
+   585→```ts
+   586→import { timingSafeEqual } from 'crypto'
+   587→function safeEqual(a: string, b: string): boolean {
+   588→  const ab = Buffer.from(a), bb = Buffer.from(b)
+   589→  return ab.length === bb.length && timingSafeEqual(ab, bb)
+   590→}
+   591→if (mode === "subscribe" && safeEqual(token || '', VERIFY_TOKEN)) { ... }
+   592→```
+   593→
+   594→## C.3 ❌ BUG (HIGH) — `/api/billing/subscription` POST is not idempotent (cancel/reactivate)
+   595→File: src/app/api/billing/subscription/route.ts:59-87
+   596→Code:
+   597→```ts
+   598→if (action === "cancel") {
+   599→  await cancelSubscription(plan.stripeSubscriptionId);          // 1st Stripe call
+   600→  await supabaseAdmin.from("organization_subscriptions")
+   601→    .update({ cancel_at_period_end: true })
+   602→    .eq("organization_id", user.organizationId);
+   603→  await supabaseAdmin.from("subscription_history").insert({ ... });  // ← no onConflict
+   604→  return NextResponse.json({ ok: true, message: "..." });
+   605→}
+   606→```
+   607→Two issues:
+   608→1. Double-click on "Cancel subscription" sends two concurrent requests. Both call `cancelSubscription` (the second Stripe call is a no-op since `cancel_at_period_end` is already true, but Stripe bills an API call). Both insert a `subscription_history` row — duplicates accumulate (no `onConflict` here, unlike the webhook route).
+   609→2. Race between cancel and reactivate: if the user clicks Cancel then immediately Reactivate (or two browser tabs do opposite actions), the final state depends on which finishes last. No locking.
+   610→
+   611→Concrete fix:
+   612→- Add `onConflict: 'organization_id,event_type,details'` to the subscription_history insert (same pattern as the webhook — the unique index from migration 0018:342-343 supports this).
+   613→- Wrap the cancel/reactivate in a transaction or use a Postgres advisory lock on `organization_id`.
+   614→
+   615→## C.4 ❌ BUG (HIGH) — `/api/whatsapp/status` exposes config to any authenticated user (including STAFF)
+   616→File: src/app/api/whatsapp/status/route.ts:6-10
+   617→Code:
+   618→```ts
+   619→export async function GET() {
+   620→  const user = await getCurrentUser();
+   621→  if (!user || !user.organizationId) {
+   622→    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+   623→  }
+   624→  ...
+   625→  return NextResponse.json({
+   626→    configured: queueStatus.isConfigured,
+   627→    queue: queueStatus,
+   628→    recentMessages: recentMessages || [],
+   629→    config: {
+   630→      hasToken: !!process.env.WHATSAPP_TOKEN,
+   631→      hasPhoneNumberId: !!process.env.WHATSAPP_PHONE_NUMBER_ID,
+   632→      apiVersion: process.env.WHATSAPP_API_VERSION || "v21.0",
+   633→    },
+   634→  });
+   635→}
+   636→```
+   637→No `user.role !== 'ADMIN'` check. A STAFF user can see the queue status, all recent WhatsApp messages for the org, and the config flags. The messages may contain customer PII (phone numbers, message text). STAFF should typically not have access to WhatsApp admin.
+   638→
+   639→Concrete fix: add `if (user.role !== 'ADMIN') return NextResponse.json({ error: 'No autorizado' }, { status: 403 })`.
+   640→
+   641→## C.5 ⚠️ WARN (MEDIUM) — `/api/billing/checkout` accepts any string as `billingCycle`
+   642→File: src/app/api/billing/checkout/route.ts:11-13, 25-32
+   643→Code:
+   644→```ts
+   645→const body = await req.json();
+   646→const { planName, billingCycle } = body;
+   647→if (!PLANS[planName as PlanName]) {
+   648→  return NextResponse.json({ error: "Plan inválido" }, { status: 400 });
+   649→}
+   650→...
+   651→const result = await createCheckoutSession({
+   652→  ...
+   653→  billingCycle: billingCycle || "monthly",   // ← no validation
+   654→  ...
+   655→});
+   656→```
+   657→`billingCycle` is passed through without validation. A client sending `{"planName": "starter", "billingCycle": "free"}` will:
+   658→- Pass the planName check (starter is valid)
+   659→- Pass `billingCycle || "monthly"` ("free" is truthy, so it stays "free")
+   660→- Hit `ensureStripePrice('starter', 'free')` in stripe.ts:118, which creates a Stripe price with `interval: 'year'` (because cycle !== 'monthly') and `amount: plan.yearly` (566 euros) — but with metadata `{ billing_cycle: 'free' }`.
+   661→- The Stripe checkout session is created with this malformed price.
+   662→- The webhook stores `billing_cycle: 'free'` in the DB.
+   663→
+   664→The user is charged 566 euros but the DB says "free". Reports and plan-limit enforcement (`getOrgPlan` in stripe.ts:212) will use the DB's `billing_cycle` field which is now 'free' — unrecognized value, falls through to default behavior.
+   665→
+   666→Concrete fix:
+   667→```ts
+   668→if (billingCycle !== 'monthly' && billingCycle !== 'yearly') {
+   669→  return NextResponse.json({ error: 'Ciclo de facturación inválido' }, { status: 400 })
+   670→}
+   671→```
+   672→
+   673→## C.6 ⚠️ WARN (MEDIUM) — `/api/billing/checkout` has no plan-upgrade / downgrade validation
+   674→File: src/app/api/billing/checkout/route.ts (whole file)
+   675→A user on the Enterprise plan (max 50 tables, currently has 60 tables because they downgraded manually) can "upgrade" to Starter (max 15 tables). Checkout succeeds, Stripe creates a new subscription, and the user is now on Starter — but with 60 active tables in violation of the 15-table limit. There is no validation that the new plan supports the user's current state (table count, user count, reservation count, restaurant count).
+   676→
+   677→Concrete fix: before creating the checkout session, fetch the current counts and compare against the new plan's limits:
+   678→```ts
+   679→const newPlan = PLANS[planName as PlanName];
+   680→const tables = await checkLimit(user.organizationId, 'tables');
+   681→if (newPlan.maxTables && tables.current > newPlan.maxTables) {
+   682→  return NextResponse.json({ error: `Tu restaurante tiene ${tables.current} mesas, pero el plan ${newPlan.label} permite ${newPlan.maxTables}. Elimina mesas antes de cambiar de plan.` }, { status: 400 });
+   683→}
+   684→// similar for users, reservations, restaurants
+   685→```
+   686→
+   687→## C.7 ⚠️ WARN (MEDIUM) — Stripe webhook `customer.subscription.updated` overwrites plan_id from price lookup, but lookup uses `.maybeSingle()` which throws on duplicate price IDs
+   688→File: src/app/api/stripe/webhook/route.ts:93-100
+   689→Code:
+   690→```ts
+   691→const { data: planByPrice } = await supabaseAdmin
+   692→  .from("subscription_plans")
+   693→  .select("id")
+   694→  .or(`stripe_price_id_monthly.eq.${sub.items.data[0].price.id},stripe_price_id_yearly.eq.${sub.items.data[0].price.id}`)
+   695→  .maybeSingle();
+   696→planId = planByPrice?.id || null;
+   697→```
+   698→Migration 0018:352-358 added UNIQUE indexes on `stripe_price_id_monthly` and `stripe_price_id_yearly` (separately, with `WHERE IS NOT NULL`). So a single price ID can appear in EITHER column (but not duplicated within a column). The `.or()` query could match a row where the price is in `monthly` AND another row where it's in `yearly` — but that would require the same Stripe price ID to be assigned to two different plans (one monthly, one yearly), which the UNIQUE indexes don't prevent. In that case `.maybeSingle()` throws `PGRST116`, the throw is NOT caught (the surrounding `try` only catches at line 276), and the whole webhook returns 500 → Stripe retries forever.
+   699→
+   700→Concrete fix: use `.limit(1)` instead of `.maybeSingle()`, OR add a UNIQUE constraint that spans both columns. Simplest patch:
+   701→```ts
+   702→const { data: planRows } = await supabaseAdmin
+   703→  .from("subscription_plans")
+   704→  .select("id")
+   705→  .or(`stripe_price_id_monthly.eq.${priceId},stripe_price_id_yearly.eq.${priceId}`)
+   706→  .limit(1);
+   707→planId = planRows?.[0]?.id || null;
+   708→```
+   709→
+   710→## C.8 ⚠️ WARN (MEDIUM) — Stripe webhook handlers do not check `error` from `subscription_history.upsert` (silent data loss if the unique index is missing)
+   711→File: src/app/api/stripe/webhook/route.ts:59, 141, 193, 222 (the four `subscription_history.upsert` calls)
+   712→Code:
+   713→```ts
+   714→await supabaseAdmin.from('subscription_history').upsert(
+   715→  { organization_id: orgId, event_type: 'subscription.created', ... },
+   716→  { onConflict: 'organization_id,event_type,details' }
+   717→);
+   718→```
+   719→The `await` does NOT throw on error — supabase-js returns `{ data, error }`. The `error` field is never inspected. If migration 0018 (which creates the unique index `subscription_history_org_event_details_uniq` on `(organization_id, event_type, details)`) was NOT applied to the production DB, every one of these upserts will fail with PostgreSQL error `there is no unique or exclusion constraint matching the ON CONFLICT specification`. The webhook will return 200 (Stripe marks the event as processed), but no `subscription_history` row is ever inserted. The org's billing history will be permanently empty.
+   720→
+   721→Concrete fix:
+   722→```ts
+   723→const { error: histError } = await supabaseAdmin.from('subscription_history').upsert(...);
+   724→if (histError) {
+   725→  logger.error('Failed to insert subscription_history', 'stripe-webhook', { error: histError.message, eventType: 'subscription.created' });
+   726→  // Decide whether to fail the webhook (return 500 → Stripe retries) or accept the data loss.
+   727→  // For audit-trail completeness, return 500 so Stripe retries.
+   728→  return NextResponse.json({ error: 'history_persist_failed' }, { status: 500 });
+   729→}
+   730→```
+   731→
+   732→## C.9 ⚠️ WARN (LOW) — `/api/stripe/webhook` has no rate limit / IP allowlist
+   733→File: src/app/api/stripe/webhook/route.ts
+   734→The webhook is correctly signature-verified (line 17-20), so an attacker can't forge events without the secret. But if the secret ever leaks, there's no rate limit to slow down a flood of forged events. Stripe's documented IP ranges (https://stripe.com/docs/ips) could be added as an additional allowlist layer. Low priority because signature verification is the primary defense.
+   735→
+   736→================================================================================
+   737→# D. Web-import, email, and queue subsystems
+   738→================================================================================
+   739→
+   740→## D.1 ❌ BUG (HIGH) — `src/lib/email-processor.ts` and `src/lib/whatsapp.ts` queue processors are NEVER started
+   741→Files: src/lib/email-processor.ts:20-26 (`startEmailProcessor`), src/lib/whatsapp.ts:235-242 (`startWhatsAppProcessor`)
+   742→Ripgrep across src/ for `startEmailProcessor|startWhatsAppProcessor` returns matches ONLY in the definition files themselves — zero callers. Confirmed:
+   743→```
+   744→$ rg "startEmailProcessor|startWhatsAppProcessor" src
+   745→src/lib/whatsapp.ts:235:export function startWhatsAppProcessor() {
+   746→src/lib/email-processor.ts:20:export function startEmailProcessor() {
+   747→```
+   748→This means:
+   749→- Every email that gets queued (via `queueEmail` in email.ts:74-93, called when all 5 Resend attempts fail) sits in `email_queue` forever. The queue table grows unbounded. Queued emails are NEVER delivered.
+   750→- Every WhatsApp message that gets queued (via `sendWhatsApp` in whatsapp.ts:261-283, called for every reservation confirmation) sits in the in-memory `queue` array AND is upserted to `whatsapp_messages` with status 'queued'. The in-memory queue is processed on the next `processQueue()` call (triggered synchronously inside `sendWhatsApp`), so messages DO get sent if `WHATSAPP_TOKEN` is set. But: (a) the `setInterval` processor that should retry failed messages never runs, so any transient failure permanently marks the message as 'retrying' with no retry; (b) on server restart, the in-memory queue is lost — messages that were queued but not yet sent are gone.
+   751→
+   752→This was flagged in audit-10-11 (1.1 and 2.3) and is NOT fixed.
+   753→
+   754→Concrete fix: call both `startEmailProcessor()` and `startWhatsAppProcessor()` once on server boot. In Next.js, this can be done in `instrumentation.ts` (Next.js 13+):
+   755→```ts
+   756→// src/instrumentation.ts
+   757→export async function register() {
+   758→  if (process.env.NEXT_RUNTIME === 'nodejs') {
+   759→    const { startEmailProcessor } = await import('@/lib/email-processor');
+   760→    const { startWhatsAppProcessor } = await import('@/lib/whatsapp');
+   761→    startEmailProcessor();
+   762→    startWhatsAppProcessor();
+   763→  }
+   764→}
+   765→```
+   766→
+   767→## D.2 ❌ BUG (HIGH) — `src/lib/email-processor.ts` has a duplicate-send race condition (multi-instance)
+   768→File: src/lib/email-processor.ts:42-58, 66-71
+   769→Code:
+   770→```ts
+   771→async function processEmailQueue() {
+   772→  if (processorRunning) return;
+   773→  processorRunning = true;
+   774→  try {
+   775→    const { data: queuedEmails, error } = await supabaseAdmin
+   776→      .from("email_queue")
+   777→      .select("*")
+   778→      .eq("status", "queued")
+   779→      .lte("next_attempt_at", new Date().toISOString())
+   780→      .order("created_at", { ascending: true })
+   781→      .limit(MAX_BATCH);
+   782→    ...
+   783→    for (const email of queuedEmails) {
+   784→      await processSingleEmail(email);   // ← claims by UPDATE status='sending'
+   785→    }
+   786→  } ...
+   787→}
+   788→
+   789→async function processSingleEmail(email: any) {
+   790→  await supabaseAdmin
+   791→    .from("email_queue")
+   792→    .update({ status: "sending", ... })
+   793→    .eq("id", email.id);
+   794→  // ... send via Resend
+   795→}
+   796→```
+   797→The `processorRunning` flag only prevents re-entry within the SAME process. In a multi-instance deployment (Vercel, multiple pods), two instances can both SELECT the same queued email at the same time, both UPDATE it to 'sending' (no `WHERE status = 'queued'` guard on the UPDATE), and both send via Resend. The customer receives the email twice.
+   798→
+   799→Concrete fix: use an atomic claim with `WHERE status = 'queued'` and check the returned row count:
+   800→```ts
+   801→const { data: claimed, error } = await supabaseAdmin
+   802→  .from("email_queue")
+   803→  .update({ status: "sending", updated_at: new Date().toISOString() })
+   804→  .eq("id", email.id)
+   805→  .eq("status", "queued")         // ← atomic claim
+   806→  .select();
+   807→if (error || !claimed || claimed.length === 0) return;  // someone else got it
+   808→// ... send via Resend
+   809→```
+   810→
+   811→## D.3 ❌ BUG (HIGH) — `src/lib/email.ts` templates do not escape user input (HTML injection in emails)
+   812→File: src/lib/email.ts:240-435 (every template)
+   813→Example (welcome template, line 242):
+   814→```ts
+   815→welcome({ name, restaurantName, loginUrl }: { name: string; restaurantName: string; loginUrl: string }): EmailTemplate {
+   816→  const html = WRAPPER(`
+   817→    <h1 ...>¡Bienvenido a RestoPanel, ${name}! 👋</h1>
+   818→    <p ...>Tu restaurante <strong style="color:#C5A059;">${restaurantName}</strong> ya está creado...</p>
+   819→    ...
+   820→  `, `Bienvenido a RestoPanel, ${name}`);
+   821→```
+   822→`name`, `restaurantName`, `customerName`, `restaurantName`, etc. are interpolated directly into HTML with no escaping. A malicious restaurant name like `<script>alert('xss')</script>` or `<img src=x onerror=alert(1)>` is rendered as HTML by the email client. Most modern email clients (Gmail, Outlook) strip `<script>` tags, but `<img onerror>`, CSS-based attacks, and `<a href>` phishing all work in many clients. The customer's name in the reservation confirmation template (line 341) is similarly injectable.
+   823→
+   824→This was flagged in audit-10-11 (1.4) and is NOT fixed.
+   825→
+   826→Concrete fix: add an `escapeHtml` helper and apply it to every user-supplied value:
+   827→```ts
+   828→function escapeHtml(s: string): string {
+   829→  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] as string));
+   830→}
+   831→// then:
+   832→<h1 ...>¡Bienvenido a RestoPanel, ${escapeHtml(name)}! 👋</h1>
+   833→```
+   834→
+   835→## D.4 ❌ BUG (HIGH) — `src/lib/web-import.ts` SSRF check has a DNS-rebinding TOCTOU
+   836→File: src/lib/web-import.ts:151-188 (isPrivateUrl) + 251-259 (fetch)
+   837→Code:
+   838→```ts
+   839→async function isPrivateUrl(urlStr: string): Promise<boolean> {
+   840→  ...
+   841→  const resolved = await dnsPromises.lookup(host, { all: true });
+   842→  addresses = resolved.map((r) => r.address);
+   843→  ...
+   844→  for (const ip of addresses) {
+   845→    if (isPrivateIp(ip)) return true;
+   846→  }
+   847→  return false;
+   848→}
+   849→
+   850→// In fetchHtml:
+   851→if (await isPrivateUrl(url)) {
+   852→  throw new Error("URL apunta a una dirección privada o interna (no permitida)");
+   853→}
+   854→...
+   855→resp = await fetch(currentUrl, {   // ← re-resolves DNS, may get a different IP
+   856→  signal: controller.signal,
+   857→  ...
+   858→});
+   859→```
+   860→The `isPrivateUrl` check resolves DNS once and inspects the IPs. Then `fetch(currentUrl)` resolves DNS AGAIN (inside Node's HTTP stack). Between the two resolutions, an attacker with control of the DNS server can change the A record (TTL=0) — first resolution returns 1.2.3.4 (passes the check), second resolution returns 169.254.169.254 (cloud metadata endpoint). This is the classic DNS-rebinding TOCTOU.
+   861→
+   862→This was flagged in audit-10-11 (3.2) — the audit noted "DNS-aware, multi-encoding resistant" — but the TOCTOU between check and fetch is still present. The redirect-handling loop (line 247-276) does re-check each redirect target with `isPrivateUrl`, which is good, but the INITIAL fetch after the initial check is still vulnerable.
+   863→
+   864→Concrete fix: resolve DNS once, then connect to the IP directly with a custom Host header (or use a custom `lookup` function on the http.Agent that returns the cached IP):
+   865→```ts
+   866→import { Agent, lookup as dnsLookup } from 'dns';
+   867→import http from 'http';
+   868→import https from 'https';
+   869→
+   870→const agent = new https.Agent({
+   871→  lookup: (host, opts, cb) => {
+   872→    // Only allow the IP we already validated
+   873→    dnsLookup(host, { all: true }, (err, addresses) => {
+   874→      if (err) return cb(err as any);
+   875→      const safe = addresses.find(a => a.address === validatedIp);
+   876→      if (!safe) return cb(new Error('DNS rebind detected') as any);
+   877→      cb(null, safe.address, safe.family);
+   878→    });
+   879→  },
+   880→});
+   881→resp = await fetch(currentUrl, { agent, ... });
+   882→```
+   883→
+   884→## D.5 ⚠️ WARN (MEDIUM) — `src/lib/email-processor.ts:23` `setInterval` is not `.unref()`'d
+   885→File: src/lib/email-processor.ts:23
+   886→```ts
+   887→intervalHandle = setInterval(processEmailQueue, PROCESS_INTERVAL);
+   888→```
+   889→Same in src/lib/whatsapp.ts:240:
+   890→```ts
+   891→intervalHandle = setInterval(processQueue, 10000);
+   892→```
+   893→Neither interval is `.unref()`'d. The interval keeps the Node.js event loop alive forever, preventing graceful shutdown. Compare with src/lib/rate-limit.ts:34 which correctly calls `.unref?.()`. In a serverless environment (Vercel), this can cause the function to time out instead of freezing. In a long-running container, this prevents `SIGTERM` from shutting down the process cleanly.
+   894→
+   895→Concrete fix:
+   896→```ts
+   897→intervalHandle = setInterval(processEmailQueue, PROCESS_INTERVAL);
+   898→intervalHandle.unref?.();
+   899→```
+   900→
+   901→## D.6 ⚠️ WARN (MEDIUM) — `src/lib/rate-limit.ts` cleanup interval has a hard-coded 600000ms threshold
+   902→File: src/lib/rate-limit.ts:27-34
+   903→Code:
+   904→```ts
+   905→setInterval(() => {
+   906→  const now = Date.now();
+   907→  for (const [key, entry] of store.entries()) {
+   908→    if (now - entry.firstAt > 600000) {     // ← hard-coded 10 min
+   909→      store.delete(key);
+   910→    }
+   911→  }
+   912→}, 300000).unref?.();
+   913→```
+   914→The cleanup removes entries older than 10 minutes, regardless of `config.window`. If a route uses a 60-second window (the `api` preset on line 80), entries that have been "expired" for 9 minutes still consume memory. For a high-traffic API with many distinct IPs, the Map can grow to hundreds of thousands of entries between cleanup runs. The cleanup interval is 5 minutes — so an entry can sit for up to 15 minutes after it stopped being useful.
+   915→
+   916→Concrete fix: cleanup threshold should be `Math.max(...all configured windows)` OR a separate cleanup timer per window. Simplest: clean entries older than the longest configured window:
+   917→```ts
+   918→const MAX_WINDOW = Math.max(...Object.values(RATE_LIMITS).map(c => c.window));
+   919→setInterval(() => {
+   920→  const now = Date.now();
+   921→  for (const [key, entry] of store.entries()) {
+   922→    if (now - entry.firstAt > MAX_WINDOW * 2) store.delete(key);
+   923→  }
+   924→}, 60_000).unref?.();
+   925→```
+   926→
+   927→## D.7 ⚠️ WARN (MEDIUM) — `/api/restaurant/import-web` rate-limiter Map grows unbounded (memory leak)
+   928→File: src/app/api/restaurant/import-web/route.ts:18
+   929→Code:
+   930→```ts
+   931→const attempts = new Map<string, number[]>();  // timestamps array
+   932→```
+   933→The Map is never cleaned. Each `rlKey` (userId + IP) adds an entry. Over time, every user who ever triggers an import contributes a permanent entry. The `recent` array inside is filtered on each call (line 31), so within an active entry the timestamps are pruned — but the entry itself is never removed. Same issue in `/api/auth/forgot-password/route.ts:12` (`const attempts = new Map<string, { count: number; firstAt: number }>()`).
+   934→
+   935→Concrete fix: add a periodic cleanup, OR use the canonical `checkRateLimit` from `src/lib/rate-limit.ts` which already has cleanup.
+   936→
+   937→## D.8 ⚠️ WARN (MEDIUM) — `src/lib/whatsapp.ts` in-memory queue is lost on server restart
+   938→File: src/lib/whatsapp.ts:120
+   939→```ts
+   940→const queue: QueuedMessage[] = [];
+   941→```
+   942→Messages are pushed to this in-memory array. On server restart (or in serverless cold-start), the array is empty — any message that was queued but not yet sent is permanently lost. The DB has a `whatsapp_messages` row with status 'queued' or 'retrying', but nothing ever picks it up after restart (the processor's `processQueue()` only iterates the in-memory array, not the DB). This was flagged in audit-10-11 (2.2) and is NOT fixed.
+   943→
+   944→Concrete fix: on `startWhatsAppProcessor()`, SELECT all `whatsapp_messages` rows with status 'queued' or 'retrying' and load them into the in-memory queue. Better: ditch the in-memory queue entirely and operate on the DB directly (similar to how `email-processor.ts` works on `email_queue`).
+   945→
+   946→## D.9 ⚠️ WARN (LOW) — `src/lib/web-import.ts` `runImportJob` has no overall timeout
+   947→File: src/lib/web-import.ts:701-922
+   948→The job does multiple network fetches (main page, robots.txt, sitemap, up to 8 sub-pages) each with their own 8-12s timeout. But there's no OVERALL timeout. Worst case: 12s (main) + 5s (robots) + 8s (sitemap) + 8×8s (sub-pages) = 89s. In a serverless environment with a 60s function timeout, the function will be killed mid-import, leaving the `import_jobs` row stuck in 'running' status forever. No cleanup mechanism.
+   949→
+   950→Concrete fix: wrap the entire job in an `AbortController` with a 45s timeout:
+   951→```ts
+   952→const overallTimeout = setTimeout(() => {
+   953→  throw new Error('Import job timed out after 45s');
+   954→}, 45_000);
+   955→try { ... } finally { clearTimeout(overallTimeout); }
+   956→```
+   957→
+   958→================================================================================
+   959→# E. Dead code / unwired infrastructure (carried over from previous audits)
+   960→================================================================================
+   961→
+   962→## E.1 ❌ BUG (HIGH) — `src/lib/rate-limit.ts` is STILL dead code
+   963→File: src/lib/rate-limit.ts (whole file, 85 lines)
+   964→Ripgrep confirms `checkRateLimit` and `RATE_LIMITS` are referenced ONLY in rate-limit.ts itself — zero importers in src/app or src/lib. The `/api/auth/register`, `/api/reservations`, `/api/tables`, `/api/reservations/[id]`, `/api/whatsapp/status`, and `/api/billing/*` routes all have NO rate limiting. Only `/api/auth/forgot-password` and `/api/restaurant/import-web` have hand-rolled in-memory limiters (which themselves have the memory leak in D.7). This was flagged in audit-5-6-14 (E.1) and audit-9 (D.1) and is NOT fixed.
+   965→
+   966→Concrete fix: import and call `checkRateLimit(req, RATE_LIMITS.xxx)` at the top of every API route. Delete the two hand-rolled limiters in forgot-password and import-web.
+   967→
+   968→## E.2 ⚠️ WARN (MEDIUM) — `src/lib/rbac.ts` `invalidateRbacCache` is never called from any route
+   969→File: src/lib/rbac.ts:180-187
+   970→Ripgrep confirms `invalidateRbacCache` is only called from within rbac.ts itself (lines 230, 284, 295, 313 — all inside `assignRole` and `updateRolePermissions`). But `assignRole` and `updateRolePermissions` are themselves never called from any API route (the admin UI for role management is not built — flagged in audit-5-6-14 A.4). So even if RBAC were wired up, role changes would take 5 minutes (the cache TTL) to propagate. The Stripe webhook correctly calls `invalidateFeatureFlagsCache` (good — that was fixed), but there's no equivalent trigger for RBAC when an admin changes a user's role.
+   971→
+   972→## E.3 ⚠️ WARN (LOW) — `src/lib/session-management.ts:95` `updateSessionActivity` is exported but never called
+   973→File: src/lib/session-management.ts:95-102
+   974→```ts
+   975→export async function updateSessionActivity(jti: string): Promise<void> { ... }
+   976→```
+   977→Zero callers. The `user_sessions.last_activity` column is set to `now()` on insert (default) and never updated. The "device tracking" feature shows the original login time, not the last activity time. Flagged in audit-9 (G4), still unfixed.
+   978→
+   979→Concrete fix: call `updateSessionActivity(token.jti)` inside the `jwt` callback in next-auth.ts (throttled to once per 5 minutes to avoid a DB write on every request).
+   980→
+   981→================================================================================
+   982→# F. SQL / data integrity findings
+   983→================================================================================
+   984→
+   985→## F.1 ✅ OK — No string-concatenated SQL queries (Supabase client uses parameterized queries everywhere).
+   986→## F.2 ✅ OK — No `@ts-ignore` / `@ts-nocheck` in the audited files (matches audit-5-6-14 C.8).
+   987→## F.3 ✅ OK — `/api/auth/[...nextauth]` route is a thin re-export with no logic to bug-check.
+   988→## F.4 ✅ OK — `src/middleware.ts` correctly excludes `/api/stripe/webhook`, `/api/whatsapp/webhook`, `/api/whatsapp/status` from auth (matches the matcher pattern on line 88). The `/api/seed` super-admin gate (line 62-67) is also correct.
+   989→## F.5 ✅ OK — `src/lib/supabase/admin.ts` correctly fails-closed if `SUPABASE_SERVICE_ROLE_KEY` is missing.
+   990→## F.6 ✅ OK — `src/lib/logger.ts` is straightforward, no bugs.
+   991→
+   992→================================================================================
+   993→# G. Summary table (sorted by severity)
+   994→================================================================================
+   995→
+   996→| ID  | Severity | File:Line                                                   | One-line summary                                                          |
+   997→|-----|----------|-------------------------------------------------------------|---------------------------------------------------------------------------|
+   998→| A.1 | CRITICAL | user/sessions/route.ts:29                                   | IDOR: any user can revoke any other user's JTI                            |
+   999→| A.2 | CRITICAL | auth/reset-password/route.ts:30-33                          | Password reset doesn't revoke existing sessions                           |
+  1000→| A.3 | CRITICAL | auth/register/route.ts:152                                  | verifyToken returned in response — bypasses email verification            |
+  1001→| A.4 | CRITICAL | whatsapp/webhook/route.ts:101-105                           | .maybeSingle() throws on duplicate phones — drops inbound messages        |
+  1002→| A.5 | HIGH     | auth/register/route.ts (whole)                              | No rate limit on signup                                                   |
+  1003→| A.6 | HIGH     | auth/register/route.ts:73-115                               | Non-atomic org+settings+user+token creation                               |
+  1004→| B.1 | HIGH     | tables/transfer/route.ts:50-98                              | 4 UPDATEs, no transaction, fail leaves tables/reservation inconsistent    |
+  1005→| B.2 | HIGH     | tables/transfer/route.ts:78-81                              | Force-update missing organization_id filter                               |
+  1006→| B.3 | HIGH     | reservations/route.ts:44-169                                | No rate limit + no checkLimit('reservations') enforcement                 |
+  1007→| B.4 | HIGH     | reservations/[id]/route.ts:26-33                            | Table update fails silently (.catch(() => null)) before reservation       |
+  1008→| B.5 | HIGH     | reservations/[id]/route.ts:48-57                            | DELETE doesn't free the table from RESERVED status                        |
+  1009→| B.6 | HIGH     | reservations/[id]/route.ts:25                               | No validation that tableId belongs to tenant                              |
+  1010→| C.1 | HIGH     | lib/stripe.ts:27-73                                         | getOrCreateCustomer race → orphaned Stripe customers                      |
+  1011→| C.2 | HIGH     | whatsapp/webhook/route.ts:42                                | Verify token compared with === (timing attack)                            |
+  1012→| C.3 | HIGH     | billing/subscription/route.ts:59-87                         | Cancel/reactivate not idempotent; race between them                       |
+  1013→| C.4 | HIGH     | whatsapp/status/route.ts:6-10                               | STAFF can read WhatsApp config + all recent messages                      |
+  1014→| D.1 | HIGH     | lib/email-processor.ts:20 + lib/whatsapp.ts:235             | Queue processors never started                                            |
+  1015→| D.2 | HIGH     | lib/email-processor.ts:42-58, 66-71                         | Multi-instance race → duplicate email sends                               |
+  1016→| D.3 | HIGH     | lib/email.ts:240-435                                        | Email templates don't escape user input (HTML injection)                  |
+  1017→| D.4 | HIGH     | lib/web-import.ts:151-188, 251-259                          | DNS-rebinding TOCTOU between isPrivateUrl check and fetch                 |
+  1018→| A.7 | MEDIUM   | auth/forgot-password/route.ts:75-78                         | resetToken returned in any non-production NODE_ENV                        |
+  1019→| A.8 | MEDIUM   | auth/forgot-password/route.ts:63-71                         | Blocks up to 60s on Resend retries (DoS)                                  |
+  1020→| A.9 | MEDIUM   | lib/session-management.ts:180                               | loginAttempts Map never garbage-collected                                 |
+  1021→| A.10| MEDIUM   | lib/session-management.ts:38-53                             | isSessionValid fails OPEN on DB errors and unknown JTIs                   |
+  1022→| A.11| MEDIUM   | lib/next-auth.ts:27                                         | 30-day JWT maxAge excessive                                               |
+  1023→| B.7 | MEDIUM   | tables/route.ts:71-84                                       | TOCTOU on plan-limit check                                                |
+  1024→| B.8 | MEDIUM   | reservations/route.ts:88, 108, 124-125, 147-148             | new Date(date) parses local time — timezone shifts                        |
+  1025→| B.9 | MEDIUM   | reservations/[id]/route.ts:7-9                              | STAFF can CANCEL/NO_SHOW/COMPLETED with no role check                     |
+  1026→| B.10| MEDIUM   | tables/positions/route.ts:22                                | No type validation for posX/posY                                          |
+  1027→| C.5 | MEDIUM   | billing/checkout/route.ts:11-13, 25-32                      | billingCycle not validated (any string accepted)                          |
+  1028→| C.6 | MEDIUM   | billing/checkout/route.ts (whole)                           | No plan-upgrade/downgrade validation against current state                |
+  1029→| C.7 | MEDIUM   | stripe/webhook/route.ts:93-100                              | .maybeSingle() throws if same price_id is in both monthly+yearly columns  |
+  1030→| C.8 | MEDIUM   | stripe/webhook/route.ts:59, 141, 193, 222                   | subscription_history.upsert error never checked (silent data loss)        |
+  1031→| D.5 | MEDIUM   | lib/email-processor.ts:23 + lib/whatsapp.ts:240             | setInterval not .unref()'d                                                |
+  1032→| D.6 | MEDIUM   | lib/rate-limit.ts:27-34                                     | Cleanup threshold hard-coded 10 min, ignores config.window                |
+  1033→| D.7 | MEDIUM   | restaurant/import-web/route.ts:18 + auth/forgot-password:12 | Rate-limiter Maps never garbage-collected                                 |
+  1034→| D.8 | MEDIUM   | lib/whatsapp.ts:120                                         | In-memory queue lost on restart                                           |
+  1035→| E.1 | HIGH     | lib/rate-limit.ts (whole)                                   | Dead code — never called (still unfixed from audit-5-6-14)                |
+  1036→| E.2 | MEDIUM   | lib/rbac.ts:180                                             | invalidateRbacCache never called from any route                           |
+  1037→| E.3 | LOW      | lib/session-management.ts:95                                | updateSessionActivity exported but never called                           |
+  1038→| B.11| LOW      | tables/transfer/route.ts:50-58                              | Customer's zone preference silently overwritten on transfer               |
+  1039→| C.9 | LOW      | stripe/webhook/route.ts                                     | No rate limit / IP allowlist on webhook                                   |
+  1040→| D.9 | LOW      | lib/web-import.ts:701-922                                   | No overall timeout on runImportJob                                        |
+  1041→| A.12| OK       | api/auth/[...nextauth]/route.ts                             | Thin re-export, no bugs                                                   |
+  1042→| A.13| OK       | lib/auth.ts                                                 | bcrypt cost 10 acceptable                                                 |
+  1043→| A.14| OK       | lib/supabase/admin.ts                                       | Fails-closed on missing key                                               |
+  1044→| F.1 | OK       | (all)                                                       | No string-concatenated SQL                                                |
+  1045→| F.2 | OK       | (all)                                                       | No @ts-ignore                                                             |
+  1046→| F.3 | OK       | src/middleware.ts                                           | Webhook paths correctly excluded from auth                                |
+  1047→
+  1048→================================================================================
+  1049→# H. Recommended next actions (in priority order)
+  1050→================================================================================
+  1051→
+  1052→1. **Patch A.1, A.2, A.3 immediately** — these are authentication/authorization bypasses that expose every user account. A.1 + A.2 together let an attacker with a stolen JWT keep access even after the user resets their password. A.3 means email verification is decorative.
+  1053→
+  1054→2. **Patch A.4** — every inbound WhatsApp message from a customer whose phone is shared across tenants is silently dropped. This is a live data-loss bug.
+  1055→
+  1056→3. **Patch B.3 + B.5 + D.1** — these together form a DoS/data-loss chain: no rate limit on reservations → unbounded WhatsApp/email queueing → queue processor never started → memory grows → OOM. Even without a malicious actor, a busy restaurant can trigger this.
+  1057→
+  1058→4. **Patch C.1 + D.2** — both are duplicate-charge / duplicate-send races. C.1 wastes Stripe customer records and can desync the DB from Stripe; D.2 sends the same email twice (customer confusion + Resend cost).
+  1059→
+  1060→5. **Patch D.3 + D.4** — email HTML injection and SSRF DNS-rebinding are both "ignored from previous audit" items. They're not new but they're still live.
+  1061→
+  1062→6. **Wire up E.1 (rate-limit.ts)** — single change that fixes A.5, B.3 (partial), D.7, and adds defense-in-depth to every other API route.
+  1063→
+  1064→7. **Patch B.1, B.4, B.6** — table-transfer non-atomicity, silent table-update failure, missing tableId tenancy check. These are data-corruption bugs that compound over time.
+  1065→
+  1066→8. **Patch C.3, C.5, C.6, C.7, C.8** — billing subsystem correctness. C.7 + C.8 are silent data loss in the webhook; C.5 + C.6 let users check out invalid plans; C.3 produces duplicate history rows.
+  1067→
+  1068→9. **Patch A.9, A.10, A.11, D.5, D.6, D.7, D.8** — memory leaks and fail-open behaviors. Individually minor; collectively they cause slow degradation and outage-time security holes.
+  1069→
+  1070→10. **Patch E.2, E.3, B.8, B.9, B.10, B.11, C.9, D.9** — long tail. Do these last.
+  1071→
+  1072→This was a READ-ONLY audit. No source files were modified. Recommended next task: `phase-a-fix` to patch items 1-4 above (CRITICAL + top HIGH) in priority order. Items 5-10 should follow in a second fix task.
+  1073→
+  1074→---
+  1075→Task ID: phase-b
+  1076→Agent: explore (database audit sub-agent)
+  1077→Task: Phase B — Read-only database audit. Try to break the database. Find any remaining bug, missing index, broken FK, RLS gap, or performance problem across the 18 migrations, the consolidated SQL-MAESTRO-COMPLETO.sql, and src/lib/db.ts.
+  1078→

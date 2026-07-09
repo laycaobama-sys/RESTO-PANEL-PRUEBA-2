@@ -1,0 +1,814 @@
+     1→"use client";
+     2→
+     3→import { useState } from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { api, uploadFile } from "@/lib/api"; import { formatCurrency } from "@/lib/format";
+     6→import { SectionHeader, EmptyState } from "@/components/shared/SectionHeader";
+     7→import {
+     8→  Plus,
+     9→  Search,
+    10→  Pencil,
+    11→  Trash2,
+    12→  Loader2,
+    13→  BookOpen,
+    14→  Eye,
+    15→  EyeOff,
+    16→  GripVertical,
+    17→  ImageIcon,
+    18→  X,
+    19→  Check,
+    20→  AlertCircle,
+    21→} from "lucide-react";
+    22→import { Button } from "@/components/ui/button";
+    23→import { Input } from "@/components/ui/input";
+    24→import { Label } from "@/components/ui/label";
+    25→import { Textarea } from "@/components/ui/textarea";
+    26→import { Switch } from "@/components/ui/switch";
+    27→import {
+    28→  Dialog,
+    29→  DialogContent,
+    30→  DialogHeader,
+    31→  DialogTitle,
+    32→  DialogFooter,
+    33→} from "@/components/ui/dialog";
+    34→import {
+    35→  AlertDialog,
+    36→  AlertDialogAction,
+    37→  AlertDialogCancel,
+    38→  AlertDialogContent,
+    39→  AlertDialogDescription,
+    40→  AlertDialogFooter,
+    41→  AlertDialogHeader,
+    42→  AlertDialogTitle,
+    43→} from "@/components/ui/alert-dialog";
+    44→import {
+    45→  Select,
+    46→  SelectContent,
+    47→  SelectItem,
+    48→  SelectTrigger,
+    49→  SelectValue,
+    50→} from "@/components/ui/select";
+    51→import { toast } from "sonner";
+    52→import { cn } from "@/lib/utils";
+    53→import { motion } from "framer-motion";
+    54→
+    55→interface Category {
+    56→  id: string;
+    57→  name: string;
+    58→  slug: string;
+    59→  icon?: string | null;
+    60→  sortOrder: number;
+    61→  visible: boolean;
+    62→  _count?: { menuItems: number };
+    63→}
+    64→interface MenuItem {
+    65→  id: string;
+    66→  name: string;
+    67→  description?: string | null;
+    68→  price: number;
+    69→  image?: string | null;
+    70→  available: boolean;
+    71→  visible: boolean;
+    72→  allergens?: string | null;
+    73→  sortOrder: number;
+    74→  categoryId: string;
+    75→  category?: { id: string; name: string };
+    76→}
+    77→
+    78→export function MenusSection() {
+    79→  const qc = useQueryClient();
+    80→  const [activeCategory, setActiveCategory] = useState<string>("ALL");
+    81→  const [search, setSearch] = useState("");
+    82→  const [showHidden, setShowHidden] = useState(false);
+    83→  const [itemDialog, setItemDialog] = useState<{
+    84→    open: boolean;
+    85→    item?: MenuItem;
+    86→  }>({ open: false });
+    87→  const [categoryDialog, setCategoryDialog] = useState<{
+    88→    open: boolean;
+    89→    category?: Category;
+    90→  }>({ open: false });
+    91→  const [deleteTarget, setDeleteTarget] = useState<
+    92→    | { type: "item"; id: string; name: string }
+    93→    | { type: "category"; id: string; name: string }
+    94→    | null
+    95→  >(null);
+    96→
+    97→  const { data: categories = [], isLoading: catLoading } = useQuery<Category[]>({
+    98→    queryKey: ["categories"],
+    99→    queryFn: () => api("/api/categories"),
+   100→  });
+   101→
+   102→  const { data: items = [], isLoading: itemsLoading } = useQuery<MenuItem[]>({
+   103→    queryKey: ["menu-items", showHidden],
+   104→    queryFn: () => api(`/api/menu?all=${showHidden}`),
+   105→  });
+   106→
+   107→  const filteredItems = items.filter((i) => {
+   108→    if (activeCategory !== "ALL" && i.categoryId !== activeCategory) return false;
+   109→    if (search) {
+   110→      const q = search.toLowerCase();
+   111→      return (
+   112→        i.name.toLowerCase().includes(q) ||
+   113→        (i.description || "").toLowerCase().includes(q)
+   114→      );
+   115→    }
+   116→    return true;
+   117→  });
+   118→
+   119→  const invalidateAll = () => {
+   120→    qc.invalidateQueries({ queryKey: ["categories"] });
+   121→    qc.invalidateQueries({ queryKey: ["menu-items"] });
+   122→    qc.invalidateQueries({ queryKey: ["public-menu"] });
+   123→  };
+   124→
+   125→  // Quick toggle visibility/availability
+   126→  const toggleMutation = useMutation({
+   127→    mutationFn: ({ id, data }: { id: string; data: Partial<MenuItem> }) =>
+   128→      api(`/api/menu/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+   129→    onSuccess: () => invalidateAll(),
+   130→    onError: (e: any) => toast.error(e.message),
+   131→  });
+   132→
+   133→  const deleteMutation = useMutation({
+   134→    mutationFn: async (target: typeof deleteTarget) => {
+   135→      if (!target) return;
+   136→      if (target.type === "item") {
+   137→        await api(`/api/menu/${target.id}`, { method: "DELETE" });
+   138→      } else {
+   139→        await api(`/api/categories/${target.id}`, { method: "DELETE" });
+   140→      }
+   141→    },
+   142→    onSuccess: () => {
+   143→      toast.success("Eliminado correctamente");
+   144→      invalidateAll();
+   145→      setDeleteTarget(null);
+   146→    },
+   147→    onError: (e: any) => {
+   148→      toast.error(e.message);
+   149→      setDeleteTarget(null);
+   150→    },
+   151→  });
+   152→
+   153→  return (
+   154→    <div>
+   155→      <SectionHeader
+   156→        title="Menús / Carta"
+   157→        subtitle="Los cambios que hagas aquí se reflejan al instante en tu carta pública"
+   158→        actions={
+   159→          <>
+   160→            <Button
+   161→              variant="outline"
+   162→              onClick={() => setCategoryDialog({ open: true })}
+   163→            >
+   164→              <Plus className="w-4 h-4 mr-1.5" />
+   165→              Categoría
+   166→            </Button>
+   167→            <Button
+   168→              className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
+   169→              onClick={() => setItemDialog({ open: true })}
+   170→            >
+   171→              <Plus className="w-4 h-4 mr-1.5" />
+   172→              Añadir plato
+   173→            </Button>
+   174→          </>
+   175→        }
+   176→      />
+   177→
+   178→      {/* Sync notice */}
+   179→      <div className="mb-4 flex items-start gap-2.5 bg-[#C5A05910] border border-[#C5A05920] rounded-xl p-3 text-sm">
+   180→        <div className="w-8 h-8 rounded-full bg-[#C5A059]/10 flex items-center justify-center flex-shrink-0">
+   181→          <Check className="w-4 h-4 text-[#C5A059]" />
+   182→        </div>
+   183→        <div className="flex-1 text-[#C5A059]">
+   184→          <p className="font-medium">Sincronización con web pública activada</p>
+   185→          <p className="text-xs mt-0.5 opacity-80">
+   186→            Cualquier cambio (precio, foto, descripción, visible/oculto) se
+   187→            actualiza automáticamente en tu web. Tus clientes siempre ven la
+   188→            versión más reciente.
+   189→          </p>
+   190→        </div>
+   191→      </div>
+   192→
+   193→      {/* Categories tabs */}
+   194→      <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 -mx-1 px-1">
+   195→        <button
+   196→          onClick={() => setActiveCategory("ALL")}
+   197→          className={cn(
+   198→            "px-3.5 py-1.5 text-sm font-medium rounded-full whitespace-nowrap border transition-colors",
+   199→            activeCategory === "ALL"
+   200→              ? "bg-[#C5A059] text-white border-[#C5A059]"
+   201→              : "bg-white text-neutral-400 border-white/[0.06] hover:bg-[#1a1f24]"
+   202→          )}
+   203→        >
+   204→          Todos ({items.length})
+   205→        </button>
+   206→        {categories.map((c) => {
+   207→          const count = items.filter((i) => i.categoryId === c.id).length;
+   208→          return (
+   209→            <button
+   210→              key={c.id}
+   211→              onClick={() => setActiveCategory(c.id)}
+   212→              className={cn(
+   213→                "px-3.5 py-1.5 text-sm font-medium rounded-full whitespace-nowrap border transition-colors flex items-center gap-1.5",
+   214→                activeCategory === c.id
+   215→                  ? "bg-[#C5A059] text-white border-[#C5A059]"
+   216→                  : "bg-white text-neutral-400 border-white/[0.06] hover:bg-[#1a1f24]"
+   217→              )}
+   218→            >
+   219→              {c.icon && <span>{c.icon}</span>}
+   220→              {c.name} ({count})
+   221→              {!c.visible && <EyeOff className="w-3 h-3 opacity-60" />}
+   222→            </button>
+   223→          );
+   224→        })}
+   225→      </div>
+   226→
+   227→      {/* Search & filters */}
+   228→      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+   229→        <div className="relative flex-1">
+   230→          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+   231→          <Input
+   232→            placeholder="Buscar plato..."
+   233→            value={search}
+   234→            onChange={(e) => setSearch(e.target.value)}
+   235→            className="pl-9 h-10 bg-[#111518] border-white/[0.06]"
+   236→          />
+   237→        </div>
+   238→        <label className="flex items-center gap-2 text-sm text-neutral-400 cursor-pointer bg-[#111518] border border-white/[0.06] rounded-lg px-3 h-10">
+   239→          <Switch
+   240→            checked={showHidden}
+   241→            onCheckedChange={setShowHidden}
+   242→            className="data-[state=checked]:bg-[#C5A059]"
+   243→          />
+   244→          Mostrar ocultos
+   245→        </label>
+   246→      </div>
+   247→
+   248→      {/* Items grid */}
+   249→      {itemsLoading || catLoading ? (
+   250→        <div className="py-20 flex items-center justify-center text-neutral-400">
+   251→          <Loader2 className="w-5 h-5 animate-spin" />
+   252→        </div>
+   253→      ) : filteredItems.length === 0 ? (
+   254→        <div className="bg-[#111518] rounded-2xl border border-white/[0.06]">
+   255→          <EmptyState
+   256→            icon={<BookOpen className="w-6 h-6" />}
+   257→            title={search ? "Sin resultados" : "Tu carta está vacía"}
+   258→            description={
+   259→              search
+   260→                ? "Prueba con otra búsqueda."
+   261→                : "Crea tu primera categoría y empieza a añadir platos. Se publicarán en tu web al instante."
+   262→            }
+   263→            action={
+   264→              !search && (
+   265→                <Button
+   266→                  className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
+   267→                  onClick={() => setItemDialog({ open: true })}
+   268→                >
+   269→                  <Plus className="w-4 h-4 mr-1.5" />
+   270→                  Añadir primer plato
+   271→                </Button>
+   272→              )
+   273→            }
+   274→          />
+   275→        </div>
+   276→      ) : (
+   277→        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+   278→          {filteredItems.map((item, i) => (
+   279→            <ItemCard
+   280→              key={item.id}
+   281→              item={item}
+   282→              delay={i * 0.03}
+   283→              onEdit={() => setItemDialog({ open: true, item })}
+   284→              onDelete={() =>
+   285→                setDeleteTarget({
+   286→                  type: "item",
+   287→                  id: item.id,
+   288→                  name: item.name,
+   289→                })
+   290→              }
+   291→              onToggleVisibility={() =>
+   292→                toggleMutation.mutate({
+   293→                  id: item.id,
+   294→                  data: { visible: !item.visible },
+   295→                })
+   296→              }
+   297→              onToggleAvailability={() =>
+   298→                toggleMutation.mutate({
+   299→                  id: item.id,
+   300→                  data: { available: !item.available },
+   301→                })
+   302→              }
+   303→            />
+   304→          ))}
+   305→        </div>
+   306→      )}
+   307→
+   308→      {/* Item dialog */}
+   309→      <ItemDialog
+   310→        key={itemDialog.item?.id || "new-item"}
+   311→        open={itemDialog.open}
+   312→        item={itemDialog.item}
+   313→        categories={categories}
+   314→        onClose={() => setItemDialog({ open: false })}
+   315→        onSaved={() => {
+   316→          invalidateAll();
+   317→          setItemDialog({ open: false });
+   318→        }}
+   319→      />
+   320→
+   321→      {/* Category dialog */}
+   322→      <CategoryDialog
+   323→        key={categoryDialog.category?.id || "new-cat"}
+   324→        open={categoryDialog.open}
+   325→        category={categoryDialog.category}
+   326→        onClose={() => setCategoryDialog({ open: false })}
+   327→        onSaved={() => {
+   328→          invalidateAll();
+   329→          setCategoryDialog({ open: false });
+   330→        }}
+   331→      />
+   332→
+   333→      {/* Delete confirmation */}
+   334→      <AlertDialog
+   335→        open={!!deleteTarget}
+   336→        onOpenChange={(v) => !v && setDeleteTarget(null)}
+   337→      >
+   338→        <AlertDialogContent>
+   339→          <AlertDialogHeader>
+   340→            <AlertDialogTitle>¿Eliminar?</AlertDialogTitle>
+   341→            <AlertDialogDescription>
+   342→              {deleteTarget?.type === "item" ? (
+   343→                <>
+   344→                  Vas a eliminar <strong>{deleteTarget?.name}</strong> de tu
+   345→                  carta. Esta acción no se puede deshacer.
+   346→                </>
+   347→              ) : (
+   348→                <>
+   349→                  Vas a eliminar la categoría{" "}
+   350→                  <strong>{deleteTarget?.name}</strong>. Si tiene platos
+   351→                  asociados, deberás eliminarlos o moverlos primero.
+   352→                </>
+   353→              )}
+   354→            </AlertDialogDescription>
+   355→          </AlertDialogHeader>
+   356→          <AlertDialogFooter>
+   357→            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+   358→            <AlertDialogAction
+   359→              className="bg-red-600 hover:bg-red-700 text-white"
+   360→              onClick={() => deleteMutation.mutate(deleteTarget)}
+   361→              disabled={deleteMutation.isPending}
+   362→            >
+   363→              {deleteMutation.isPending ? (
+   364→                <Loader2 className="w-4 h-4 animate-spin" />
+   365→              ) : (
+   366→                "Sí, eliminar"
+   367→              )}
+   368→            </AlertDialogAction>
+   369→          </AlertDialogFooter>
+   370→        </AlertDialogContent>
+   371→      </AlertDialog>
+   372→    </div>
+   373→  );
+   374→}
+   375→
+   376→function ItemCard({
+   377→  item,
+   378→  delay,
+   379→  onEdit,
+   380→  onDelete,
+   381→  onToggleVisibility,
+   382→  onToggleAvailability,
+   383→}: {
+   384→  item: MenuItem;
+   385→  delay: number;
+   386→  onEdit: () => void;
+   387→  onDelete: () => void;
+   388→  onToggleVisibility: () => void;
+   389→  onToggleAvailability: () => void;
+   390→}) {
+   391→  return (
+   392→    <motion.div
+   393→      initial={{ opacity: 0, y: 8 }}
+   394→      animate={{ opacity: 1, y: 0 }}
+   395→      transition={{ duration: 0.25, delay }}
+   396→      className={cn(
+   397→        "bg-[#111518] rounded-2xl border border-white/[0.06] overflow-hidden group hover:shadow-md transition-all",
+   398→        !item.visible && "opacity-60"
+   399→      )}
+   400→    >
+   401→      {/* Image */}
+   402→      <div className="relative aspect-[4/3] bg-gradient-to-br from-neutral-100 to-neutral-200 overflow-hidden">
+   403→        {item.image ? (
+   404→          <img
+   405→            src={item.image}
+   406→            alt={item.name}
+   407→            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+   408→          />
+   409→        ) : (
+   410→          <div className="w-full h-full flex items-center justify-center">
+   411→            <ImageIcon className="w-10 h-10 text-neutral-300" />
+   412→          </div>
+   413→        )}
+   414→        {/* Status badges */}
+   415→        <div className="absolute top-2 right-2 flex flex-col gap-1">
+   416→          {!item.available && (
+   417→            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-500 text-white">
+   418→              Agotado
+   419→            </span>
+   420→          )}
+   421→          {!item.visible && (
+   422→            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800/80 text-white backdrop-blur">
+   423→              Oculto
+   424→            </span>
+   425→          )}
+   426→        </div>
+   427→        {/* Quick actions overlay */}
+   428→        <div className="absolute top-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+   429→          <button
+   430→            onClick={onToggleVisibility}
+   431→            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur flex items-center justify-center text-neutral-300 hover:bg-white shadow-sm"
+   432→            title={item.visible ? "Ocultar" : "Mostrar"}
+   433→          >
+   434→            {item.visible ? (
+   435→              <Eye className="w-3.5 h-3.5" />
+   436→            ) : (
+   437→              <EyeOff className="w-3.5 h-3.5" />
+   438→            )}
+   439→          </button>
+   440→        </div>
+   441→      </div>
+   442→
+   443→      {/* Content */}
+   444→      <div className="p-4">
+   445→        <div className="flex items-start justify-between gap-2 mb-1">
+   446→          <h3 className="font-semibold text-[#f5f5f0] text-sm leading-tight">
+   447→            {item.name}
+   448→          </h3>
+   449→          <span className="font-bold text-[#C5A059] whitespace-nowrap">
+   450→            {formatCurrency(item.price)}
+   451→          </span>
+   452→        </div>
+   453→        {item.description && (
+   454→          <p className="text-xs text-neutral-500 line-clamp-2 mb-3">
+   455→            {item.description}
+   456→          </p>
+   457→        )}
+   458→        {item.allergens && (
+   459→          <p className="text-[10px] text-neutral-400 mb-3">
+   460→            Alérgenos: {item.allergens}
+   461→          </p>
+   462→        )}
+   463→        <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
+   464→          <label className="flex items-center gap-1.5 text-xs text-neutral-400 cursor-pointer">
+   465→            <Switch
+   466→              checked={item.available}
+   467→              onCheckedChange={onToggleAvailability}
+   468→              className="data-[state=checked]:bg-green-600 scale-90"
+   469→            />
+   470→            Disponible
+   471→          </label>
+   472→          <div className="flex gap-1">
+   473→            <Button
+   474→              size="sm"
+   475→              variant="ghost"
+   476→              className="h-8 w-8 p-0 text-neutral-500 hover:text-[#C5A059] hover:bg-[#C5A05910]"
+   477→              onClick={onEdit}
+   478→            >
+   479→              <Pencil className="w-3.5 h-3.5" />
+   480→            </Button>
+   481→            <Button
+   482→              size="sm"
+   483→              variant="ghost"
+   484→              className="h-8 w-8 p-0 text-neutral-500 hover:text-red-600 hover:bg-red-50"
+   485→              onClick={onDelete}
+   486→            >
+   487→              <Trash2 className="w-3.5 h-3.5" />
+   488→            </Button>
+   489→          </div>
+   490→        </div>
+   491→      </div>
+   492→    </motion.div>
+   493→  );
+   494→}
+   495→
+   496→function ItemDialog({
+   497→  open,
+   498→  item,
+   499→  categories,
+   500→  onClose,
+   501→  onSaved,
+   502→}: {
+   503→  open: boolean;
+   504→  item?: MenuItem;
+   505→  categories: Category[];
+   506→  onClose: () => void;
+   507→  onSaved: () => void;
+   508→}) {
+   509→  const [name, setName] = useState(item?.name || "");
+   510→  const [description, setDescription] = useState(item?.description || "");
+   511→  const [price, setPrice] = useState(item?.price?.toString() || "");
+   512→  const [image, setImage] = useState(item?.image || "");
+   513→  const [categoryId, setCategoryId] = useState(item?.categoryId || categories[0]?.id || "");
+   514→  const [allergens, setAllergens] = useState(item?.allergens || "");
+   515→  const [available, setAvailable] = useState(item?.available ?? true);
+   516→  const [visible, setVisible] = useState(item?.visible ?? true);
+   517→  const [saving, setSaving] = useState(false);
+   518→  const [uploading, setUploading] = useState(false);
+   519→
+   520→  async function handleUpload(file: File) {
+   521→    setUploading(true);
+   522→    try {
+   523→      const url = await uploadFile(file);
+   524→      setImage(url);
+   525→      toast.success("Imagen subida");
+   526→    } catch (e: any) {
+   527→      toast.error(e.message);
+   528→    } finally {
+   529→      setUploading(false);
+   530→    }
+   531→  }
+   532→
+   533→  async function handleSave() {
+   534→    if (!name.trim()) return toast.error("El nombre es obligatorio");
+   535→    if (!price || Number(price) < 0) return toast.error("Precio inválido");
+   536→    if (!categoryId) return toast.error("Selecciona una categoría");
+   537→
+   538→    setSaving(true);
+   539→    try {
+   540→      const payload = {
+   541→        name: name.trim(),
+   542→        description: description.trim() || null,
+   543→        price: Number(price),
+   544→        image: image || null,
+   545→        categoryId,
+   546→        allergens: allergens.trim() || null,
+   547→        available,
+   548→        visible,
+   549→      };
+   550→      if (item) {
+   551→        await api(`/api/menu/${item.id}`, {
+   552→          method: "PATCH",
+   553→          body: JSON.stringify(payload),
+   554→        });
+   555→        toast.success("Plato actualizado · cartel público sincronizado");
+   556→      } else {
+   557→        await api("/api/menu", { method: "POST", body: JSON.stringify(payload) });
+   558→        toast.success("Plato añadido a la carta");
+   559→      }
+   560→      onSaved();
+   561→    } catch (e: any) {
+   562→      toast.error(e.message);
+   563→    } finally {
+   564→      setSaving(false);
+   565→    }
+   566→  }
+   567→
+   568→  return (
+   569→    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+   570→      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+   571→        <DialogHeader>
+   572→          <DialogTitle>
+   573→            {item ? `Editar: ${item.name}` : "Nuevo plato"}
+   574→          </DialogTitle>
+   575→        </DialogHeader>
+   576→
+   577→        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
+   578→          {/* Image upload */}
+   579→          <div className="md:col-span-2">
+   580→            <Label className="text-xs mb-1.5 block">Imagen del plato</Label>
+   581→            <div className="flex items-center gap-4">
+   582→              <div className="w-28 h-28 rounded-xl bg-[#1a1f24] border-2 border-dashed border-neutral-200 overflow-hidden flex items-center justify-center">
+   583→                {image ? (
+   584→                  <img
+   585→                    src={image}
+   586→                    alt={name}
+   587→                    className="w-full h-full object-cover"
+   588→                  />
+   589→                ) : (
+   590→                  <ImageIcon className="w-8 h-8 text-neutral-300" />
+   591→                )}
+   592→              </div>
+   593→              <div className="flex-1 space-y-2">
+   594→                <label className="inline-flex items-center gap-2 px-3 py-2 bg-[#111518] border border-white/[0.06] rounded-lg text-sm cursor-pointer hover:bg-[#1a1f24]">
+   595→                  {uploading ? (
+   596→                    <Loader2 className="w-4 h-4 animate-spin" />
+   597→                  ) : (
+   598→                    <ImageIcon className="w-4 h-4" />
+   599→                  )}
+   600→                  {uploading ? "Subiendo..." : "Subir imagen"}
+   601→                  <input
+   602→                    type="file"
+   603→                    accept="image/*"
+   604→                    className="hidden"
+   605→                    onChange={(e) => {
+   606→                      const f = e.target.files?.[0];
+   607→                      if (f) handleUpload(f);
+   608→                    }}
+   609→                  />
+   610→                </label>
+   611→                {image && (
+   612→                  <button
+   613→                    onClick={() => setImage("")}
+   614→                    className="block text-xs text-red-600 hover:underline"
+   615→                  >
+   616→                    Quitar imagen
+   617→                  </button>
+   618→                )}
+   619→                <p className="text-xs text-neutral-400">
+   620→                  JPG, PNG o WebP · Máximo 5MB · Recomendado 800×600px
+   621→                </p>
+   622→              </div>
+   623→            </div>
+   624→          </div>
+   625→
+   626→          <div className="space-y-1.5">
+   627→            <Label className="text-xs">Nombre *</Label>
+   628→            <Input
+   629→              value={name}
+   630→              onChange={(e) => setName(e.target.value)}
+   631→              placeholder="Hamburguesa Clásica"
+   632→            />
+   633→          </div>
+   634→          <div className="space-y-1.5">
+   635→            <Label className="text-xs">Precio (€) *</Label>
+   636→            <Input
+   637→              type="number"
+   638→              step="0.5"
+   639→              min="0"
+   640→              value={price}
+   641→              onChange={(e) => setPrice(e.target.value)}
+   642→              placeholder="9.50"
+   643→            />
+   644→          </div>
+   645→          <div className="md:col-span-2 space-y-1.5">
+   646→            <Label className="text-xs">Descripción</Label>
+   647→            <Textarea
+   648→              value={description}
+   649→              onChange={(e) => setDescription(e.target.value)}
+   650→              placeholder="Carne de ternera 150g, lechuga, tomate, queso..."
+   651→              rows={2}
+   652→            />
+   653→          </div>
+   654→          <div className="space-y-1.5">
+   655→            <Label className="text-xs">Categoría *</Label>
+   656→            <Select value={categoryId} onValueChange={setCategoryId}>
+   657→              <SelectTrigger>
+   658→                <SelectValue placeholder="Selecciona..." />
+   659→              </SelectTrigger>
+   660→              <SelectContent>
+   661→                {categories.map((c) => (
+   662→                  <SelectItem key={c.id} value={c.id}>
+   663→                    {c.icon} {c.name}
+   664→                  </SelectItem>
+   665→                ))}
+   666→              </SelectContent>
+   667→            </Select>
+   668→          </div>
+   669→          <div className="space-y-1.5">
+   670→            <Label className="text-xs">Alérgenos</Label>
+   671→            <Input
+   672→              value={allergens}
+   673→              onChange={(e) => setAllergens(e.target.value)}
+   674→              placeholder="gluten, lactosa, huevo"
+   675→            />
+   676→          </div>
+   677→          <div className="md:col-span-2 flex items-center gap-6 pt-2">
+   678→            <label className="flex items-center gap-2 text-sm">
+   679→              <Switch
+   680→                checked={available}
+   681→                onCheckedChange={setAvailable}
+   682→                className="data-[state=checked]:bg-green-600"
+   683→              />
+   684→              Disponible (no agotado)
+   685→            </label>
+   686→            <label className="flex items-center gap-2 text-sm">
+   687→              <Switch
+   688→                checked={visible}
+   689→                onCheckedChange={setVisible}
+   690→                className="data-[state=checked]:bg-[#C5A059]"
+   691→              />
+   692→              Visible en carta pública
+   693→            </label>
+   694→          </div>
+   695→        </div>
+   696→
+   697→        <DialogFooter>
+   698→          <Button variant="outline" onClick={onClose}>
+   699→            Cancelar
+   700→          </Button>
+   701→          <Button
+   702→            className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
+   703→            onClick={handleSave}
+   704→            disabled={saving}
+   705→          >
+   706→            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : item ? "Guardar cambios" : "Crear plato"}
+   707→          </Button>
+   708→        </DialogFooter>
+   709→      </DialogContent>
+   710→    </Dialog>
+   711→  );
+   712→}
+   713→
+   714→function CategoryDialog({
+   715→  open,
+   716→  category,
+   717→  onClose,
+   718→  onSaved,
+   719→}: {
+   720→  open: boolean;
+   721→  category?: Category;
+   722→  onClose: () => void;
+   723→  onSaved: () => void;
+   724→}) {
+   725→  const [name, setName] = useState(category?.name || "");
+   726→  const [icon, setIcon] = useState(category?.icon || "");
+   727→  const [visible, setVisible] = useState(category?.visible ?? true);
+   728→  const [saving, setSaving] = useState(false);
+   729→
+   730→  async function handleSave() {
+   731→    if (!name.trim()) return toast.error("Nombre obligatorio");
+   732→    setSaving(true);
+   733→    try {
+   734→      const payload = {
+   735→        name: name.trim(),
+   736→        icon: icon.trim() || null,
+   737→        visible,
+   738→      };
+   739→      if (category) {
+   740→        await api(`/api/categories/${category.id}`, {
+   741→          method: "PATCH",
+   742→          body: JSON.stringify(payload),
+   743→        });
+   744→        toast.success("Categoría actualizada");
+   745→      } else {
+   746→        await api("/api/categories", {
+   747→          method: "POST",
+   748→          body: JSON.stringify(payload),
+   749→        });
+   750→        toast.success("Categoría creada");
+   751→      }
+   752→      onSaved();
+   753→    } catch (e: any) {
+   754→      toast.error(e.message);
+   755→    } finally {
+   756→      setSaving(false);
+   757→    }
+   758→  }
+   759→
+   760→  return (
+   761→    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+   762→      <DialogContent>
+   763→        <DialogHeader>
+   764→          <DialogTitle>
+   765→            {category ? `Editar: ${category.name}` : "Nueva categoría"}
+   766→          </DialogTitle>
+   767→        </DialogHeader>
+   768→        <div className="space-y-4 py-2">
+   769→          <div className="flex gap-3">
+   770→            <div className="w-16 space-y-1.5">
+   771→              <Label className="text-xs">Icono</Label>
+   772→              <Input
+   773→                value={icon}
+   774→                onChange={(e) => setIcon(e.target.value)}
+   775→                placeholder="🍔"
+   776→                maxLength={2}
+   777→                className="text-center text-xl"
+   778→              />
+   779→            </div>
+   780→            <div className="flex-1 space-y-1.5">
+   781→              <Label className="text-xs">Nombre de la categoría *</Label>
+   782→              <Input
+   783→                value={name}
+   784→                onChange={(e) => setName(e.target.value)}
+   785→                placeholder="Hamburguesas"
+   786→              />
+   787→            </div>
+   788→          </div>
+   789→          <label className="flex items-center gap-2 text-sm pt-1">
+   790→            <Switch
+   791→              checked={visible}
+   792→              onCheckedChange={setVisible}
+   793→              className="data-[state=checked]:bg-[#C5A059]"
+   794→            />
+   795→            Visible en la carta pública
+   796→          </label>
+   797→        </div>
+   798→        <DialogFooter>
+   799→          <Button variant="outline" onClick={onClose}>
+   800→            Cancelar
+   801→          </Button>
+   802→          <Button
+   803→            className="bg-[#C5A059] hover:bg-[#b08d4e] text-white"
+   804→            onClick={handleSave}
+   805→            disabled={saving}
+   806→          >
+   807→            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : category ? "Guardar" : "Crear categoría"}
+   808→          </Button>
+   809→        </DialogFooter>
+   810→      </DialogContent>
+   811→    </Dialog>
+   812→  );
+   813→}
+   814→
