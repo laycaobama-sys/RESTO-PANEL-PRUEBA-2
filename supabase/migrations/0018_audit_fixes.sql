@@ -320,6 +320,18 @@ ALTER TABLE tables
 -- ============================================================
 -- Stripe reenvía eventos cuando recibe 500. Necesitamos un UNIQUE
 -- compuesto para que el ON CONFLICT del webhook funcione.
+-- Antes de crear el índice, eliminamos duplicados existentes.
+
+-- 6a. De-duplicar subscription_history por (organization_id, event_type, details)
+-- Mantener solo la fila más reciente (MAX(created_at)).
+DELETE FROM subscription_history a
+USING subscription_history b
+WHERE a.organization_id IS NOT DISTINCT FROM b.organization_id
+  AND a.event_type = b.event_type
+  AND a.details::text IS NOT DISTINCT FROM b.details::text
+  AND a.id < b.id;  -- a es más viejo que b → borramos a
+
+-- 6b. Ahora crear el índice UNIQUE
 CREATE UNIQUE INDEX IF NOT EXISTS subscription_history_org_event_details_uniq
   ON subscription_history(organization_id, event_type, details);
 
@@ -381,6 +393,117 @@ END $$;
 -- ============================================================
 -- 9. UNIQUE EN customers(organization_id, phone) y (organization_id, email)
 -- ============================================================
+-- IMPORTANTE: Si la DB ya contiene duplicados (mismo phone o email
+-- repetido en la misma organización), el CREATE UNIQUE INDEX fallará
+-- con error 23505. Por eso primero de-duplicamos manteniendo solo
+-- la fila más reciente (MAX(created_at)) y reasignando cualquier
+-- referencia externa a la fila superviviente.
+
+-- 9a. De-duplicar por (organization_id, phone)
+-- Mantener la fila con el created_at más reciente; borrar el resto.
+-- Antes de borrar, mover cualquier reservation/order que apunte a
+-- los duplicados para que apunte al superviviente.
+DO $$
+DECLARE
+  dup_row record;
+  survivor_id uuid;
+BEGIN
+  FOR dup_row IN
+    SELECT organization_id, phone
+    FROM customers
+    WHERE phone IS NOT NULL
+    GROUP BY organization_id, phone
+    HAVING COUNT(*) > 1
+  LOOP
+    -- Elegir el superviviente: el de created_at más reciente
+    SELECT id INTO survivor_id
+    FROM customers
+    WHERE organization_id = dup_row.organization_id
+      AND phone = dup_row.phone
+    ORDER BY created_at DESC, updated_at DESC
+    LIMIT 1;
+
+    -- Mover reservations que apuntaban a duplicados
+    UPDATE reservations
+    SET customer_id = survivor_id
+    WHERE customer_id IN (
+      SELECT id FROM customers
+      WHERE organization_id = dup_row.organization_id
+        AND phone = dup_row.phone
+        AND id <> survivor_id
+    );
+
+    -- Mover cualquier otra referencia (orders, etc.) — usando
+    -- bloque anónimo para no fallar si la columna no existe.
+    BEGIN
+      UPDATE orders
+      SET customer_id = survivor_id
+      WHERE customer_id IN (
+        SELECT id FROM customers
+        WHERE organization_id = dup_row.organization_id
+          AND phone = dup_row.phone
+          AND id <> survivor_id
+      );
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    -- Borrar los duplicados (todo menos el superviviente)
+    DELETE FROM customers
+    WHERE organization_id = dup_row.organization_id
+      AND phone = dup_row.phone
+      AND id <> survivor_id;
+  END LOOP;
+END $$;
+
+-- 9b. De-duplicar por (organization_id, email) — mismo patrón
+DO $$
+DECLARE
+  dup_row record;
+  survivor_id uuid;
+BEGIN
+  FOR dup_row IN
+    SELECT organization_id, email
+    FROM customers
+    WHERE email IS NOT NULL
+    GROUP BY organization_id, email
+    HAVING COUNT(*) > 1
+  LOOP
+    SELECT id INTO survivor_id
+    FROM customers
+    WHERE organization_id = dup_row.organization_id
+      AND email = dup_row.email
+    ORDER BY created_at DESC, updated_at DESC
+    LIMIT 1;
+
+    UPDATE reservations
+    SET customer_id = survivor_id
+    WHERE customer_id IN (
+      SELECT id FROM customers
+      WHERE organization_id = dup_row.organization_id
+        AND email = dup_row.email
+        AND id <> survivor_id
+    );
+
+    BEGIN
+      UPDATE orders
+      SET customer_id = survivor_id
+      WHERE customer_id IN (
+        SELECT id FROM customers
+        WHERE organization_id = dup_row.organization_id
+          AND email = dup_row.email
+          AND id <> survivor_id
+      );
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    DELETE FROM customers
+    WHERE organization_id = dup_row.organization_id
+      AND email = dup_row.email
+      AND id <> survivor_id;
+  END LOOP;
+END $$;
+
+-- 9c. Ahora sí, crear los índices UNIQUE (ya no hay duplicados)
 CREATE UNIQUE INDEX IF NOT EXISTS customers_org_phone_uniq
   ON customers(organization_id, phone)
   WHERE phone IS NOT NULL;
@@ -392,31 +515,35 @@ CREATE UNIQUE INDEX IF NOT EXISTS customers_org_email_uniq
 -- ============================================================
 -- 10. CHECK CONSTRAINTS EN COLUMNAS TIPO ENUM
 -- ============================================================
--- (Solo añadimos los más críticos; el resto se mantiene con validación de app.)
+-- Usamos NOT VALID para que el constraint SOLO se aplique a filas
+-- nuevas y futuras, no a las existentes. Si ya hay filas con valores
+-- inválidos (por seed viejos o bugs previos), el ALTER no fallará.
+-- Después, opcionalmente, se puede hacer VALIDATE CONSTRAINT para
+-- verificar que todo cumple.
 
 ALTER TABLE users
   DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users
   ADD CONSTRAINT users_role_check
-  CHECK (role IN ('SUPER_ADMIN','ADMIN','STAFF'));
+  CHECK (role IN ('SUPER_ADMIN','ADMIN','STAFF')) NOT VALID;
 
 ALTER TABLE orders
   DROP CONSTRAINT IF EXISTS orders_status_check;
 ALTER TABLE orders
   ADD CONSTRAINT orders_status_check
-  CHECK (status IN ('PENDING','PREPARING','SERVED','COMPLETED','CANCELLED'));
+  CHECK (status IN ('PENDING','PREPARING','SERVED','COMPLETED','CANCELLED')) NOT VALID;
 
 ALTER TABLE reservations
   DROP CONSTRAINT IF EXISTS reservations_status_check;
 ALTER TABLE reservations
   ADD CONSTRAINT reservations_status_check
-  CHECK (status IN ('PENDING','CONFIRMED','SEATED','COMPLETED','CANCELLED','NO_SHOW'));
+  CHECK (status IN ('PENDING','CONFIRMED','SEATED','COMPLETED','CANCELLED','NO_SHOW')) NOT VALID;
 
 ALTER TABLE tables
   DROP CONSTRAINT IF EXISTS tables_status_check;
 ALTER TABLE tables
   ADD CONSTRAINT tables_status_check
-  CHECK (status IN ('AVAILABLE','OCCUPIED','RESERVED','PREPARING','OUT_OF_SERVICE'));
+  CHECK (status IN ('AVAILABLE','OCCUPIED','RESERVED','PREPARING','OUT_OF_SERVICE')) NOT VALID;
 
 -- ============================================================
 -- 11. POLICIES DELETE FALTANTES
