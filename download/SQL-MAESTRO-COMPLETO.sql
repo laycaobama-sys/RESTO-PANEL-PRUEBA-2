@@ -35,11 +35,18 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ╔════════════════════════════════════════════════════════════════════╗
 -- ║  1. FUNCIONES HELPER                                                 ║
--- ║     (DROP IF EXISTS primero para evitar 42P13 al renombrar params)  ║
+-- ║     (DROP IF EXISTS solo para funciones con cambio de params)        ║
 -- ╚════════════════════════════════════════════════════════════════════╝
 
+-- NOTA: Para current_user_org_id(), is_current_user_super_admin(),
+-- touch_updated_at() y rls_check() NO hacemos DROP porque:
+--   1. Ya existen (creadas por migraciones previas)
+--   2. Tienen policies RLS que dependen de ellas
+--   3. Postgres rechaza el DROP sin CASCADE (error 2BP01)
+-- Como NO cambiamos la signatura (params + return type), solo el cuerpo,
+-- CREATE OR REPLACE FUNCTION basta para actualizarlas.
+
 -- current_user_org_id()
-DROP FUNCTION IF EXISTS current_user_org_id();
 CREATE OR REPLACE FUNCTION current_user_org_id()
 RETURNS uuid AS $$
 DECLARE
@@ -54,7 +61,6 @@ COMMENT ON FUNCTION current_user_org_id() IS
 
 -- is_current_user_super_admin()
 -- Versión sin recursión: lee el claim del JWT (no toca public.users)
-DROP FUNCTION IF EXISTS is_current_user_super_admin();
 CREATE OR REPLACE FUNCTION is_current_user_super_admin()
 RETURNS boolean AS $$
 DECLARE
@@ -68,7 +74,6 @@ COMMENT ON FUNCTION is_current_user_super_admin() IS
   'Returns true if the current JWT belongs to a super admin. Reads claim only (no DB query → no recursion).';
 
 -- touch_updated_at()
-DROP FUNCTION IF EXISTS touch_updated_at();
 CREATE OR REPLACE FUNCTION touch_updated_at()
 RETURNS trigger AS $$
 BEGIN
@@ -78,7 +83,6 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- rls_check()
-DROP FUNCTION IF EXISTS rls_check();
 CREATE OR REPLACE FUNCTION rls_check()
 RETURNS table(tablename text, rls_enabled boolean, policies_count bigint) AS $$
   SELECT t.tablename::text,
@@ -582,7 +586,9 @@ BEGIN
 END $$;
 
 -- update_customer_metrics() con decremento
-DROP FUNCTION IF EXISTS update_customer_metrics() CASCADE;
+-- NO hacemos DROP porque tiene triggers dependientes (error 2BP01).
+-- CREATE OR REPLACE funciona porque no cambiamos la signatura
+-- (sin params, RETURNS trigger).
 CREATE OR REPLACE FUNCTION update_customer_metrics()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1411,8 +1417,12 @@ ON CONFLICT (key) DO NOTHING;
 -- ║  18. TRANSFER_RESERVATION RPC (0015 segura)                         ║
 -- ╚════════════════════════════════════════════════════════════════════╝
 
-DROP FUNCTION IF EXISTS transfer_reservation(uuid, uuid, uuid);
-DROP FUNCTION IF EXISTS transfer_reservation(uuid, uuid);
+-- DROP IF EXISTS para transfer_reservation: usamos CASCADE por si
+-- hubiera dependientes (aunque normalmente no los hay).
+-- Si existiera con otros nombres de params, el CREATE OR REPLACE fallaría
+-- con 42P13, por eso hacemos DROP primero.
+DROP FUNCTION IF EXISTS transfer_reservation(uuid, uuid, uuid) CASCADE;
+DROP FUNCTION IF EXISTS transfer_reservation(uuid, uuid) CASCADE;
 
 CREATE OR REPLACE FUNCTION transfer_reservation(
   p_reservation_id uuid,
