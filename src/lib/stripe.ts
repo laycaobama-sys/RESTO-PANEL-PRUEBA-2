@@ -9,7 +9,7 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 
 // Lazy init — don't crash if key not set (dev mode)
 let _stripe: Stripe | null = null;
-function getStripe(): Stripe | null {
+export function getStripe(): Stripe | null {
   if (!STRIPE_SECRET_KEY) return null;
   if (!_stripe) _stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2024-12-18.acacia" as any });
   return _stripe;
@@ -115,7 +115,7 @@ export async function createCheckoutSession(opts: {
 }
 
 // ─── Ensure Stripe product & price exist ─────────────────────
-async function ensureStripePrice(planName: PlanName, cycle: "monthly" | "yearly"): Promise<string> {
+export async function ensureStripePrice(planName: PlanName, cycle: "monthly" | "yearly"): Promise<string> {
   const stripe = getStripe();
   if (!stripe) throw new Error("Stripe not configured");
 
