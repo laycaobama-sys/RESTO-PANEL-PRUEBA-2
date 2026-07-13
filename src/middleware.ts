@@ -20,6 +20,7 @@ const PUBLIC_API_PREFIXES = [
   '/api/stripe/webhook',
   '/api/whatsapp/webhook',
   '/api/whatsapp/status',
+  '/api/setup',           // one-time super-admin setup
 ]
 
 export async function middleware(req: NextRequest) {
@@ -75,6 +76,9 @@ export async function middleware(req: NextRequest) {
     if (token) return NextResponse.redirect(new URL('/', req.url))
     return NextResponse.next()
   }
+
+  // /setup — one-time super-admin setup (public, but API checks if already exists)
+  if (pathname === '/setup') return NextResponse.next()
 
   // /landing always public
   if (pathname === '/landing') return NextResponse.next()

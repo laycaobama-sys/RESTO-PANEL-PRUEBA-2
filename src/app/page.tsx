@@ -12,6 +12,11 @@ export default async function Page() {
     redirect("/landing");
   }
 
+  // Super-admin without an organization → redirect to /admin panel
+  if (session.user.isSuperAdmin && !session.user.organizationId) {
+    redirect("/admin");
+  }
+
   const user: AppUser = {
     id: session.user.id,
     name: session.user.name,

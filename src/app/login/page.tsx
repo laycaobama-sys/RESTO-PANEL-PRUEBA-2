@@ -14,6 +14,10 @@ export default async function LoginPage() {
   const session = await getServerSession(authOptions);
   // Already logged in → go to the app
   if (session?.user) {
+    // Super-admin goes to /admin, regular users go to /
+    if ((session.user as any).isSuperAdmin) {
+      redirect("/admin");
+    }
     redirect("/");
   }
   // Not logged in → show the auth screen
