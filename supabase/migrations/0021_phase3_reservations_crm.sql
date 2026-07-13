@@ -172,7 +172,6 @@ END $$;
 
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_name text;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS birthday date;
-ALTER TABLE customers IF NOT EXISTS anniversary date;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS anniversary date;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS language text not null default 'es';
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS preferred_table_id uuid;
