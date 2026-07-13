@@ -4,13 +4,17 @@ import { create } from "zustand";
 
 export type Section =
   | "dashboard"
+  | "executive"
   | "orders"
   | "tables"
   | "kitchen"
   | "menus"
   | "analytics"
   | "reservations"
+  | "waitlist"
   | "customers"
+  | "loyalty"
+  | "automations"
   | "whatsapp"
   | "billing"
   | "settings"

@@ -21,6 +21,10 @@ import {
   Users,
   MessageCircle,
   CreditCard,
+  TrendingUp,
+  Clock,
+  Gift,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -34,16 +38,20 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Principal", shortcut: 1 },
-  { id: "orders", label: "Pedidos", icon: ClipboardList, group: "Principal", shortcut: 2 },
-  { id: "tables", label: "Mesas", icon: Grid3x3, group: "Principal", shortcut: 3 },
-  { id: "kitchen", label: "Cocina", icon: ChefHat, group: "Principal", shortcut: 4 },
-  { id: "menus", label: "Menús / Carta", icon: BookOpen, group: "Gestión", shortcut: 5 },
-  { id: "reservations", label: "Reservas", icon: CalendarCheck, group: "Gestión", shortcut: 6 },
+  { id: "executive", label: "Panel ejecutivo", icon: TrendingUp, group: "Principal" },
+  { id: "orders", label: "Pedidos", icon: ClipboardList, group: "Operaciones", shortcut: 2 },
+  { id: "tables", label: "Mesas", icon: Grid3x3, group: "Operaciones", shortcut: 3 },
+  { id: "kitchen", label: "Cocina", icon: ChefHat, group: "Operaciones", shortcut: 4 },
+  { id: "reservations", label: "Reservas", icon: CalendarCheck, group: "Operaciones", shortcut: 5 },
+  { id: "waitlist", label: "Lista de espera", icon: Clock, group: "Operaciones" },
+  { id: "menus", label: "Menús / Carta", icon: BookOpen, group: "Gestión", shortcut: 6 },
   { id: "customers", label: "Clientes (CRM)", icon: Users, group: "Gestión", shortcut: 7 },
+  { id: "loyalty", label: "Fidelización", icon: Gift, group: "Gestión" },
+  { id: "automations", label: "Automatizaciones", icon: Zap, group: "Gestión" },
   { id: "analytics", label: "Analíticas", icon: BarChart3, group: "Gestión", shortcut: 8 },
-  { id: "whatsapp", label: "WhatsApp", icon: MessageCircle, group: "Gestión" },
-  { id: "billing", label: "Facturación", icon: CreditCard, group: "Gestión" },
-  { id: "settings", label: "Ajustes", icon: Settings, group: "Gestión", shortcut: 9 },
+  { id: "whatsapp", label: "WhatsApp", icon: MessageCircle, group: "Sistema" },
+  { id: "billing", label: "Facturación", icon: CreditCard, group: "Sistema" },
+  { id: "settings", label: "Ajustes", icon: Settings, group: "Sistema", shortcut: 9 },
 ];
 
 interface SidebarProps {

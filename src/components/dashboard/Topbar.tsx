@@ -23,13 +23,17 @@ import { TenantNotificationBell } from "./TenantNotificationBell";
 
 const SECTION_TITLES: Record<Section, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Resumen del día de tu restaurante" },
+  executive: { title: "Panel ejecutivo", subtitle: "KPIs en tiempo real e ingresos previstos" },
   orders: { title: "Pedidos", subtitle: "Gestiona todos los pedidos en tiempo real" },
   tables: { title: "Mesas", subtitle: "Estado y configuración de las mesas" },
   kitchen: { title: "Cocina", subtitle: "Pedidos en preparación (KDS)" },
   menus: { title: "Menús / Carta", subtitle: "Administra categorías y platos" },
   analytics: { title: "Analíticas", subtitle: "Métricas y rendimiento del restaurante" },
   reservations: { title: "Reservas", subtitle: "Listado y gestión de reservas" },
+  waitlist: { title: "Lista de espera", subtitle: "Cola inteligente con IA" },
   customers: { title: "Clientes (CRM)", subtitle: "Fichas de clientes, historial y fidelización" },
+  loyalty: { title: "Fidelización", subtitle: "Puntos, niveles y recompensas" },
+  automations: { title: "Automatizaciones", subtitle: "Constructor de flujos tipo Make/Zapier" },
   whatsapp: { title: "WhatsApp Business", subtitle: "Mensajería automatizada y monitorización" },
   billing: { title: "Facturación y Suscripción", subtitle: "Gestiona tu plan y método de pago" },
   settings: { title: "Ajustes", subtitle: "Configuración del restaurante" },
