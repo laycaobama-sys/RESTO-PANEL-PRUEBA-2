@@ -50,7 +50,7 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('ok', false, 'error', SQLERRM);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- 2. Email queue table
 CREATE TABLE IF NOT EXISTS email_queue (
@@ -75,7 +75,9 @@ CREATE INDEX IF NOT EXISTS email_queue_status_idx ON email_queue(status, next_at
 CREATE INDEX IF NOT EXISTS email_queue_org_idx ON email_queue(organization_id);
 
 ALTER TABLE email_queue ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS email_queue_tenant_select ON email_queue;
 CREATE POLICY email_queue_tenant_select ON email_queue FOR SELECT USING (organization_id = current_user_org_id());
+DROP POLICY IF EXISTS email_queue_super_admin_all ON email_queue;
 CREATE POLICY email_queue_super_admin_all ON email_queue FOR ALL USING (is_current_user_super_admin()) WITH CHECK (true);
 
 -- 3. Feature flags table
@@ -90,6 +92,7 @@ CREATE TABLE IF NOT EXISTS feature_flags (
 );
 
 ALTER TABLE feature_flags ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS feature_flags_select ON feature_flags;
 CREATE POLICY feature_flags_select ON feature_flags FOR SELECT USING (true);
 
 -- Seed feature flags
@@ -125,7 +128,9 @@ CREATE TABLE IF NOT EXISTS organization_usage (
 CREATE INDEX IF NOT EXISTS org_usage_org_metric_idx ON organization_usage(organization_id, metric);
 
 ALTER TABLE organization_usage ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_usage_tenant_select ON organization_usage;
 CREATE POLICY org_usage_tenant_select ON organization_usage FOR SELECT USING (organization_id = current_user_org_id());
+DROP POLICY IF EXISTS org_usage_super_admin_all ON organization_usage;
 CREATE POLICY org_usage_super_admin_all ON organization_usage FOR ALL USING (is_current_user_super_admin()) WITH CHECK (true);
 
 -- 5. Enhanced audit log (add before/after, endpoint, execution_time)

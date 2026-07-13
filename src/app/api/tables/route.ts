@@ -29,12 +29,16 @@ export async function GET() {
     reservationsMap.set(r.table_id, list)
   }
 
-  // Also fetch active orders per table
+  // Also fetch active orders per table.
+  // Bounded by .limit(200) — a tenant's concurrent active orders never
+  // exceeds 200 in practice (one per table), and without a limit this
+  // query would grow with the tenant's order history.
   const { data: activeOrders } = await supabaseAdmin
     .from('orders')
     .select('id, status, table_id')
     .eq('organization_id', user.organizationId)
     .in('status', ['PENDING', 'PREPARING', 'SERVED'])
+    .limit(200)
 
   const ordersMap = new Map<string, any>()
   for (const o of activeOrders || []) {

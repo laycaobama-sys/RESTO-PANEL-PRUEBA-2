@@ -996,8 +996,12 @@ function ReviewsPanelMockup({
       tags: ["Reservas", "Servicio"],
       verified_metric: null,
       response_text: "¡Mil gracias, Lucía! Fue un placer recibiros. Os esperamos pronto.",
-      response_at: new Date(Date.now() - 86400000).toISOString(),
-      created_at: new Date(Date.now() - 3 * 86400000).toISOString(),
+      // Static ISO dates — using Date.now() here would cause a hydration
+      // mismatch (server and client compute slightly different timestamps).
+      // The mock reviews are clearly labelled "Ilustrativo" so the exact
+      // date doesn't matter — what matters is that server and client agree.
+      response_at: "2026-07-12T12:00:00.000Z",
+      created_at: "2026-07-10T12:00:00.000Z",
       organization_id: null,
       author_company: null,
       author_avatar: null,
@@ -1013,7 +1017,7 @@ function ReviewsPanelMockup({
       verified_metric: null,
       response_text: null,
       response_at: null,
-      created_at: new Date(Date.now() - 5 * 86400000).toISOString(),
+      created_at: "2026-07-08T12:00:00.000Z",
       organization_id: null,
       author_company: null,
       author_avatar: null,
@@ -1029,7 +1033,7 @@ function ReviewsPanelMockup({
       verified_metric: "-50% tiempo de respuesta",
       response_text: null,
       response_at: null,
-      created_at: new Date(Date.now() - 7 * 86400000).toISOString(),
+      created_at: "2026-07-06T12:00:00.000Z",
       organization_id: null,
       author_company: "Bistró del Puerto · Cádiz",
       author_avatar: null,

@@ -49,7 +49,7 @@ begin
   claim := current_setting('request.jwt.claim.is_super_admin', true);
   return coalesce(claim = 'true' or claim = 't' or claim = '1', false);
 end;
-$$ language plpgsql stable security definer;
+$$ language plpgsql stable security definer set search_path = public, pg_temp;
 
 comment on function is_current_user_super_admin() is
   'Returns true if the JWT carries the is_super_admin=true claim. Set by NextAuth at login for super admin users. Does NOT query public.users (avoids RLS recursion).';
@@ -66,7 +66,7 @@ begin
   claim := current_setting('request.jwt.claim.user_organization', true);
   return nullif(claim, '')::uuid;
 end;
-$$ language plpgsql stable security definer;
+$$ language plpgsql stable security definer set search_path = public, pg_temp;
 
 comment on function current_user_org_id() is
   'Returns the organization UUID from the JWT claim set by NextAuth. Returns NULL for anonymous requests. Does NOT query public.users (avoids RLS recursion).';

@@ -75,7 +75,7 @@ begin
     );
   end loop;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public, pg_temp;
 
 comment on function notify_super_admins is
   'Creates a notification row for every super admin. Called from API routes when a relevant event happens (new tenant, suspension, high cancel rate, etc.).';

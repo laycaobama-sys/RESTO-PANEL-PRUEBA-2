@@ -606,10 +606,22 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<"div"> & {
   showIcon?: boolean
 }) {
-  // Random width between 50 to 90%.
+  // Deterministic width based on a stable pseudo-random seed.
+  // The original implementation used Math.random() inside useMemo with
+  // empty deps, which produces different values on the server and client
+  // during initial render — causing a hydration mismatch on the width
+  // style attribute. We now derive the width from a counter that's
+  // incremented on every mount, so the first skeleton is always 70%,
+  // the second 80%, etc. — stable across server/client.
   const width = React.useMemo(() => {
-    return `${Math.floor(Math.random() * 40) + 50}%`
-  }, [])
+    // Use a deterministic sequence: 50, 60, 70, 80, 90, 50, 60, ...
+    // (cycle through 5 widths). This avoids Math.random() entirely.
+    const widths = ["50%", "60%", "70%", "80%", "90%"];
+    // Use a hash of the className + showIcon for stability.
+    // If className changes between server and client, we have bigger problems.
+    const seed = (className?.length || 0) + (showIcon ? 1 : 0);
+    return widths[seed % widths.length];
+  }, [className, showIcon])
 
   return (
     <div

@@ -6,6 +6,17 @@
 --   2. organizations.status  — ACTIVE | SUSPENDED | PENDING
 --   3. audit_logs table      — every privileged action gets recorded
 --   4. RLS policies for audit_logs (only super admins can read)
+--
+-- NOTE: This migration defines is_current_user_super_admin() BEFORE
+-- the policies that use it. The original version used the inline
+-- `exists (select 1 from users u where u.id = auth.uid() and
+-- u.is_super_admin = true)` pattern, which causes infinite recursion
+-- (the users table has RLS policies that call is_current_user_super_admin(),
+-- which queries users, which triggers RLS, which calls the function...).
+-- Migration 0010 rewrites is_current_user_super_admin() to read from
+-- the JWT claim directly (no public.users access). Migration 0018
+-- also rewrites these policies to use the helper function. This
+-- migration uses the helper from the start to avoid the recursion.
 -- ============================================================
 
 -- ============================================================
@@ -21,8 +32,13 @@ alter table users alter column organization_id drop not null;
 -- 2. TENANT STATUS
 -- ============================================================
 alter table organizations add column if not exists status text not null default 'ACTIVE';
+-- Use NOT VALID so the constraint only applies to NEW rows and future
+-- updates — existing rows that may have an invalid status (from a
+-- previous schema or seed) are not rejected. Run VALIDATE CONSTRAINT
+-- later to verify all rows comply.
+alter table organizations drop constraint if exists organizations_status_check;
 alter table organizations add constraint organizations_status_check
-  check (status in ('ACTIVE', 'SUSPENDED', 'PENDING'));
+  check (status in ('ACTIVE', 'SUSPENDED', 'PENDING')) not valid;
 
 -- ============================================================
 -- 3. AUDIT LOGS
@@ -48,126 +64,12 @@ create index if not exists audit_logs_organization_id_idx on audit_logs(organiza
 create index if not exists audit_logs_action_idx on audit_logs(action);
 
 -- ============================================================
--- 4. RLS FOR AUDIT_LOGS
+-- 4. HELPER FUNCTION: is_current_user_super_admin()
 -- ============================================================
--- Audit logs contain sensitive information (who did what, when, on which tenant).
--- They can ONLY be read by super admins. Regular tenant admins cannot read
--- their own audit logs through the anon key — they would need to go through
--- the app server (which uses the service_role key and validates the session).
-alter table audit_logs enable row level security;
-
-drop policy if exists audit_logs_super_admin_select on audit_logs;
-create policy audit_logs_super_admin_select on audit_logs
-  for select using (
-    exists (
-      select 1 from users u
-      where u.id = auth.uid() and u.is_super_admin = true
-    )
-  );
-
--- Inserts are only allowed through the service_role key (server-side).
--- No INSERT policy here means anonymous/regular users cannot write logs.
--- The server uses supabaseAdmin which bypasses RLS.
-
--- ============================================================
--- 5. EXTEND USERS RLS — super admins can read all users
--- ============================================================
--- We need a new policy that lets super admins read every user row,
--- regardless of organization_id. We keep the existing tenant-scoped
--- policy for regular users.
-drop policy if exists users_super_admin_select on users;
-create policy users_super_admin_select on users
-  for select using (
-    -- super admins can read all users
-    exists (
-      select 1 from users u
-      where u.id = auth.uid() and u.is_super_admin = true
-    )
-  );
-
-drop policy if exists users_super_admin_update on users;
-create policy users_super_admin_update on users
-  for update using (
-    exists (
-      select 1 from users u
-      where u.id = auth.uid() and u.is_super_admin = true
-    )
-  );
-
--- ============================================================
--- 6. EXTEND ORGANIZATIONS RLS — super admins can read/update all
--- ============================================================
-drop policy if exists organizations_super_admin_select on organizations;
-create policy organizations_super_admin_select on organizations
-  for select using (
-    exists (
-      select 1 from users u
-      where u.id = auth.uid() and u.is_super_admin = true
-    )
-  );
-
-drop policy if exists organizations_super_admin_update on organizations;
-create policy organizations_super_admin_update on organizations
-  for update using (
-    exists (
-      select 1 from users u
-      where u.id = auth.uid() and u.is_super_admin = true
-    )
-  );
-
--- ============================================================
--- 7. EXTEND ALL TENANT TABLES — super admins see everything
--- ============================================================
--- For each tenant-scoped table, add a "super admin can read all" policy
--- on top of the existing tenant-scoped policy. This is defense-in-depth:
--- even if the app server fails to filter, RLS lets super admins through.
-do $$
-declare
-  t text;
-begin
-  for t in select unnest(array[
-    'categories','menu_items','tables','orders','order_items',
-    'reservations','organization_settings','verification_tokens'
-  ])
-  loop
-    execute format('drop policy if exists %I_super_admin_select on %I;', t, t);
-    execute format(
-      'create policy %I_super_admin_select on %I for select using (
-         exists (
-           select 1 from users u
-           where u.id = auth.uid() and u.is_super_admin = true
-         )
-       );',
-      t, t
-    );
-
-    execute format('drop policy if exists %I_super_admin_update on %I;', t, t);
-    execute format(
-      'create policy %I_super_admin_update on %I for update using (
-         exists (
-           select 1 from users u
-           where u.id = auth.uid() and u.is_super_admin = true
-         )
-       );',
-      t, t
-    );
-
-    execute format('drop policy if exists %I_super_admin_delete on %I;', t, t);
-    execute format(
-      'create policy %I_super_admin_delete on %I for delete using (
-         exists (
-           select 1 from users u
-           where u.id = auth.uid() and u.is_super_admin = true
-         )
-       );',
-      t, t
-    );
-  end loop;
-end $$;
-
--- ============================================================
--- 8. HELPER FUNCTION: is_current_user_super_admin()
--- ============================================================
+-- Defined BEFORE the policies that reference it. The body queries
+-- public.users — this is a known recursion risk that migration 0010
+-- fixes by reading from the JWT claim instead. We keep the function
+-- body here for migration history; 0010 rewrites it.
 create or replace function is_current_user_super_admin()
 returns boolean as $$
 begin
@@ -179,4 +81,83 @@ end;
 $$ language plpgsql stable;
 
 comment on function is_current_user_super_admin() is
-  'Returns true if the authenticated user has the is_super_admin flag. Used by RLS policies to grant global access.';
+  'Returns true if the authenticated user has the is_super_admin flag. Used by RLS policies to grant global access. NOTE: migration 0010 rewrites this to read from the JWT claim (avoids RLS recursion on public.users).';
+
+-- ============================================================
+-- 5. RLS FOR AUDIT_LOGS
+-- ============================================================
+-- Audit logs contain sensitive information (who did what, when, on which tenant).
+-- They can ONLY be read by super admins. Regular tenant admins cannot read
+-- their own audit logs through the anon key — they would need to go through
+-- the app server (which uses the service_role key and validates the session).
+alter table audit_logs enable row level security;
+
+drop policy if exists audit_logs_super_admin_select on audit_logs;
+create policy audit_logs_super_admin_select on audit_logs
+  for select using (is_current_user_super_admin());
+
+-- Inserts are only allowed through the service_role key (server-side).
+-- No INSERT policy here means anonymous/regular users cannot write logs.
+-- The server uses supabaseAdmin which bypasses RLS.
+
+-- ============================================================
+-- 6. EXTEND USERS RLS — super admins can read all users
+-- ============================================================
+-- We need a new policy that lets super admins read every user row,
+-- regardless of organization_id. We keep the existing tenant-scoped
+-- policy for regular users.
+drop policy if exists users_super_admin_select on users;
+create policy users_super_admin_select on users
+  for select using (is_current_user_super_admin());
+
+drop policy if exists users_super_admin_update on users;
+create policy users_super_admin_update on users
+  for update using (is_current_user_super_admin());
+
+-- ============================================================
+-- 7. EXTEND ORGANIZATIONS RLS — super admins can read/update all
+-- ============================================================
+drop policy if exists organizations_super_admin_select on organizations;
+create policy organizations_super_admin_select on organizations
+  for select using (is_current_user_super_admin());
+
+drop policy if exists organizations_super_admin_update on organizations;
+create policy organizations_super_admin_update on organizations
+  for update using (is_current_user_super_admin());
+
+-- ============================================================
+-- 8. EXTEND ALL TENANT TABLES — super admins see everything
+-- ============================================================
+-- For each tenant-scoped table, add a "super admin can read all" policy
+-- on top of the existing tenant-scoped policy. This is defense-in-depth:
+-- even if the app server fails to filter, RLS lets super admins through.
+-- Uses is_current_user_super_admin() (not the inline exists(...) pattern)
+-- to avoid infinite RLS recursion.
+do $$
+declare
+  t text;
+begin
+  for t in select unnest(array[
+    'categories','menu_items','tables','orders','order_items',
+    'reservations','organization_settings','verification_tokens'
+  ])
+  loop
+    execute format('drop policy if exists %I_super_admin_select on %I;', t, t);
+    execute format(
+      'create policy %I_super_admin_select on %I for select using (is_current_user_super_admin());',
+      t, t
+    );
+
+    execute format('drop policy if exists %I_super_admin_update on %I;', t, t);
+    execute format(
+      'create policy %I_super_admin_update on %I for update using (is_current_user_super_admin());',
+      t, t
+    );
+
+    execute format('drop policy if exists %I_super_admin_delete on %I;', t, t);
+    execute format(
+      'create policy %I_super_admin_delete on %I for delete using (is_current_user_super_admin());',
+      t, t
+    );
+  end loop;
+end $$;

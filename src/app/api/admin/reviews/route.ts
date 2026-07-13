@@ -60,16 +60,31 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "db_error" }, { status: 500 });
     }
 
-    // Get aggregate counts by status for the moderation dashboard
-    const { data: counts } = await supabaseAdmin
-      .from("public_reviews")
-      .select("status");
+    // Get aggregate counts by status for the moderation dashboard.
+    // Previously this fetched EVERY review row and counted in JS —
+    // O(N) network + memory for a number that's just 4 counts.
+    // We now run 3 count-only queries (head: true), each O(1) on the
+    // index. Total cost: 3 tiny round-trips vs 1 fat one.
+    const [pending, approved, rejected] = await Promise.all([
+      supabaseAdmin
+        .from("public_reviews")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "PENDING"),
+      supabaseAdmin
+        .from("public_reviews")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "APPROVED"),
+      supabaseAdmin
+        .from("public_reviews")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "REJECTED"),
+    ]);
 
     const byStatus = {
-      PENDING: counts?.filter((r) => r.status === "PENDING").length || 0,
-      APPROVED: counts?.filter((r) => r.status === "APPROVED").length || 0,
-      REJECTED: counts?.filter((r) => r.status === "REJECTED").length || 0,
-      TOTAL: counts?.length || 0,
+      PENDING: pending.count || 0,
+      APPROVED: approved.count || 0,
+      REJECTED: rejected.count || 0,
+      TOTAL: (pending.count || 0) + (approved.count || 0) + (rejected.count || 0),
     };
 
     return NextResponse.json({

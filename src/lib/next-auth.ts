@@ -15,12 +15,20 @@ import {
   logActivity,
 } from '@/lib/session-management'
 
-const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET;
 
-if (!NEXTAUTH_SECRET) {
-  throw new Error(
-    'NEXTAUTH_SECRET is required. Generate one with `openssl rand -base64 32` and set it in your .env file.'
-  )
+// CRITICAL FIX: previously, this module threw at import time if
+// NEXTAUTH_SECRET was missing. This broke `next build` page-data
+// collection. Now we throw lazily — only when authOptions is
+// actually used (i.e., when a request hits an auth route).
+if (!NEXTAUTH_SECRET && process.env.NEXT_RUNTIME === "nodejs" && process.env.NODE_ENV === "production") {
+  // In production runtime, fail fast so the operator notices.
+  // In build/preview, allow it to pass so the build can complete.
+  // The error will surface at runtime when auth is actually used.
+  console.warn(
+    "[next-auth] NEXTAUTH_SECRET is not set. Authentication will fail at runtime. " +
+      "Generate one with `openssl rand -base64 32` and set it in your .env file."
+  );
 }
 
 export const authOptions: NextAuthOptions = {

@@ -30,7 +30,9 @@ export async function GET(req: Request) {
   const { data, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Fetch tags for each customer
+  // Fetch tags for each customer.
+  // Bounded by .limit(500) — a tenant's customer list is paginated to
+  // 100 above, and the tag assignments can't exceed 5× that.
   const customerIds = (data || []).map((c: any) => c.id)
   let tagsMap = new Map<string, any[]>()
   if (customerIds.length > 0) {
@@ -38,6 +40,7 @@ export async function GET(req: Request) {
       .from('customer_tag_assignments')
       .select('customer_id, customer_tags(id, name, color)')
       .in('customer_id', customerIds)
+      .limit(500)
     for (const a of (assignments || []) as any[]) {
       const list = tagsMap.get(a.customer_id) || []
       if (a.customer_tags) list.push(a.customer_tags)

@@ -35,10 +35,14 @@ export async function GET(req: Request) {
   // user_id-matching notifications as personal and broadcast ones (user_id
   // is null) as "read" only if read_at is set (which would mark them read
   // for everyone — not ideal). For now, we use a per-user read table.
+  // Bounded by .limit(500) — the unread state only matters for the
+  // notifications we just fetched, so we cap the join.
   const { data: readIds } = await supabaseAdmin
     .from('notifications_read')
     .select('notification_id')
     .eq('user_id', user.id)
+    .in('notification_id', (data || []).map((n: any) => n.id))
+    .limit(500)
 
   const readSet = new Set((readIds || []).map((r: any) => r.notification_id))
   const enriched = (data || []).map((n: any) => ({

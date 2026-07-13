@@ -20,13 +20,21 @@ export async function GET(req: Request) {
     date: date || undefined,
   })
 
-  // Enrich with table info — fetch all tables in a single query
-  // (avoid N+1 when there are many reservations).
+  // Enrich with table info — fetch all tables in a SINGLE query using
+  // .in('id', tableIds). Previously this was Promise.all(tableIds.map(…))
+  // which fires N parallel queries (still N+1 from the DB's perspective).
+  // Bounded by .limit(200) — bounded by tenant's table count.
   const tableIds = Array.from(new Set(reservations.map((r) => r.table_id).filter(Boolean) as string[]))
-  const tables = tableIds.length > 0
-    ? await Promise.all(tableIds.map((id) => db.table.findFirst(user.organizationId, { id })))
-    : []
-  const tableMap = new Map(tables.filter(Boolean).map((t) => [t!.id, t]))
+  const { supabaseAdmin } = await import('@/lib/supabase/admin')
+  const { data: tablesData } = tableIds.length > 0
+    ? await supabaseAdmin
+        .from('tables')
+        .select('*')
+        .eq('organization_id', user.organizationId)
+        .in('id', tableIds)
+        .limit(200)
+    : { data: [] }
+  const tableMap = new Map((tablesData || []).map((t: any) => [t.id, t]))
 
   return NextResponse.json(
     reservations.map((r) => ({
@@ -85,18 +93,147 @@ export async function POST(req: Request) {
   }
 
   // ─── Overbooking check ────────────────────────────────────
-  // CRITICAL FIX: prevent double-booking of the same table at the
-  // same time. Two concurrent POSTs would both pass the check below
-  // unless we use SELECT FOR UPDATE inside a transaction — but
-  // Supabase REST doesn't support that. Instead, we use a tight
-  // time-window check: any active reservation on the same table
-  // overlapping by [date - duration, date + duration] is rejected.
-  // The race window is < 50ms in practice; for true atomicity we'd
-  // need a PL/pgSQL RPC with SELECT FOR UPDATE (TODO for Phase 3).
+  // CRITICAL FIX (validate-concurrency): the original read-then-write
+  // sequence had a race window of ~50ms per Supabase round-trip.
+  // Under 500 concurrent POSTs to the same table+slot, multiple
+  // requests could pass the conflict check before any INSERT landed,
+  // resulting in double-bookings.
+  //
+  // The fix is the `create_reservation_atomic()` PL/pgSQL RPC
+  // (migration 0020) which does:
+  //   1. pg_advisory_xact_lock(hashtext(org_id || ':' || table_id))
+  //   2. SELECT conflicts ... FOR UPDATE
+  //   3. INSERT reservation
+  //   4. UPDATE tables SET status='RESERVED'
+  //   — all in one transaction, so concurrent calls serialize on
+  //   the advisory lock and only 1 can pass the conflict check.
+  //
+  // We call the RPC first. If it returns ok=true, we have an atomic
+  // reservation. If it returns ok=false with status=409, we have an
+  // atomic conflict. If the RPC doesn't exist (migration 0020 not
+  // applied), we fall back to the old non-atomic check-then-insert.
   if (tableId) {
     const { supabaseAdmin } = await import('@/lib/supabase/admin')
     const reservationDate = new Date(date)
     const durationMin = Number(duration) || 120
+
+    // Try the atomic RPC first (migration 0020+).
+    const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc(
+      'create_reservation_atomic',
+      {
+        p_organization_id: user.organizationId,
+        p_table_id: tableId,
+        p_customer_name: customerName,
+        p_phone: phone,
+        p_email: email || null,
+        p_party_size: Number(partySize),
+        p_date: reservationDate.toISOString(),
+        p_duration_min: durationMin,
+        p_status: status || 'PENDING',
+        p_shift: shift || 'DINNER',
+        p_zone: zone || null,
+        p_source: source || 'PHONE',
+        p_notes: notes || null,
+        p_customer_id: customerId || null,
+      }
+    )
+
+    if (!rpcError && rpcResult) {
+      // RPC succeeded — it returns { ok, status, reservation?, conflict? }
+      if (rpcResult.ok === false) {
+        const httpStatus = rpcResult.status === 409 ? 409 : 500
+        return NextResponse.json(
+          { error: rpcResult.error, conflict: rpcResult.conflict },
+          { status: httpStatus }
+        )
+      }
+      // ok === true — reservation created atomically. Use the RPC's
+      // reservation object as the source of truth.
+      const reservation = rpcResult.reservation
+
+      // Validate customer tenancy if provided (still need this check
+      // because the RPC doesn't validate customer_id).
+      if (customerId) {
+        const { data: customers } = await supabaseAdmin
+          .from('customers')
+          .select('id')
+          .eq('id', customerId)
+          .eq('organization_id', user.organizationId)
+          .limit(1)
+        if (!customers || customers.length === 0) {
+          // Roll back the reservation (best-effort).
+          await supabaseAdmin.from('reservations').delete().eq('id', reservation.id)
+          return NextResponse.json({ error: 'Cliente no válido' }, { status: 400 })
+        }
+      }
+
+      // Auto-generate a notification for the tenant's staff.
+      await supabaseAdmin.from('notifications').insert({
+        user_id: null,
+        organization_id: user.organizationId,
+        type: 'NEW_RESERVATION',
+        severity: 'info',
+        title: `Nueva reserva: ${customerName}`,
+        message: `${partySize} pax · ${new Date(date).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${shift === 'LUNCH' ? 'Comida' : 'Cena'}${zone ? ` · ${zone}` : ''}`,
+        action_url: null,
+        metadata: { reservationId: reservation.id, customerId: customerId || null },
+      })
+
+      // Send WhatsApp confirmation (best-effort, non-blocking).
+      if (phone) {
+        try {
+          const { sendReservationConfirmation } = await import('@/lib/whatsapp')
+          await sendReservationConfirmation({
+            to: phone,
+            organizationId: user.organizationId,
+            reservationId: reservation.id,
+            restaurantName: user.organizationName || user.restaurantName || 'RestoPanel',
+            date: new Date(date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }),
+            time: new Date(date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+            partySize: Number(partySize),
+          })
+        } catch (e) {
+          console.warn('WhatsApp send failed:', e)
+        }
+      }
+
+      // Send email confirmation (best-effort, fire-and-forget).
+      if (email) {
+        const { sendEmailAndLog, emailTemplates } = await import('@/lib/email')
+        const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
+        sendEmailAndLog({
+          to: email,
+          subject: `Reserva confirmada · ${user.organizationName || user.restaurantName}`,
+          template: emailTemplates.reservationConfirmation({
+            customerName,
+            restaurantName: user.organizationName || user.restaurantName || 'RestoPanel',
+            date: new Date(date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }),
+            time: new Date(date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+            partySize: Number(partySize),
+            zone: zone || undefined,
+            cancelUrl: `${baseUrl}/cancel-reservation?id=${reservation.id}`,
+          }),
+          organizationId: user.organizationId,
+        }).catch(() => {})
+      }
+
+      const table = await db.table.findFirst(user.organizationId, { id: tableId })
+      return NextResponse.json({
+        ...reservation,
+        customerName: reservation.customer_name,
+        partySize: reservation.party_size,
+        endTime: reservation.end_time,
+        tableId: reservation.table_id,
+        organizationId: reservation.organization_id,
+        createdAt: reservation.created_at,
+        updatedAt: reservation.updated_at,
+        table,
+      }, { status: 201 })
+    }
+
+    // Fallback: RPC not available (migration 0020 not applied).
+    // Use the old non-atomic check-then-insert. NOTE: this has a
+    // race window of ~50ms under high concurrency.
     const slotStart = new Date(reservationDate.getTime() - durationMin * 60000)
     const slotEnd = new Date(reservationDate.getTime() + durationMin * 60000)
 

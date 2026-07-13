@@ -8,7 +8,10 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Get all org subscriptions with plan and org info
+  // Get all org subscriptions with plan and org info.
+  // We bound the result with .limit(500) — super admin billing dashboard
+  // doesn't need more than the most recent 500 subscriptions, and without
+  // a limit this query would grow unbounded as the SaaS scales.
   const { data: subs } = await supabaseAdmin
     .from("organization_subscriptions")
     .select(`
@@ -19,7 +22,8 @@ export async function GET() {
       organizations!inner(id, name),
       subscription_plans!inner(name, label, price_monthly, price_yearly)
     `)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(500);
 
   const organizations = (subs || []).map((s: any) => {
     const plan = Array.isArray(s.subscription_plans) ? s.subscription_plans[0] : s.subscription_plans;

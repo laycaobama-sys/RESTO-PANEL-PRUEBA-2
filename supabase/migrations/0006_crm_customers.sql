@@ -181,7 +181,7 @@ begin
 
   return new;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public, pg_temp;
 
 drop trigger if exists reservations_update_customer_metrics on reservations;
 create trigger reservations_update_customer_metrics
