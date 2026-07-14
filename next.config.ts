@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // output: "standalone" — disabled for preview environment
   // ─── Strict TypeScript ─────────────────────────────────────
   // Previously `ignoreBuildErrors: true` was hiding real type
   // errors. We now enforce strict TS — fix the errors at the source.
