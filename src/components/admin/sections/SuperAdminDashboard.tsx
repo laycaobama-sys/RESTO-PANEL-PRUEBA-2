@@ -48,7 +48,7 @@ export function SuperAdminDashboard() {
   const { data, isLoading } = useQuery<StatsData>({
     queryKey: ['admin-stats', range],
     queryFn: () => api(`/api/admin/stats?range=${range}`),
-    refetchInterval: 60000,
+    
   });
 
   if (isLoading || !data) {

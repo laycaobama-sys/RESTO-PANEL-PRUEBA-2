@@ -31,13 +31,13 @@ export function KitchenSection() {
   const { data: orders = [], isLoading } = useQuery<Order[]>({
     queryKey: ["kitchen-orders"],
     queryFn: () => api("/api/orders?status=PREPARING&limit=50"),
-    refetchInterval: 15000,
+    
   });
 
   const { data: pending = [] } = useQuery<Order[]>({
     queryKey: ["kitchen-pending"],
     queryFn: () => api("/api/orders?status=PENDING&limit=50"),
-    refetchInterval: 15000,
+    
   });
 
   const advance = useMutation({

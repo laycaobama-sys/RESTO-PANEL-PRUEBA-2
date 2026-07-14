@@ -26,7 +26,7 @@ export function TenantNotificationBell() {
   const { data, isLoading } = useQuery<{ notifications: TenantNotification[]; unreadCount: number }>({
     queryKey: ['tenant-notifications'],
     queryFn: () => api('/api/notifications?limit=30'),
-    refetchInterval: 15000,
+    
   });
 
   useEffect(() => {

@@ -68,7 +68,7 @@ export function ReviewsSection() {
       if (!r.ok) throw new Error("Failed to load reviews");
       return r.json();
     },
-    refetchInterval: 15000, // auto-refresh every 15s
+     // auto-refresh every 15s
   });
 
   const updateMutation = useMutation({

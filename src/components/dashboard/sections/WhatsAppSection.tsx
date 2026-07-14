@@ -39,7 +39,7 @@ export function WhatsAppSection() {
   const { data: status, isLoading, refetch } = useQuery<WhatsAppStatus>({
     queryKey: ["whatsapp-status"],
     queryFn: () => api("/api/whatsapp/status"),
-    refetchInterval: 5000,
+    
   });
 
   async function handleTestSend(e: React.FormEvent) {

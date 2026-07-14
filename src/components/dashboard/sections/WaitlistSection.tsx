@@ -16,7 +16,7 @@ export function WaitlistSection() {
   const { data, isLoading } = useQuery({
     queryKey: ["waitlist"],
     queryFn: () => api("/api/waitlist"),
-    refetchInterval: 15000,
+    
   });
 
   const seatMut = useMutation({

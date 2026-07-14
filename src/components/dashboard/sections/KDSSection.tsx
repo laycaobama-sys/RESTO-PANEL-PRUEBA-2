@@ -22,7 +22,7 @@ export function KDSSection() {
   const { data, isLoading } = useQuery({
     queryKey: ["kds", selectedStation],
     queryFn: () => api(`/api/kds${selectedStation ? `?stationId=${selectedStation}` : ""}`),
-    refetchInterval: 5000, // refresh cada 5s para tiempo real
+     // refresh cada 5s para tiempo real
   });
 
   const statusMut = useMutation({

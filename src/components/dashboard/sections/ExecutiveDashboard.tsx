@@ -9,7 +9,7 @@ export function ExecutiveDashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ["executive-dashboard"],
     queryFn: () => api("/api/dashboard/executive"),
-    refetchInterval: 30000,
+    
   });
 
   if (isLoading) {

@@ -36,7 +36,7 @@ export function ChatSection() {
     queryKey: ["chat-messages", currentChannel],
     queryFn: () => api(`/api/chat/messages?channelId=${currentChannel}&limit=100`),
     enabled: !!currentChannel,
-    refetchInterval: 5000,
+    
   });
 
   useEffect(() => {

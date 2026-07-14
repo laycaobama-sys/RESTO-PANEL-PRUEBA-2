@@ -27,7 +27,7 @@ export function NotificationBell() {
   const { data, isLoading } = useQuery<{ notifications: Notification[]; unreadCount: number }>({
     queryKey: ['admin-notifications'],
     queryFn: () => api('/api/admin/notifications?limit=30'),
-    refetchInterval: 15000, // poll every 15s
+     // poll every 15s
   });
 
   // Close on click outside
