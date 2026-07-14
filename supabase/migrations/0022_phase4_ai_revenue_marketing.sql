@@ -92,17 +92,23 @@ CREATE POLICY revenue_snapshots_tenant_select ON revenue_snapshots
 -- ║  BLOQUE 6: GOOGLE REVIEWS IA                                        ║
 -- ╚════════════════════════════════════════════════════════════════════╝
 
-ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS sentiment text;       -- 'positive','neutral','negative'
-ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS sentiment_score numeric(5,2);  -- -1 a 1
-ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS topics text[];        -- ['food','service','price','ambiance','wait']
-ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS keywords_positive text[];
-ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS keywords_negative text[];
-ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS ai_response text;     -- respuesta generada por IA
-ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS ai_response_edited boolean not null default false;
-ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS is_influencer boolean not null default false;
-ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS customer_id uuid references customers(id) on delete set null;
-
-CREATE INDEX IF NOT EXISTS google_reviews_sentiment_idx ON google_reviews(organization_id, sentiment) WHERE sentiment IS NOT NULL;
+-- Extender google_reviews con campos de IA (solo si la tabla existe)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_schema = 'public' AND table_name = 'google_reviews') THEN
+    ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS sentiment text;
+    ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS sentiment_score numeric(5,2);
+    ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS topics text[];
+    ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS keywords_positive text[];
+    ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS keywords_negative text[];
+    ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS ai_response text;
+    ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS ai_response_edited boolean not null default false;
+    ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS is_influencer boolean not null default false;
+    ALTER TABLE google_reviews ADD COLUMN IF NOT EXISTS customer_id uuid references customers(id) on delete set null;
+    CREATE INDEX IF NOT EXISTS google_reviews_sentiment_idx ON google_reviews(organization_id, sentiment) WHERE sentiment IS NOT NULL;
+  END IF;
+END $$;
 
 -- ╔════════════════════════════════════════════════════════════════════╗
 -- ║  BLOQUE 7: CAMPAÑAS                                                 ║
@@ -243,11 +249,18 @@ CREATE INDEX IF NOT EXISTS api_logs_api_key_idx ON api_logs(api_key_id, created_
 -- ║  BLOQUE 11: NOTIFICATION CENTER                                      ║
 -- ╚════════════════════════════════════════════════════════════════════╝
 
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS channel text default 'in_app';  -- 'in_app','email','whatsapp','push','sms'
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS action_url text;
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS metadata jsonb not null default '{}'::jsonb;
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS icon text;
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS category text;  -- 'ai','billing','reservation','system','marketing'
+-- BLOQUE 11: NOTIFICATION CENTER (solo si la tabla existe)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_schema = 'public' AND table_name = 'notifications') THEN
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS channel text default 'in_app';
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS action_url text;
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS metadata jsonb not null default '{}'::jsonb;
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS icon text;
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS category text;
+  END IF;
+END $$;
 
 -- ╔════════════════════════════════════════════════════════════════════╗
 -- ║  BLOQUE 5: MOTOR DE UPSELLING — Recomendaciones                     ║

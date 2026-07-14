@@ -4,21 +4,33 @@
 -- Idempotente. Ejecutar en Supabase SQL Editor.
 -- ============================================================================
 
--- Extender orders para TPV completo
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS table_number text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS server_name text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS server_id uuid;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS subtotal numeric(10,2) default 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS tax_amount numeric(10,2) default 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount numeric(10,2) default 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_amount numeric(10,2) default 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status text default 'UNPAID' check (payment_status in ('UNPAID','PARTIALLY_PAID','PAID','REFUNDED'));
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_reference text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS invoice_number text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS invoice_type text check (invoice_type in ('TICKET','SIMPLIFIED','INVOICE'));
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS closed_at timestamptz;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS parent_order_id uuid;  -- para cuentas divididas
+-- Extender orders para TPV completo (solo si la tabla existe)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'orders') THEN
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS table_number text;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS server_name text;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS server_id uuid;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS subtotal numeric(10,2) default 0;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS tax_amount numeric(10,2) default 0;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount numeric(10,2) default 0;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_amount numeric(10,2) default 0;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status text default 'UNPAID';
+    -- Drop constraint first if exists, then add with NOT VALID
+    ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check;
+    ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check
+      CHECK (payment_status in ('UNPAID','PARTIALLY_PAID','PAID','REFUNDED')) NOT VALID;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method text;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_reference text;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS invoice_number text;
+    ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_invoice_type_check;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS invoice_type text;
+    ALTER TABLE orders ADD CONSTRAINT orders_invoice_type_check
+      CHECK (invoice_type in ('TICKET','SIMPLIFIED','INVOICE')) NOT VALID;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS closed_at timestamptz;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS parent_order_id uuid;
+  END IF;
+END $$;
 
 -- ╔════════════════════════════════════════════════════════════════════╗
 -- ║  BLOQUE 1: TPV — Pagos, cuentas divididas, propinas                  ║
@@ -90,17 +102,24 @@ CREATE POLICY kitchen_stations_tenant_all ON kitchen_stations
   FOR ALL USING (organization_id = current_user_org_id() or is_current_user_super_admin())
   WITH CHECK (organization_id = current_user_org_id() or is_current_user_super_admin());
 
--- Extender order_items para KDS
-ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_status text default 'PENDING' check (kds_status in ('PENDING','ACCEPTED','PREPARING','READY','SERVED','CANCELLED'));
-ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_station_id uuid;
-ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_accepted_at timestamptz;
-ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_ready_at timestamptz;
-ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_served_at timestamptz;
-ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_priority int default 0;
-ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_notes text;
-
-CREATE INDEX IF NOT EXISTS order_items_kds_status_idx ON order_items(organization_id, kds_status) WHERE kds_status IN ('PENDING','ACCEPTED','PREPARING','READY');
-CREATE INDEX IF NOT EXISTS order_items_kds_station_idx ON order_items(kds_station_id) WHERE kds_station_id IS NOT NULL;
+-- Extender order_items para KDS (solo si la tabla existe)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_items') THEN
+    ALTER TABLE order_items DROP CONSTRAINT IF EXISTS order_items_kds_status_check;
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_status text default 'PENDING';
+    ALTER TABLE order_items ADD CONSTRAINT order_items_kds_status_check
+      CHECK (kds_status in ('PENDING','ACCEPTED','PREPARING','READY','SERVED','CANCELLED')) NOT VALID;
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_station_id uuid;
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_accepted_at timestamptz;
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_ready_at timestamptz;
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_served_at timestamptz;
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_priority int default 0;
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kds_notes text;
+    CREATE INDEX IF NOT EXISTS order_items_kds_status_idx ON order_items(organization_id, kds_status) WHERE kds_status IN ('PENDING','ACCEPTED','PREPARING','READY');
+    CREATE INDEX IF NOT EXISTS order_items_kds_station_idx ON order_items(kds_station_id) WHERE kds_station_id IS NOT NULL;
+  END IF;
+END $$;
 
 -- ╔════════════════════════════════════════════════════════════════════╗
 -- ║  BLOQUE 3: INVENTARIO                                                ║
@@ -331,30 +350,41 @@ CREATE POLICY purchase_order_lines_tenant_all ON purchase_order_lines
 -- ║  BLOQUE 8: PERSONAL — Extender users                                 ║
 -- ╚════════════════════════════════════════════════════════════════════╝
 
-ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id text;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS hire_date date;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_cost numeric(10,2) default 0;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS position text;  -- 'camarero','cocina','barra','hosteleria','gerente'
-ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_personal text;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS address text;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS bank_account text;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS tax_id text;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS social_security text;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url text;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact text;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_phone text;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS notes text;
+-- BLOQUE 8: PERSONAL — Extender users (solo si la tabla existe)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users') THEN
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS hire_date date;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_cost numeric(10,2) default 0;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS position text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_personal text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS address text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS bank_account text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS tax_id text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS social_security text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_phone text;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS notes text;
+  END IF;
+END $$;
 
 -- ╔════════════════════════════════════════════════════════════════════╗
 -- ║  BLOQUE 9: PLANIFICADOR DE TURNOS                                    ║
 -- ╚════════════════════════════════════════════════════════════════════╝
 
--- staff_shifts ya existe de la migración 0007. La extendemos:
-ALTER TABLE staff_shifts ADD COLUMN IF NOT EXISTS position text;
-ALTER TABLE staff_shifts ADD COLUMN IF NOT EXISTS break_min int default 30;
-ALTER TABLE staff_shifts ADD COLUMN IF NOT EXISTS color text;
-ALTER TABLE staff_shifts ADD COLUMN IF NOT EXISTS is_confirmed boolean default true;
-ALTER TABLE staff_shifts ADD COLUMN IF NOT EXISTS notes text;
+-- staff_shifts ya existe de la migración 0007. La extendemos (solo si existe):
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'staff_shifts') THEN
+    ALTER TABLE staff_shifts ADD COLUMN IF NOT EXISTS position text;
+    ALTER TABLE staff_shifts ADD COLUMN IF NOT EXISTS break_min int default 30;
+    ALTER TABLE staff_shifts ADD COLUMN IF NOT EXISTS color text;
+    ALTER TABLE staff_shifts ADD COLUMN IF NOT EXISTS is_confirmed boolean default true;
+    ALTER TABLE staff_shifts ADD COLUMN IF NOT EXISTS notes text;
+  END IF;
+END $$;
 
 -- Vacaciones y ausencias
 CREATE TABLE IF NOT EXISTS staff_time_off (
@@ -439,14 +469,19 @@ CREATE POLICY pos_integrations_tenant_all ON pos_integrations
 -- ╚════════════════════════════════════════════════════════════════════╝
 
 -- Tabla de jobs de importación (ya existe import_jobs de Fase 1, la reutilizamos)
--- Añadimos tipos específicos
-ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS import_type text;  -- 'products','customers','reservations','inventory','suppliers','invoices'
-ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS source_format text; -- 'excel','csv','pdf','json','api'
-ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS total_rows int default 0;
-ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS processed_rows int default 0;
-ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS error_rows int default 0;
-ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS preview_data jsonb;
-ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS rollback_available boolean default false;
+-- Añadimos tipos específicos (solo si la tabla existe)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'import_jobs') THEN
+    ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS import_type text;
+    ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS source_format text;
+    ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS total_rows int default 0;
+    ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS processed_rows int default 0;
+    ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS error_rows int default 0;
+    ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS preview_data jsonb;
+    ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS rollback_available boolean default false;
+  END IF;
+END $$;
 
 -- ╔════════════════════════════════════════════════════════════════════╗
 -- ║  BLOQUE 11+12: Vistas analíticas operativas                          ║
