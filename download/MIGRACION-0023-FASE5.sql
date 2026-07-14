@@ -4,6 +4,9 @@
 -- Idempotente. Ejecutar en Supabase SQL Editor.
 -- ============================================================================
 
+-- CRÍTICO: pgcrypto necesita estar activa para gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- Extender orders para TPV completo (solo si la tabla existe)
 DO $$
 BEGIN
@@ -487,41 +490,81 @@ END $$;
 -- ║  BLOQUE 11+12: Vistas analíticas operativas                          ║
 -- ╚════════════════════════════════════════════════════════════════════╝
 
-CREATE OR REPLACE VIEW operational_kpis_view AS
-SELECT
-  o.id as organization_id,
-  o.name as organization_name,
-  count(distinct u.id) as total_staff,
-  count(distinct ii.id) filter (where ii.is_active) as total_inventory_items,
-  count(distinct ii.id) filter (where ii.is_active and ii.stock_current <= ii.stock_min) as low_stock_items,
-  count(distinct s.id) filter (where s.is_active) as total_suppliers,
-  count(distinct po.id) filter (where po.status = 'SENT') as pending_purchase_orders,
-  coalesce(sum(po.total) filter (where po.status in ('SENT','PARTIAL','RECEIVED') and po.order_date = current_date), 0) as purchase_today,
-  count(distinct oi.id) filter (where oi.kds_status in ('PENDING','ACCEPTED','PREPARING')) as kds_active_items
-FROM organizations o
-LEFT JOIN users u ON u.organization_id = o.id
-LEFT JOIN inventory_items ii ON ii.organization_id = o.id
-LEFT JOIN suppliers s ON s.organization_id = o.id
-LEFT JOIN purchase_orders po ON po.organization_id = o.id
-LEFT JOIN order_items oi ON oi.organization_id = o.id
-GROUP BY o.id, o.name;
+-- Vista de KPIs operativos (solo si todas las tablas necesarias existen)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'inventory_items')
+     AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'suppliers')
+     AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'purchase_orders') THEN
+    CREATE OR REPLACE VIEW operational_kpis_view AS
+    SELECT
+      o.id as organization_id,
+      o.name as organization_name,
+      count(distinct u.id) as total_staff,
+      count(distinct ii.id) filter (where ii.is_active) as total_inventory_items,
+      count(distinct ii.id) filter (where ii.is_active and ii.stock_current <= ii.stock_min) as low_stock_items,
+      count(distinct s.id) filter (where s.is_active) as total_suppliers,
+      count(distinct po.id) filter (where po.status = 'SENT') as pending_purchase_orders,
+      coalesce(sum(po.total) filter (where po.status in ('SENT','PARTIAL','RECEIVED') and po.order_date = current_date), 0) as purchase_today
+    FROM organizations o
+    LEFT JOIN users u ON u.organization_id = o.id
+    LEFT JOIN inventory_items ii ON ii.organization_id = o.id
+    LEFT JOIN suppliers s ON s.organization_id = o.id
+    LEFT JOIN purchase_orders po ON po.organization_id = o.id
+    GROUP BY o.id, o.name;
+  END IF;
+END $$;
 
-COMMENT ON VIEW operational_kpis_view IS 'KPIs operativos: personal, inventario, proveedores, compras, KDS.';
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.views WHERE table_schema='public' AND table_name='operational_kpis_view') THEN
+    COMMENT ON VIEW operational_kpis_view IS 'KPIs operativos: personal, inventario, proveedores, compras, KDS.';
+  END IF;
+END $$;
 
--- Comments
-COMMENT ON TABLE order_payments IS 'Pagos de pedidos TPV: efectivo, tarjeta, Bizum, Apple Pay, etc.';
-COMMENT ON TABLE gift_cards IS 'Vales, bonos y tarjetas regalo con saldo.';
-COMMENT ON TABLE kitchen_stations IS 'Estaciones de cocina para KDS (parrilla, frío, postres, barra, pizzas).';
-COMMENT ON TABLE inventory_items IS 'Productos de inventario con stock, costes, lote, caducidad y ubicación.';
-COMMENT ON TABLE inventory_movements IS 'Movimientos de inventario: compras, ventas, merma, ajustes.';
-COMMENT ON TABLE recipes IS 'Escandallos/recetas con coste calculado y merma.';
-COMMENT ON TABLE recipe_ingredients IS 'Ingredientes de cada receta con cantidad y coste.';
-COMMENT ON TABLE suppliers IS 'Proveedores con datos fiscales, evaluación y historial.';
-COMMENT ON TABLE purchase_orders IS 'Pedidos de compra a proveedores con recepción de mercancía.';
-COMMENT ON TABLE purchase_order_lines IS 'Líneas de pedido con cantidades recibidas, lotes e incidencias.';
-COMMENT ON TABLE staff_time_off IS 'Vacaciones y ausencias del personal.';
-COMMENT ON TABLE time_clock IS 'Control horario: entrada, salida, descansos con geolocalización y firma.';
-COMMENT ON TABLE pos_integrations IS 'Integraciones con TPV externos (Square, Lightspeed, etc.) mediante adaptadores.';
+-- Comments (protegidos — solo si la tabla existe)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='order_payments') THEN
+    COMMENT ON TABLE order_payments IS 'Pagos de pedidos TPV: efectivo, tarjeta, Bizum, Apple Pay, etc.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='gift_cards') THEN
+    COMMENT ON TABLE gift_cards IS 'Vales, bonos y tarjetas regalo con saldo.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='kitchen_stations') THEN
+    COMMENT ON TABLE kitchen_stations IS 'Estaciones de cocina para KDS (parrilla, frío, postres, barra, pizzas).';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='inventory_items') THEN
+    COMMENT ON TABLE inventory_items IS 'Productos de inventario con stock, costes, lote, caducidad y ubicación.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='inventory_movements') THEN
+    COMMENT ON TABLE inventory_movements IS 'Movimientos de inventario: compras, ventas, merma, ajustes.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='recipes') THEN
+    COMMENT ON TABLE recipes IS 'Escandallos/recetas con coste calculado y merma.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='recipe_ingredients') THEN
+    COMMENT ON TABLE recipe_ingredients IS 'Ingredientes de cada receta con cantidad y coste.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='suppliers') THEN
+    COMMENT ON TABLE suppliers IS 'Proveedores con datos fiscales, evaluación y historial.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='purchase_orders') THEN
+    COMMENT ON TABLE purchase_orders IS 'Pedidos de compra a proveedores con recepción de mercancía.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='purchase_order_lines') THEN
+    COMMENT ON TABLE purchase_order_lines IS 'Líneas de pedido con cantidades recibidas, lotes e incidencias.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='staff_time_off') THEN
+    COMMENT ON TABLE staff_time_off IS 'Vacaciones y ausencias del personal.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='time_clock') THEN
+    COMMENT ON TABLE time_clock IS 'Control horario: entrada, salida, descansos con geolocalización y firma.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='pos_integrations') THEN
+    COMMENT ON TABLE pos_integrations IS 'Integraciones con TPV externos (Square, Lightspeed, etc.) mediante adaptadores.';
+  END IF;
+END $$;
 
 -- ============================================================================
 -- FIN

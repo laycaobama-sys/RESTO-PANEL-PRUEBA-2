@@ -4,7 +4,7 @@
 -- Idempotente. Ejecutar en Supabase SQL Editor.
 -- ============================================================================
 
--- Extensión pgcrypto necesaria para digest() y gen_random_uuid()
+-- CRÍTICO: pgcrypto necesita estar activa para digest() y gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ╔════════════════════════════════════════════════════════════════════╗
