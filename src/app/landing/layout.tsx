@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://restopanel.es"),
   title: "RestoPanel · Software de Reservas para Restaurantes | Alternativa a CoverManager",
   description: "El sistema operativo que llena tus mesas y elimina los no-shows. IA predictiva, automatización de WhatsApp, CRM inteligente, fidelización y revenue management. Cero comisiones por reserva. Prueba gratis 7 días.",
   keywords: [
