@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StructuredData } from "@/components/landing/StructuredData";
+import { RestoPanelLogo } from "@/components/brand/RestoPanelLogo";
 import { useState } from "react";
 
 export default function LandingPage() {
@@ -23,10 +24,7 @@ export default function LandingPage() {
         <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-white/[0.06]">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#C5A059] to-amber-700 flex items-center justify-center shadow-lg">
-                <span className="text-[#0a0a0a] font-black text-lg">R</span>
-              </div>
-              <span className="font-bold text-lg tracking-tight">RestoPanel</span>
+              <RestoPanelLogo size="sm" showText={true} />
             </div>
             <div className="hidden md:flex items-center gap-6 text-sm text-neutral-400">
               <a href="#que-es" className="hover:text-white transition">Qué es</a>
@@ -436,10 +434,7 @@ export default function LandingPage() {
             <div className="grid md:grid-cols-4 gap-8 mb-8">
               <div>
                 <div className="flex items-center gap-2 mb-4">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#C5A059] to-amber-700 flex items-center justify-center">
-                    <span className="text-[#0a0a0a] font-black text-xs">R</span>
-                  </div>
-                  <span className="font-bold text-sm">RestoPanel</span>
+                  <RestoPanelLogo size="sm" showText={true} />
                 </div>
                 <p className="text-xs text-neutral-500">Software de reservas y CRM para restaurantes. Sin comisiones, sin intermediarios.</p>
               </div>

@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Loader2, Crown, Building2, Users, AlertTriangle, TrendingUp, DollarSign, Activity, Shield, LogOut, Settings } from "lucide-react";
+import { Loader2, Crown, Building2, Users, AlertTriangle, TrendingUp, DollarSign, Activity, Shield, LogOut, Settings, Star, Calendar, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { RestoPanelLogo } from "@/components/brand/RestoPanelLogo";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -75,8 +76,8 @@ function AdminDashboard() {
       {/* Header */}
       <header className="sticky top-0 z-30 bg-[#0d0f12]/85 backdrop-blur-md border-b border-white/[0.06] h-16 flex items-center px-6 gap-4">
         <div className="flex items-center gap-2">
-          <Crown className="w-5 h-5 text-[#C5A059]" />
-          <h1 className="text-lg font-semibold text-white">Panel Super-Admin</h1>
+          <RestoPanelLogo size="sm" showText={true} />
+          <span className="text-xs text-[#C5A059] font-semibold px-2 py-0.5 rounded-full bg-[#C5A059]/10 border border-[#C5A059]/20">SUPER ADMIN</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <Button

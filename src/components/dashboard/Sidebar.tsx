@@ -13,7 +13,6 @@ import {
   BarChart3,
   CalendarCheck,
   Settings,
-  UtensilsCrossed,
   ExternalLink,
   X,
   HelpCircle,
@@ -32,6 +31,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RestoPanelLogo } from "@/components/brand/RestoPanelLogo";
 
 interface NavItem {
   id: Section;
@@ -108,9 +108,7 @@ export function Sidebar({
       )}>
         <div className="px-5 h-16 flex items-center justify-between border-b border-white/[0.06]">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] flex items-center justify-center text-[#0a0a0a]">
-              <UtensilsCrossed className="w-4.5 h-4.5" />
-            </div>
+            <RestoPanelLogo size="sm" showText={false} />
             <div>
               <p className="text-[15px] font-semibold tracking-tight text-[#f5f5f0] leading-none">Resto<span className="text-[#C5A059]">Panel</span></p>
               <p className="text-[11px] text-neutral-500 mt-0.5 leading-none">{userRole === "ADMIN" ? "Cuenta Admin" : userRole === "SUPER_ADMIN" ? "Super Admin" : "Cuenta Staff"}</p>

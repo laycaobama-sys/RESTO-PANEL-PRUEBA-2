@@ -6,23 +6,12 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import {
-  UtensilsCrossed,
-  Mail,
-  Lock,
-  User as UserIcon,
-  Store,
-  Phone,
-  MapPin,
-  Loader2,
-  ArrowRight,
-  ChefHat,
-  Clock,
-  TrendingUp,
-  Globe,
-  ArrowLeft,
-  CheckCircle2,
-  Sparkles,
+  Mail, Lock, User as UserIcon, Store, Phone, MapPin,
+  Loader2, ArrowRight, ChefHat, Clock, TrendingUp, Globe,
+  ArrowLeft, CheckCircle2, Sparkles, CalendarCheck, BarChart3,
+  Users as UsersIcon,
 } from "lucide-react";
+import { RestoPanelLogo } from "@/components/brand/RestoPanelLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -214,8 +203,8 @@ export function AuthScreen() {
         </div>
         <div className="relative z-10">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] flex items-center justify-center text-[#0a0a0a]">
-              <UtensilsCrossed className="w-5 h-5" />
+            <div className="flex items-center">
+              <RestoPanelLogo size="md" showText={false} />
             </div>
             <span className="text-xl font-semibold tracking-tight text-[#f5f5f0]">Resto<span className="text-[#C5A059]">Panel</span></span>
           </div>
@@ -248,8 +237,8 @@ export function AuthScreen() {
       <div className="flex flex-col justify-center items-center p-6 sm:p-12 bg-[#0a0a0a]">
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] flex items-center justify-center text-[#0a0a0a]">
-              <UtensilsCrossed className="w-5 h-5" />
+            <div className="flex items-center">
+              <RestoPanelLogo size="md" showText={false} />
             </div>
             <span className="text-xl font-semibold tracking-tight text-[#f5f5f0]">Resto<span className="text-[#C5A059]">Panel</span></span>
           </div>
@@ -356,8 +345,8 @@ function AuthLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen w-full flex items-center justify-center bg-[#0a0a0a] p-6">
       <div className="w-full max-w-md">
         <div className="flex items-center gap-2.5 mb-8 justify-center">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#C5A059] to-[#9a7d3e] flex items-center justify-center text-[#0a0a0a]">
-            <UtensilsCrossed className="w-5 h-5" />
+          <div className="flex items-center">
+            <RestoPanelLogo size="md" showText={false} />
           </div>
           <span className="text-xl font-semibold tracking-tight text-[#f5f5f0]">Resto<span className="text-[#C5A059]">Panel</span></span>
         </div>
