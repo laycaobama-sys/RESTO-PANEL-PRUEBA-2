@@ -3,6 +3,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { Providers } from "@/components/providers";
+import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
 
 export const metadata: Metadata = {
   title: "RestoPanel · Gestión de Restaurantes",
@@ -30,7 +31,9 @@ export default function RootLayout({
         className="antialiased bg-background text-foreground"
         style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}
       >
-        <Providers>{children}</Providers>
+        <GlobalErrorBoundary>
+          <Providers>{children}</Providers>
+        </GlobalErrorBoundary>
         <Toaster />
         <SonnerToaster position="top-right" richColors closeButton />
       </body>
