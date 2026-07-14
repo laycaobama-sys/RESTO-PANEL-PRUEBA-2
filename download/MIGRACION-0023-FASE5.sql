@@ -491,7 +491,7 @@ CREATE OR REPLACE VIEW operational_kpis_view AS
 SELECT
   o.id as organization_id,
   o.name as organization_name,
-  count(distinct u.id) filter (where u.deleted_at is null) as total_staff,
+  count(distinct u.id) as total_staff,
   count(distinct ii.id) filter (where ii.is_active) as total_inventory_items,
   count(distinct ii.id) filter (where ii.is_active and ii.stock_current <= ii.stock_min) as low_stock_items,
   count(distinct s.id) filter (where s.is_active) as total_suppliers,

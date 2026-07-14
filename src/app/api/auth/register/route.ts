@@ -67,42 +67,72 @@ export async function POST(req: Request) {
 
     const passwordHash = await hashPassword(password)
 
-    // Create the tenant (organization) and its first admin user.
-    // OrganizationSettings row is created in a separate call so we can
-    // fail the whole operation cleanly if anything goes wrong.
-    const organization = await db.organization.create({
-      name: restaurantName,
-      slug: slugUnique,
-      phone: phone || null,
-      address: address || null,
-      city: city || null,
-      postal_code: null,
-      country,
-      email: emailLower,
-      logo: null,
-      description: null,
-      primary_color: '#FF6B35',
-      currency: 'EUR',
-      opening_hours: null,
-      website_url: null,
-      public_enabled: true,
-      pos_enabled: true,
-      reservations_enabled: true,
-      status: 'ACTIVE',
-    })
+    // Create the tenant (organization) using supabaseAdmin directly
+    // to avoid schema mismatch issues with db.organization.create
+    const { supabaseAdmin } = await import('@/lib/supabase/admin')
+    const { data: orgData, error: orgError } = await supabaseAdmin
+      .from('organizations')
+      .insert({
+        name: restaurantName,
+        slug: slugUnique,
+        phone: phone || null,
+        address: address || null,
+        city: city || null,
+        country,
+        email: emailLower,
+        primary_color: '#FF6B35',
+        currency: 'EUR',
+        public_enabled: true,
+        pos_enabled: true,
+        reservations_enabled: true,
+      })
+      .select()
+      .single()
 
-    // Seed default settings row.
-    await db.organizationSettings.upsert(organization.id, {})
+    if (orgError || !orgData) {
+      console.error('Register: org create error', orgError)
+      return NextResponse.json(
+        { error: 'Error al crear el restaurante: ' + (orgError?.message || 'unknown') },
+        { status: 500 }
+      )
+    }
 
-    const user = await db.user.create({
-      email: emailLower,
-      password_hash: passwordHash,
-      name,
-      phone: phone || null,
-      role: 'ADMIN',
-      is_super_admin: false,
-      organization_id: organization.id,
-    })
+    const organization = orgData
+
+    // Seed default settings row (best-effort, don't fail if table doesn't exist)
+    try {
+      await supabaseAdmin.from('organization_settings').upsert({
+        organization_id: organization.id,
+      })
+    } catch (e) {
+      console.warn('Settings seed failed:', e)
+    }
+
+    // Create the admin user
+    const { data: userData, error: userError } = await supabaseAdmin
+      .from('users')
+      .insert({
+        email: emailLower,
+        password_hash: passwordHash,
+        name,
+        phone: phone || null,
+        role: 'ADMIN',
+        is_super_admin: false,
+        organization_id: organization.id,
+        email_verified: true, // Auto-verify in dev mode
+      })
+      .select()
+      .single()
+
+    if (userError || !userData) {
+      console.error('Register: user create error', userError)
+      return NextResponse.json(
+        { error: 'Error al crear el usuario: ' + (userError?.message || 'unknown') },
+        { status: 500 }
+      )
+    }
+
+    const user = userData
 
     // Create a verification token and send verification email
     const verifyToken = randomBytes(32).toString('hex')

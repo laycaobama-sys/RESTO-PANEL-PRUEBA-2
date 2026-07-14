@@ -4,6 +4,9 @@
 -- Idempotente. Ejecutar en Supabase SQL Editor.
 -- ============================================================================
 
+-- Extensión pgcrypto necesaria para digest() y gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- ╔════════════════════════════════════════════════════════════════════╗
 -- ║  BLOQUE 1+2: IA CENTER + PREDICCIONES                               ║
 -- ╚════════════════════════════════════════════════════════════════════╝
@@ -371,7 +374,7 @@ BEGIN
 END;
 $$;
 
--- 3. RPC: hashear API key
+-- 3. RPC: hashear API key (usa pgcrypto que ya creamos arriba)
 CREATE OR REPLACE FUNCTION hash_api_key(p_key text)
 RETURNS text
 LANGUAGE sql
@@ -379,7 +382,7 @@ IMMUTABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-  SELECT encode(digest(p_key, 'sha256'), 'hex');
+  SELECT encode(digest(p_key::bytea, 'sha256'), 'hex');
 $$;
 
 -- 4. Seed: insights de ejemplo (no-op si ya existen)
