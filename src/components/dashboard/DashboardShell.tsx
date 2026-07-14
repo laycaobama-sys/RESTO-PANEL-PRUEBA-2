@@ -25,8 +25,11 @@ const WaitlistSection = dynamic(() => import("./sections/WaitlistSection").then(
 const CustomersSection = dynamic(() => import("./sections/CustomersSection").then(m => m.CustomersSection), { loading: () => <LoadingScreen /> });
 const CrmSection = dynamic(() => import("./sections/CrmSection").then(m => m.CrmSection), { loading: () => <LoadingScreen /> });
 const AutomationsSection = dynamic(() => import("./sections/AutomationsSection").then(m => m.AutomationsSection), { loading: () => <LoadingScreen /> });
+const KDSSection = dynamic(() => import("./sections/KDSSection").then(m => m.KDSSection), { loading: () => <LoadingScreen /> });
 const SettingsSection = dynamic(() => import("./sections/SettingsSection").then(m => m.SettingsSection), { loading: () => <LoadingScreen /> });
 const PublicMenuSection = dynamic(() => import("./sections/PublicMenuSection").then(m => m.PublicMenuSection), { loading: () => <LoadingScreen /> });
+const InventorySection = dynamic(() => import("./sections/InventorySection").then(m => m.InventorySection), { loading: () => <LoadingScreen /> });
+const SimpleSection = dynamic(() => import("./sections/SimpleSection").then(m => m.SimpleSection), { loading: () => <LoadingScreen /> });
 
 interface DashboardShellProps {
   user: {
@@ -70,7 +73,7 @@ export function DashboardShell({ user }: DashboardShellProps) {
             {section === "executive" && <ExecutiveDashboard />}
             {section === "orders" && <OrdersSection />}
             {section === "tables" && <TablesSection />}
-            {section === "kitchen" && <KitchenSection />}
+            {section === "kitchen" && <KDSSection />}
             {section === "menus" && <MenusSection />}
             {section === "analytics" && <AnalyticsSection />}
             {section === "reservations" && <ReservationsSection />}
@@ -78,6 +81,11 @@ export function DashboardShell({ user }: DashboardShellProps) {
             {section === "customers" && <CustomersSection />}
             {section === "loyalty" && <CrmSection />}
             {section === "automations" && <AutomationsSection />}
+            {section === "inventory" && <InventorySection />}
+            {section === "suppliers" && <SimpleSection title="Proveedores" subtitle="Gestión de proveedores y evaluación" icon="truck" />}
+            {section === "purchases" && <SimpleSection title="Compras" subtitle="Pedidos a proveedores con IA" icon="shopping" />}
+            {section === "staff" && <SimpleSection title="Personal" subtitle="Gestión de empleados y control horario" icon="users" />}
+            {section === "schedule" && <SimpleSection title="Planificador de turnos" subtitle="Calendario de turnos del personal" icon="calendar" />}
             {section === "settings" && <SettingsSection />}
             {section === "public" && <PublicMenuSection slug={user.restaurantSlug} />}
           </main>

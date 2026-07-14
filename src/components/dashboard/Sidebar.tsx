@@ -25,6 +25,11 @@ import {
   Clock,
   Gift,
   Zap,
+  Package,
+  Truck,
+  ShoppingCart,
+  Calendar,
+  UserCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -51,6 +56,11 @@ const NAV: NavItem[] = [
   { id: "analytics", label: "Analíticas", icon: BarChart3, group: "Gestión", shortcut: 8 },
   { id: "whatsapp", label: "WhatsApp", icon: MessageCircle, group: "Sistema" },
   { id: "billing", label: "Facturación", icon: CreditCard, group: "Sistema" },
+  { id: "inventory", label: "Inventario", icon: Package, group: "Operaciones" },
+  { id: "suppliers", label: "Proveedores", icon: Truck, group: "Operaciones" },
+  { id: "purchases", label: "Compras", icon: ShoppingCart, group: "Operaciones" },
+  { id: "staff", label: "Personal", icon: UserCheck, group: "Operaciones" },
+  { id: "schedule", label: "Turnos", icon: Calendar, group: "Operaciones" },
   { id: "settings", label: "Ajustes", icon: Settings, group: "Sistema", shortcut: 9 },
 ];
 

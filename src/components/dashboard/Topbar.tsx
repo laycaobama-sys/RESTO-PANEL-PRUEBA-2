@@ -36,6 +36,11 @@ const SECTION_TITLES: Record<Section, { title: string; subtitle: string }> = {
   automations: { title: "Automatizaciones", subtitle: "Constructor de flujos tipo Make/Zapier" },
   whatsapp: { title: "WhatsApp Business", subtitle: "Mensajería automatizada y monitorización" },
   billing: { title: "Facturación y Suscripción", subtitle: "Gestiona tu plan y método de pago" },
+  inventory: { title: "Inventario", subtitle: "Stock, costes y escandallos" },
+  suppliers: { title: "Proveedores", subtitle: "Gestión y evaluación de proveedores" },
+  purchases: { title: "Compras", subtitle: "Pedidos a proveedores con IA" },
+  staff: { title: "Personal", subtitle: "Empleados, control horario y productividad" },
+  schedule: { title: "Planificador de turnos", subtitle: "Calendario de turnos del personal" },
   settings: { title: "Ajustes", subtitle: "Configuración del restaurante" },
   public: { title: "Carta pública", subtitle: "Vista que ven tus clientes" },
 };

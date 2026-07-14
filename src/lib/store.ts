@@ -17,6 +17,11 @@ export type Section =
   | "automations"
   | "whatsapp"
   | "billing"
+  | "inventory"
+  | "suppliers"
+  | "purchases"
+  | "staff"
+  | "schedule"
   | "settings"
   | "public";
 
